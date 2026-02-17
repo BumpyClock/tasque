@@ -224,9 +224,11 @@ const applyTaskClaimed = (state: State, event: EventRecord): void => {
   const current = requireTask(state, event.task_id);
   const payload = asObject(event.payload);
   const assignee = asString(payload.assignee) ?? event.actor;
+  const nextStatus = current.status === "open" ? "in_progress" : current.status;
   state.tasks[event.task_id] = {
     ...current,
     assignee,
+    status: nextStatus,
     updated_at: event.ts,
   };
 };

@@ -182,6 +182,43 @@ async function releaseWriteLock(lockFile: string, ownedLock: LockPayload): Promi
   }
 }
 
+export async function forceRemoveLock(
+  repoRoot: string,
+): Promise<{ host: string; pid: number; created_at: string } | null> {
+  const paths = getPaths(repoRoot);
+  let raw: string;
+  try {
+    raw = await readFile(paths.lockFile, "utf8");
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      return null;
+    }
+    throw new TsqError("LOCK_REMOVE_FAILED", "Failed reading lock file", 2, error);
+  }
+
+  const payload = parseLockPayload(raw);
+  try {
+    await unlink(paths.lockFile);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") {
+      throw new TsqError("LOCK_REMOVE_FAILED", "Failed removing lock file", 2, error);
+    }
+  }
+  return payload;
+}
+
+export async function lockExists(repoRoot: string): Promise<boolean> {
+  const paths = getPaths(repoRoot);
+  try {
+    await readFile(paths.lockFile, "utf8");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function withWriteLock<T>(repoRoot: string, fn: () => Promise<T>): Promise<T> {
   const paths = getPaths(repoRoot);
   const lock = await acquireWriteLock(paths.lockFile, paths.tasqueDir);

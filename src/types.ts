@@ -22,6 +22,13 @@ export interface Task {
   closed_at?: string;
 }
 
+export interface TaskTreeNode {
+  task: Task;
+  blockers: string[];
+  dependents: string[];
+  children: TaskTreeNode[];
+}
+
 export interface EventRecord {
   event_id: string;
   ts: string;
@@ -78,6 +85,21 @@ export interface EnvelopeErr {
 }
 
 export type Envelope<T> = EnvelopeOk<T> | EnvelopeErr;
+
+export interface RepairPlan {
+  orphaned_deps: Array<{ child: string; blocker: string }>;
+  orphaned_links: Array<{ src: string; dst: string; type: RelationType }>;
+  stale_temps: string[];
+  stale_lock: boolean;
+  old_snapshots: string[];
+}
+
+export interface RepairResult {
+  plan: RepairPlan;
+  applied: boolean;
+  events_appended: number;
+  files_removed: number;
+}
 
 export interface ResolveOptions {
   exactId?: boolean;

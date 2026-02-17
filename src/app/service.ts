@@ -1,4 +1,4 @@
-import { mkdir, open, readFile } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { ulid } from "ulid";
 import { makeRootId, nextChildId } from "../domain/ids";
@@ -6,24 +6,42 @@ import { applyEvents } from "../domain/projector";
 import { resolveTaskId } from "../domain/resolve";
 import { assertNoDependencyCycle, isReady, listReady } from "../domain/validate";
 import { TsqError } from "../errors";
+import { applySkillOperation } from "../skills";
+import type { SkillOperationSummary, SkillTarget } from "../skills/types";
 import { writeDefaultConfig } from "../store/config";
 import { appendEvents } from "../store/events";
-import { withWriteLock } from "../store/lock";
+import { forceRemoveLock, lockExists, withWriteLock } from "../store/lock";
 import { getPaths } from "../store/paths";
 import type {
   EventRecord,
   Priority,
   RelationType,
+  RepairPlan,
+  RepairResult,
   State,
   Task,
   TaskKind,
   TaskStatus,
+  TaskTreeNode,
 } from "../types";
 import { loadProjectedState, persistProjection } from "./state";
 
 export interface InitResult {
   initialized: boolean;
   files: string[];
+  skill_operation?: SkillOperationSummary;
+}
+
+export interface InitInput {
+  installSkill?: boolean;
+  uninstallSkill?: boolean;
+  skillTargets?: SkillTarget[];
+  skillName?: string;
+  forceSkillOverwrite?: boolean;
+  skillDirClaude?: string;
+  skillDirCodex?: string;
+  skillDirCopilot?: string;
+  skillDirOpencode?: string;
 }
 
 export interface CreateInput {
@@ -89,13 +107,44 @@ export class TasqueService {
     private readonly now: () => string,
   ) {}
 
-  async init(): Promise<InitResult> {
+  async init(input: InitInput = {}): Promise<InitResult> {
+    if (input.installSkill && input.uninstallSkill) {
+      throw new TsqError(
+        "VALIDATION_ERROR",
+        "cannot combine --install-skill with --uninstall-skill",
+        1,
+      );
+    }
+
     await writeDefaultConfig(this.repoRoot);
     await ensureEventsFile(this.repoRoot);
     await mkdir(join(this.repoRoot, ".tasque", "snapshots"), { recursive: true });
     await ensureTasqueGitignore(this.repoRoot);
     const files = [".tasque/config.json", ".tasque/events.jsonl", ".tasque/.gitignore"];
-    return { initialized: true, files };
+    const action = input.installSkill ? "install" : input.uninstallSkill ? "uninstall" : undefined;
+
+    if (!action) {
+      return { initialized: true, files };
+    }
+
+    const skill_operation = await applySkillOperation({
+      action,
+      skillName: input.skillName ?? "tasque",
+      targets: input.skillTargets ?? ["claude", "codex", "copilot", "opencode"],
+      force: Boolean(input.forceSkillOverwrite),
+      targetDirOverrides: {
+        ...(input.skillDirClaude ? { claude: input.skillDirClaude } : {}),
+        ...(input.skillDirCodex ? { codex: input.skillDirCodex } : {}),
+        ...(input.skillDirCopilot ? { copilot: input.skillDirCopilot } : {}),
+        ...(input.skillDirOpencode ? { opencode: input.skillDirOpencode } : {}),
+      },
+    });
+
+    return {
+      initialized: true,
+      files,
+      skill_operation,
+    };
   }
 
   async create(input: CreateInput): Promise<Task> {
@@ -175,17 +224,44 @@ export class TasqueService {
 
   async list(filter: ListFilter): Promise<Task[]> {
     const { state } = await loadProjectedState(this.repoRoot);
-    let tasks = Object.values(state.tasks);
-    if (filter.status) {
-      tasks = tasks.filter((task) => task.status === filter.status);
+    return sortTasks(applyListFilter(Object.values(state.tasks), filter));
+  }
+
+  async listTree(filter: ListFilter): Promise<TaskTreeNode[]> {
+    const { state } = await loadProjectedState(this.repoRoot);
+    const filteredTasks = applyListFilter(Object.values(state.tasks), filter);
+    const tasksById = new Map(filteredTasks.map((task) => [task.id, task]));
+    const childrenByParent = new Map<string, Task[]>();
+    const roots: Task[] = [];
+
+    for (const task of filteredTasks) {
+      const parentId = task.parent_id;
+      if (parentId && tasksById.has(parentId)) {
+        const siblings = childrenByParent.get(parentId);
+        if (siblings) {
+          siblings.push(task);
+        } else {
+          childrenByParent.set(parentId, [task]);
+        }
+        continue;
+      }
+      roots.push(task);
     }
-    if (filter.assignee) {
-      tasks = tasks.filter((task) => task.assignee === filter.assignee);
-    }
-    if (filter.kind) {
-      tasks = tasks.filter((task) => task.kind === filter.kind);
-    }
-    return sortTasks(tasks);
+
+    const dependentsByBlocker = buildDependentsByBlocker(state.deps);
+    const buildNode = (task: Task): TaskTreeNode => {
+      const blockers = sortTaskIds(state.deps[task.id] ?? []);
+      const dependents = sortTaskIds(dependentsByBlocker.get(task.id) ?? []);
+      const childTasks = sortTasks(childrenByParent.get(task.id) ?? []);
+      return {
+        task,
+        blockers,
+        dependents,
+        children: childTasks.map((child) => buildNode(child)),
+      };
+    };
+
+    return sortTasks(roots).map((task) => buildNode(task));
   }
 
   async ready(): Promise<Task[]> {
@@ -375,6 +451,121 @@ export class TasqueService {
       return mustTask(nextState, source);
     });
   }
+
+  async repair(opts: { fix: boolean; forceUnlock: boolean }): Promise<RepairResult> {
+    if (opts.forceUnlock && !opts.fix) {
+      throw new TsqError("VALIDATION_ERROR", "--force-unlock requires --fix", 1);
+    }
+
+    const { state } = await loadProjectedState(this.repoRoot);
+    const paths = getPaths(this.repoRoot);
+    const plan: RepairPlan = {
+      orphaned_deps: [],
+      orphaned_links: [],
+      stale_temps: [],
+      stale_lock: false,
+      old_snapshots: [],
+    };
+
+    for (const [child, blockers] of Object.entries(state.deps)) {
+      for (const blocker of blockers) {
+        if (!state.tasks[child] || !state.tasks[blocker]) {
+          plan.orphaned_deps.push({ child, blocker });
+        }
+      }
+    }
+
+    for (const [src, rels] of Object.entries(state.links)) {
+      for (const [kind, targets] of Object.entries(rels)) {
+        for (const target of targets ?? []) {
+          if (!state.tasks[src] || !state.tasks[target]) {
+            plan.orphaned_links.push({
+              src,
+              dst: target,
+              type: kind as RelationType,
+            });
+          }
+        }
+      }
+    }
+
+    try {
+      const entries = await readdir(paths.tasqueDir);
+      for (const entry of entries) {
+        if (entry.includes(".tmp")) {
+          plan.stale_temps.push(entry);
+        }
+      }
+    } catch {}
+
+    plan.stale_lock = await lockExists(this.repoRoot);
+
+    try {
+      const snapEntries = await readdir(paths.snapshotsDir);
+      const snapshots = snapEntries.filter((name) => name.endsWith(".json")).sort();
+      if (snapshots.length > 5) {
+        plan.old_snapshots = snapshots.slice(0, snapshots.length - 5);
+      }
+    } catch {}
+
+    if (!opts.fix) {
+      return { plan, applied: false, events_appended: 0, files_removed: 0 };
+    }
+
+    if (opts.forceUnlock && plan.stale_lock) {
+      await forceRemoveLock(this.repoRoot);
+    }
+
+    return withWriteLock(this.repoRoot, async () => {
+      const { state: lockedState, allEvents } = await loadProjectedState(this.repoRoot);
+      const events: EventRecord[] = [];
+
+      for (const dep of plan.orphaned_deps) {
+        events.push(
+          makeEvent(this.actor, this.now(), "dep.removed", dep.child, {
+            blocker: dep.blocker,
+          }),
+        );
+      }
+
+      for (const link of plan.orphaned_links) {
+        events.push(
+          makeEvent(this.actor, this.now(), "link.removed", link.src, {
+            type: link.type,
+            target: link.dst,
+          }),
+        );
+      }
+
+      if (events.length > 0) {
+        const nextState = applyEvents(lockedState, events);
+        await appendEvents(this.repoRoot, events);
+        await persistProjection(this.repoRoot, nextState, allEvents.length + events.length);
+      }
+
+      let filesRemoved = 0;
+      for (const temp of plan.stale_temps) {
+        try {
+          await unlink(join(paths.tasqueDir, temp));
+          filesRemoved++;
+        } catch {}
+      }
+
+      for (const snap of plan.old_snapshots) {
+        try {
+          await unlink(join(paths.snapshotsDir, snap));
+          filesRemoved++;
+        } catch {}
+      }
+
+      return {
+        plan,
+        applied: true,
+        events_appended: events.length,
+        files_removed: filesRemoved,
+      };
+    });
+  }
 }
 
 function makeEvent(
@@ -434,9 +625,43 @@ function sortTasks(tasks: Task[]): Task[] {
   });
 }
 
+function applyListFilter(tasks: Task[], filter: ListFilter): Task[] {
+  return tasks.filter((task) => {
+    if (filter.status && task.status !== filter.status) {
+      return false;
+    }
+    if (filter.assignee && task.assignee !== filter.assignee) {
+      return false;
+    }
+    if (filter.kind && task.kind !== filter.kind) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function buildDependentsByBlocker(deps: State["deps"]): Map<string, string[]> {
+  const dependentsByBlocker = new Map<string, string[]>();
+  for (const [child, blockers] of Object.entries(deps)) {
+    for (const blocker of blockers) {
+      const dependents = dependentsByBlocker.get(blocker);
+      if (dependents) {
+        dependents.push(child);
+      } else {
+        dependentsByBlocker.set(blocker, [child]);
+      }
+    }
+  }
+  return dependentsByBlocker;
+}
+
+function sortTaskIds(taskIds: string[]): string[] {
+  return [...taskIds].sort((a, b) => a.localeCompare(b));
+}
+
 async function ensureTasqueGitignore(repoRoot: string): Promise<void> {
   const target = join(getPaths(repoRoot).tasqueDir, ".gitignore");
-  const desired = ["state.json", ".lock", "snapshots/", "snapshots/*.tmp", "state.json.tmp"];
+  const desired = ["tasks.jsonl", "tasks.jsonl.tmp*", ".lock", "snapshots/", "snapshots/*.tmp"];
   try {
     await Bun.write(target, `${desired.join("\n")}\n`);
   } catch (error) {

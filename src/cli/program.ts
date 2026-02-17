@@ -1,10 +1,11 @@
 import { Command } from "commander";
 import { normalizeStatus, parsePriority } from "../app/runtime";
-import type { TasqueService } from "../app/service";
+import type { ListFilter, TasqueService } from "../app/service";
 import { TsqError } from "../errors";
 import { errEnvelope, okEnvelope } from "../output";
-import type { RelationType, TaskKind, TaskStatus } from "../types";
-import { printTask, printTaskList } from "./render";
+import type { SkillTarget } from "../skills/types";
+import type { RelationType, TaskKind } from "../types";
+import { printRepairResult, printTask, printTaskList, printTaskTree } from "./render";
 
 interface GlobalOpts {
   json?: boolean;
@@ -13,6 +14,25 @@ interface GlobalOpts {
 
 interface RuntimeDeps {
   service: TasqueService;
+}
+
+interface InitCommandOptions {
+  installSkill?: boolean;
+  uninstallSkill?: boolean;
+  skillTargets?: string;
+  skillName?: string;
+  forceSkillOverwrite?: boolean;
+  skillDirClaude?: string;
+  skillDirCodex?: string;
+  skillDirCopilot?: string;
+  skillDirOpencode?: string;
+}
+
+interface ListCommandOptions {
+  status?: string;
+  assignee?: string;
+  kind?: string;
+  tree?: boolean;
 }
 
 export function buildProgram(deps: RuntimeDeps): Command {
@@ -26,15 +46,57 @@ export function buildProgram(deps: RuntimeDeps): Command {
   program
     .command("init")
     .description("Initialize .tasque storage")
-    .action(async function action() {
-      await runAction(this, async () => deps.service.init(), {
-        jsonData: (data) => data,
-        human: (data) => {
-          for (const file of data.files) {
-            console.log(`created ${file}`);
-          }
+    .option("--install-skill", "install tsq skill files")
+    .option("--uninstall-skill", "uninstall tsq skill files")
+    .option(
+      "--skill-targets <targets>",
+      "comma-separated: claude,codex,copilot,opencode,all",
+      "all",
+    )
+    .option("--skill-name <name>", "skill folder name", "tasque")
+    .option("--force-skill-overwrite", "overwrite unmanaged skill files")
+    .option("--skill-dir-claude <path>", "override claude skills root dir")
+    .option("--skill-dir-codex <path>", "override codex skills root dir")
+    .option("--skill-dir-copilot <path>", "override copilot skills root dir")
+    .option("--skill-dir-opencode <path>", "override opencode skills root dir")
+    .action(async function action(initOptions: InitCommandOptions) {
+      await runAction(
+        this,
+        async () => {
+          const wantsSkillOperation = Boolean(
+            initOptions.installSkill || initOptions.uninstallSkill,
+          );
+          return deps.service.init({
+            installSkill: Boolean(initOptions.installSkill),
+            uninstallSkill: Boolean(initOptions.uninstallSkill),
+            skillTargets: wantsSkillOperation
+              ? parseSkillTargets(initOptions.skillTargets ?? "all")
+              : undefined,
+            skillName: wantsSkillOperation
+              ? (asOptionalString(initOptions.skillName) ?? "tasque")
+              : undefined,
+            forceSkillOverwrite: Boolean(initOptions.forceSkillOverwrite),
+            skillDirClaude: asOptionalString(initOptions.skillDirClaude),
+            skillDirCodex: asOptionalString(initOptions.skillDirCodex),
+            skillDirCopilot: asOptionalString(initOptions.skillDirCopilot),
+            skillDirOpencode: asOptionalString(initOptions.skillDirOpencode),
+          });
         },
-      });
+        {
+          jsonData: (data) => data,
+          human: (data) => {
+            for (const file of data.files) {
+              console.log(`created ${file}`);
+            }
+            if (data.skill_operation) {
+              for (const result of data.skill_operation.results) {
+                const message = result.message ? ` ${result.message}` : "";
+                console.log(`skill ${result.target} ${result.status} ${result.path}${message}`);
+              }
+            }
+          },
+        },
+      );
     });
 
   program
@@ -96,32 +158,22 @@ export function buildProgram(deps: RuntimeDeps): Command {
     .option("--status <status>", "filter by status")
     .option("--assignee <assignee>", "filter by assignee")
     .option("--kind <kind>", "filter by kind")
+    .option("--tree", "render parent/child hierarchy")
     .description("List tasks")
-    .action(async function action(options: Record<string, string | undefined>) {
-      await runAction(
-        this,
-        async () => {
-          const filter: {
-            status?: TaskStatus;
-            assignee?: string;
-            kind?: TaskKind;
-          } = {};
-          if (options.status) {
-            filter.status = normalizeStatus(options.status);
-          }
-          if (options.assignee) {
-            filter.assignee = options.assignee;
-          }
-          if (options.kind) {
-            filter.kind = parseKind(options.kind);
-          }
-          return deps.service.list(filter);
-        },
-        {
-          jsonData: (tasks) => ({ tasks }),
-          human: (tasks) => printTaskList(tasks),
-        },
-      );
+    .action(async function action(options: ListCommandOptions) {
+      const filter = parseListFilter(options);
+      if (options.tree) {
+        await runAction(this, async () => deps.service.listTree(filter), {
+          jsonData: (tree) => ({ tree }),
+          human: (tree) => printTaskTree(tree),
+        });
+        return;
+      }
+
+      await runAction(this, async () => deps.service.list(filter), {
+        jsonData: (tasks) => ({ tasks }),
+        human: (tasks) => printTaskList(tasks),
+      });
     });
 
   program
@@ -156,6 +208,27 @@ export function buildProgram(deps: RuntimeDeps): Command {
           }
         },
       });
+    });
+
+  program
+    .command("repair")
+    .description("Audit and fix integrity issues (dry-run by default)")
+    .option("--fix", "Apply repairs (default is dry-run)")
+    .option("--force-unlock", "Force-remove stale lock file (requires --fix)")
+    .action(async function action(options: { fix?: boolean; forceUnlock?: boolean }) {
+      await runAction(
+        this,
+        async () => {
+          return deps.service.repair({
+            fix: Boolean(options.fix),
+            forceUnlock: Boolean(options.forceUnlock),
+          });
+        },
+        {
+          jsonData: (data) => data,
+          human: (data) => printRepairResult(data),
+        },
+      );
     });
 
   program
@@ -382,6 +455,40 @@ function parseRelationType(raw: string): RelationType {
   );
 }
 
+function parseSkillTargets(raw: string): SkillTarget[] {
+  const tokens = raw
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => entry.length > 0);
+  if (tokens.length === 0) {
+    throw new TsqError("VALIDATION_ERROR", "skill targets must not be empty", 1);
+  }
+
+  const validTargets: SkillTarget[] = ["claude", "codex", "copilot", "opencode"];
+  if (tokens.includes("all")) {
+    return validTargets;
+  }
+
+  const unique: SkillTarget[] = [];
+  for (const token of tokens) {
+    if (!isSkillTarget(token)) {
+      throw new TsqError(
+        "VALIDATION_ERROR",
+        "skill targets must be comma-separated values of claude,codex,copilot,opencode,all",
+        1,
+      );
+    }
+    if (!unique.includes(token)) {
+      unique.push(token);
+    }
+  }
+  return unique;
+}
+
+function isSkillTarget(value: string): value is SkillTarget {
+  return value === "claude" || value === "codex" || value === "copilot" || value === "opencode";
+}
+
 function asTsqError(error: unknown): TsqError {
   if (error instanceof TsqError) {
     return error;
@@ -396,4 +503,18 @@ function asOptionalString(value: unknown): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function parseListFilter(options: ListCommandOptions): ListFilter {
+  const filter: ListFilter = {};
+  if (options.status) {
+    filter.status = normalizeStatus(options.status);
+  }
+  if (options.assignee) {
+    filter.assignee = options.assignee;
+  }
+  if (options.kind) {
+    filter.kind = parseKind(options.kind);
+  }
+  return filter;
 }

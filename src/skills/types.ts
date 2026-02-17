@@ -1,11 +1,6 @@
 export type SkillTarget = "claude" | "codex" | "copilot" | "opencode";
 export type SkillAction = "install" | "uninstall";
-export type SkillResultStatus =
-  | "installed"
-  | "updated"
-  | "skipped"
-  | "removed"
-  | "not_found";
+export type SkillResultStatus = "installed" | "updated" | "skipped" | "removed" | "not_found";
 
 export interface SkillOperationOptions {
   action: SkillAction;
@@ -29,4 +24,3 @@ export interface SkillOperationSummary {
   skill_name: string;
   results: SkillOperationResult[];
 }
-

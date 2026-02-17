@@ -34,16 +34,16 @@ bun run release
 Repo-local `.tasque/`:
 
 - `events.jsonl`: canonical append-only event log.
-- `state.json`: derived projection cache (rebuildable, gitignored).
+- `tasks.jsonl`: derived projection cache (rebuildable, gitignored).
 - `snapshots/`: periodic checkpoints (gitignored by default).
 - `config.json`: config (`snapshot_every` default `200`).
 - `.lock`: ephemeral write lock.
-- `.gitignore`: local-only artifacts (`state.json`, `.lock`, `snapshots/`, temp files).
+- `.gitignore`: local-only artifacts (`tasks.jsonl`, `.lock`, `snapshots/`, temp files).
 
 Recommended commit policy:
 
 - Commit `.tasque/events.jsonl` and `.tasque/config.json`.
-- Do not commit `.tasque/state.json`.
+- Do not commit `.tasque/tasks.jsonl`.
 
 ## Command List
 
@@ -57,7 +57,7 @@ Commands:
 - `tsq init`
 - `tsq create "<title>" [--kind task|feature|epic] [-p|--priority 0..3] [--parent <id>]`
 - `tsq show <id>`
-- `tsq list [--status <open|in_progress|blocked|closed|canceled|done>] [--assignee <name>] [--kind <task|feature|epic>]`
+- `tsq list [--status <open|in_progress|blocked|closed|canceled|done>] [--assignee <name>] [--kind <task|feature|epic>] [--tree]`
 - `tsq ready`
 - `tsq doctor`
 - `tsq update <id> [--title <text>] [--status <...>] [--priority <0..3>]`
@@ -67,6 +67,26 @@ Commands:
 - `tsq link add <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
 - `tsq link remove <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
 - `tsq supersede <old-id> --with <new-id> [--reason <text>]`
+
+Skill installer via `init`:
+
+- `tsq init --install-skill`
+- `tsq init --uninstall-skill`
+- `--skill-targets claude,codex,copilot,opencode|all` (default `all`)
+- `--skill-name <name>` (default `tasque`)
+- `--force-skill-overwrite` (overwrite unmanaged skill dirs)
+- target dir overrides:
+  - `--skill-dir-claude <path>`
+  - `--skill-dir-codex <path>`
+  - `--skill-dir-copilot <path>`
+  - `--skill-dir-opencode <path>`
+
+Default target roots:
+
+- Claude: `~/.claude/skills`
+- Codex: `${CODEX_HOME:-~/.codex}/skills`
+- Copilot: `~/.copilot/skills`
+- OpenCode: `~/.opencode/skills`
 
 ## JSON Envelope
 
@@ -118,6 +138,6 @@ Error shape:
 - Lock timeout: `3s`; retry jitter: `20-80ms`.
 - Stale lock cleanup only when lock host matches current host and lock PID is dead.
 - Event appends are fsynced; event log is append-only.
-- `state.json`, snapshots, and config writes are atomic temp-write + rename.
+- `tasks.jsonl`, snapshots, and config writes are atomic temp-write + rename.
 - Replay recovery tolerates one malformed trailing JSONL line in `events.jsonl` (ignored with warning).
 - `events.jsonl` remains canonical source of truth.

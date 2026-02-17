@@ -112,8 +112,9 @@ describe("cli concurrency", () => {
 
     const shown = await runJson(repo, ["show", taskId], "verify");
     expect(shown.exitCode).toBe(0);
-    const shownTask = okData<{ task: { assignee?: string } }>(shown.envelope).task;
+    const shownTask = okData<{ task: { assignee?: string; status: string } }>(shown.envelope).task;
     expect(typeof shownTask.assignee).toBe("string");
     expect((shownTask.assignee ?? "").startsWith("agent-")).toBe(true);
+    expect(shownTask.status).toBe("in_progress");
   });
 });

@@ -8,3 +8,6 @@
 - 2026-02-17: Docs synced to shipped V1 behavior (including `doctor`, `--exact-id`, lock policy, JSON envelope, and storage layout). Pitfall fixed: plan/spec references diverged from implementation defaults (`snapshot_every=200`, local-only snapshots via `.tasque/.gitignore`).
 - 2026-02-17: Corrected earlier draft mismatch: V1 does include generic `link add/remove` plus dedicated `supersede` workflow command.
 - 2026-02-17: Added release packaging flow: `bun run build` compiles single binary; `bun run release` emits platform artifact + `SHA256SUMS.txt` in `dist/releases/`.
+- 2026-02-17: Added skill lifecycle via `tsq init` for `claude|codex|copilot|opencode` with safe managed-marker semantics (`install`, `uninstall`, idempotent update, non-managed skip unless force) plus CLI/e2e coverage.
+- 2026-02-17: Added `tsq list --tree` with nested parent/child rendering and per-node blocker/dependent context; JSON mode returns structured `tree` nodes (`task`, `blockers`, `dependents`, `children`).
+- 2026-02-17: Renamed derived cache path from `.tasque/state.json` to `.tasque/tasks.jsonl`; dropped legacy cache-file read compatibility.

@@ -1,0 +1,30 @@
+{
+  "name": "tasque",
+  "version": "0.1.0",
+  "module": "src/main.ts",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "tsq": "src/main.ts"
+  },
+  "scripts": {
+    "dev": "bun run src/main.ts",
+    "build": "bun build src/main.ts --compile --outfile dist/tsq",
+    "typecheck": "bunx tsc --noEmit",
+    "lint": "bunx @biomejs/biome check .",
+    "fmt": "bunx @biomejs/biome format --write .",
+    "test": "bun test",
+    "doctor": "bun run typecheck && bun run fmt && bun run lint && bun test"
+  },
+  "dependencies": {
+    "commander": "^14.0.2",
+    "picocolors": "^1.1.1",
+    "ulid": "^3.0.1",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/bun": "latest",
+    "typescript": "^5.9.2"
+  }
+}

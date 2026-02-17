@@ -1,0 +1,9 @@
+AGENTS.md
+CLAUDE.md
+docs/learned
+node_modules/
+dist/
+.tasque/state.json
+.tasque/.lock
+.tasque/snapshots/
+.ai_agents/

@@ -7,3 +7,4 @@
 - 2026-02-17: Locked durability decisions: bidirectional relates_to, canonical supersede command (close source + superseded_by), universal JSON envelope with schema_version=1, ULID event IDs, fail-safe stale-lock cleanup, and snapshot-based compaction with events.jsonl as canonical source.
 - 2026-02-17: Docs synced to shipped V1 behavior (including `doctor`, `--exact-id`, lock policy, JSON envelope, and storage layout). Pitfall fixed: plan/spec references diverged from implementation defaults (`snapshot_every=200`, local-only snapshots via `.tasque/.gitignore`).
 - 2026-02-17: Corrected earlier draft mismatch: V1 does include generic `link add/remove` plus dedicated `supersede` workflow command.
+- 2026-02-17: Added release packaging flow: `bun run build` compiles single binary; `bun run release` emits platform artifact + `SHA256SUMS.txt` in `dist/releases/`.

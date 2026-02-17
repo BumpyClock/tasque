@@ -16,8 +16,17 @@ export interface LoadedState {
 export async function loadProjectedState(repoRoot: string): Promise<LoadedState> {
   const { events, warning } = await readEvents(repoRoot);
   const fromCache = await readStateCache(repoRoot);
-  if (fromCache) {
-    const offset = Math.min(fromCache.applied_events ?? 0, events.length);
+  if (fromCache && fromCache.applied_events <= events.length) {
+    const offset = fromCache.applied_events ?? 0;
+    if (offset === events.length) {
+      return {
+        state: fromCache,
+        allEvents: events,
+        warning,
+        snapshot: null,
+      };
+    }
+
     const state = applyEvents(fromCache, events.slice(offset));
     state.applied_events = events.length;
     return {

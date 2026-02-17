@@ -19,6 +19,16 @@ bun run src/main.ts ready --json
 
 `package.json` also exposes `tsq` as bin entry. In local dev, `bun run src/main.ts ...` is the simplest path.
 
+## Build And Release
+
+```bash
+bun run build
+bun run release
+```
+
+- `build` compiles single-file binary to `dist/tsq` (or `dist/tsq.exe` on Windows).
+- `release` rebuilds, then writes platform artifact + checksum file under `dist/releases/`.
+
 ## Storage Layout
 
 Repo-local `.tasque/`:

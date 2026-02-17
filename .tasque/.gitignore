@@ -1,0 +1,5 @@
+state.json
+.lock
+snapshots/
+snapshots/*.tmp
+state.json.tmp

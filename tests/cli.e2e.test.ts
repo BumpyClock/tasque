@@ -403,6 +403,59 @@ describe("cli e2e", () => {
     expect(hasDependencyOnChildNode || hasDependencyContextElsewhere).toBe(true);
   });
 
+  it("shows only open and in_progress tasks by default in tree list", async () => {
+    const repo = await makeRepo();
+    await runJson(repo, ["init"]);
+
+    const openTask = okData<{ task: { id: string } }>(
+      (await runJson(repo, ["create", "Tree open task"])).envelope,
+    ).task;
+    const inProgressTask = okData<{ task: { id: string } }>(
+      (await runJson(repo, ["create", "Tree in progress task"])).envelope,
+    ).task;
+    const closedTask = okData<{ task: { id: string } }>(
+      (await runJson(repo, ["create", "Tree closed task"])).envelope,
+    ).task;
+
+    await runJson(repo, ["update", inProgressTask.id, "--status", "in_progress"]);
+    await runJson(repo, ["update", closedTask.id, "--status", "closed"]);
+
+    const listed = await runCli(repo, ["list", "--tree"]);
+    expect(listed.exitCode).toBe(0);
+
+    expect(listed.stdout.includes(openTask.id)).toBe(true);
+    expect(listed.stdout.includes(inProgressTask.id)).toBe(true);
+    expect(listed.stdout.includes(closedTask.id)).toBe(false);
+  });
+
+  it("includes closed tasks when listing tree with --full", async () => {
+    const repo = await makeRepo();
+    await runJson(repo, ["init"]);
+
+    const openTask = okData<{ task: { id: string } }>(
+      (await runJson(repo, ["create", "Tree open full task"])).envelope,
+    ).task;
+    const closedTask = okData<{ task: { id: string } }>(
+      (await runJson(repo, ["create", "Tree closed full task"])).envelope,
+    ).task;
+    await runJson(repo, ["update", closedTask.id, "--status", "closed"]);
+
+    const listed = await runCli(repo, ["list", "--tree", "--full"]);
+    expect(listed.exitCode).toBe(0);
+
+    expect(listed.stdout.includes(openTask.id)).toBe(true);
+    expect(listed.stdout.includes(closedTask.id)).toBe(true);
+  });
+
+  it("returns validation error for list --full --json without tree mode", async () => {
+    const repo = await makeRepo();
+    await runJson(repo, ["init"]);
+
+    const listed = await runCli(repo, ["list", "--full", "--json"]);
+    expect(listed.exitCode).toBe(1);
+    expect(listed.stderr.includes("VALIDATION_ERROR")).toBe(true);
+  });
+
   it("installs skill files for all targets using override directories", async () => {
     const repo = await makeRepo();
     const claudeDir = join(repo, "skills-claude");

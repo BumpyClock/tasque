@@ -88,6 +88,7 @@ export interface SupersedeInput {
 
 export interface ListFilter {
   status?: TaskStatus;
+  statuses?: TaskStatus[];
   assignee?: string;
   kind?: TaskKind;
 }
@@ -626,8 +627,9 @@ function sortTasks(tasks: Task[]): Task[] {
 }
 
 function applyListFilter(tasks: Task[], filter: ListFilter): Task[] {
+  const allowedStatuses = filter.status ? [filter.status] : filter.statuses;
   return tasks.filter((task) => {
-    if (filter.status && task.status !== filter.status) {
+    if (allowedStatuses && !allowedStatuses.includes(task.status)) {
       return false;
     }
     if (filter.assignee && task.assignee !== filter.assignee) {

@@ -1,5 +1,5 @@
 import pc from "picocolors";
-import type { RepairResult, Task, TaskTreeNode } from "../types";
+import type { RepairResult, Task, TaskStatus, TaskTreeNode } from "../types";
 
 export function printTaskList(tasks: Task[]): void {
   if (tasks.length === 0) {
@@ -56,22 +56,33 @@ export function printTaskTree(nodes: TaskTreeNode[]): void {
     return;
   }
 
-  for (const node of nodes) {
-    printTreeNode(node, "", false, false);
+  for (let idx = 0; idx < nodes.length; idx += 1) {
+    const node = nodes[idx];
+    if (!node) {
+      continue;
+    }
+    printTreeNode(node, "", idx === nodes.length - 1, true);
   }
+
+  const totals = summarizeTree(nodes);
+  console.log(
+    pc.dim(
+      `total=${totals.total} open=${totals.open} in_progress=${totals.in_progress} blocked=${totals.blocked} closed=${totals.closed} canceled=${totals.canceled}`,
+    ),
+  );
 }
 
-function printTreeNode(node: TaskTreeNode, prefix: string, isLast: boolean, branch: boolean): void {
-  const branchPrefix = branch ? `${prefix}${isLast ? "\\-- " : "|-- "}` : prefix;
-  console.log(`${branchPrefix}${formatTreeLine(node)}`);
+function printTreeNode(node: TaskTreeNode, prefix: string, isLast: boolean, root: boolean): void {
+  const connector = root ? "" : isLast ? "└── " : "├── ";
+  console.log(`${prefix}${connector}${formatTreeLine(node)}`);
 
-  const childPrefix = branch ? `${prefix}${isLast ? "    " : "|   "}` : prefix;
+  const childPrefix = root ? prefix : `${prefix}${isLast ? "    " : "│   "}`;
   for (let idx = 0; idx < node.children.length; idx += 1) {
     const child = node.children[idx];
     if (!child) {
       continue;
     }
-    printTreeNode(child, childPrefix, idx === node.children.length - 1, true);
+    printTreeNode(child, childPrefix, idx === node.children.length - 1, false);
   }
 }
 
@@ -109,16 +120,63 @@ export function printRepairResult(result: RepairResult): void {
 }
 
 function formatTreeLine(node: TaskTreeNode): string {
-  const parts: string[] = [node.task.id, node.task.status, `p${node.task.priority}`];
-  if (node.task.assignee) {
-    parts.push(`@${node.task.assignee}`);
-  }
-  parts.push(node.task.title);
+  const parts: string[] = [
+    formatStatus(node.task.status),
+    pc.bold(node.task.id),
+    node.task.title,
+    pc.dim(`[p${node.task.priority}${node.task.assignee ? ` @${node.task.assignee}` : ""}]`),
+  ];
+
+  const flow: string[] = [];
   if (node.blockers.length > 0) {
-    parts.push(`blockers=${node.blockers.join(",")}`);
+    flow.push(`blocks-on: ${node.blockers.join(",")}`);
   }
   if (node.dependents.length > 0) {
-    parts.push(`dependents=${node.dependents.join(",")}`);
+    flow.push(`unblocks: ${node.dependents.join(",")}`);
+  }
+  if (flow.length > 0) {
+    parts.push(pc.dim(`{${flow.join(" | ")}}`));
   }
   return parts.join(" ");
+}
+
+function formatStatus(status: TaskStatus): string {
+  switch (status) {
+    case "open":
+      return pc.cyan("○ open");
+    case "in_progress":
+      return pc.blue("◐ in_progress");
+    case "blocked":
+      return pc.yellow("● blocked");
+    case "closed":
+      return pc.green("✓ closed");
+    case "canceled":
+      return pc.red("✕ canceled");
+    default:
+      return status;
+  }
+}
+
+function summarizeTree(nodes: TaskTreeNode[]): Record<TaskStatus | "total", number> {
+  const summary: Record<TaskStatus | "total", number> = {
+    total: 0,
+    open: 0,
+    in_progress: 0,
+    blocked: 0,
+    closed: 0,
+    canceled: 0,
+  };
+
+  const visit = (node: TaskTreeNode): void => {
+    summary.total += 1;
+    summary[node.task.status] += 1;
+    for (const child of node.children) {
+      visit(child);
+    }
+  };
+
+  for (const node of nodes) {
+    visit(node);
+  }
+  return summary;
 }

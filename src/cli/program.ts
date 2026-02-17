@@ -4,7 +4,7 @@ import type { ListFilter, TasqueService } from "../app/service";
 import { TsqError } from "../errors";
 import { errEnvelope, okEnvelope } from "../output";
 import type { SkillTarget } from "../skills/types";
-import type { RelationType, TaskKind } from "../types";
+import type { RelationType, TaskKind, TaskStatus } from "../types";
 import { printRepairResult, printTask, printTaskList, printTaskTree } from "./render";
 
 interface GlobalOpts {
@@ -33,7 +33,10 @@ interface ListCommandOptions {
   assignee?: string;
   kind?: string;
   tree?: boolean;
+  full?: boolean;
 }
+
+const TREE_DEFAULT_STATUSES: TaskStatus[] = ["open", "in_progress"];
 
 export function buildProgram(deps: RuntimeDeps): Command {
   const program = new Command();
@@ -159,14 +162,22 @@ export function buildProgram(deps: RuntimeDeps): Command {
     .option("--assignee <assignee>", "filter by assignee")
     .option("--kind <kind>", "filter by kind")
     .option("--tree", "render parent/child hierarchy")
+    .option("--full", "with --tree, include closed/blocked/canceled items")
     .description("List tasks")
     .action(async function action(options: ListCommandOptions) {
+      if (options.full && !options.tree) {
+        throw new TsqError("VALIDATION_ERROR", "--full requires --tree", 1);
+      }
       const filter = parseListFilter(options);
       if (options.tree) {
-        await runAction(this, async () => deps.service.listTree(filter), {
-          jsonData: (tree) => ({ tree }),
-          human: (tree) => printTaskTree(tree),
-        });
+        await runAction(
+          this,
+          async () => deps.service.listTree(applyTreeDefaults(filter, options)),
+          {
+            jsonData: (tree) => ({ tree }),
+            human: (tree) => printTaskTree(tree),
+          },
+        );
         return;
       }
 
@@ -517,4 +528,14 @@ function parseListFilter(options: ListCommandOptions): ListFilter {
     filter.kind = parseKind(options.kind);
   }
   return filter;
+}
+
+function applyTreeDefaults(filter: ListFilter, options: ListCommandOptions): ListFilter {
+  if (options.full || filter.status) {
+    return filter;
+  }
+  return {
+    ...filter,
+    statuses: [...TREE_DEFAULT_STATUSES],
+  };
 }

@@ -57,7 +57,7 @@ Commands:
 - `tsq init`
 - `tsq create "<title>" [--kind task|feature|epic] [-p|--priority 0..3] [--parent <id>]`
 - `tsq show <id>`
-- `tsq list [--status <open|in_progress|blocked|closed|canceled|done>] [--assignee <name>] [--kind <task|feature|epic>] [--tree]`
+- `tsq list [--status <open|in_progress|blocked|closed|canceled|done>] [--assignee <name>] [--kind <task|feature|epic>] [--tree] [--full]`
 - `tsq ready`
 - `tsq doctor`
 - `tsq update <id> [--title <text>] [--status <...>] [--priority <0..3>]`
@@ -67,6 +67,11 @@ Commands:
 - `tsq link add <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
 - `tsq link remove <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
 - `tsq supersede <old-id> --with <new-id> [--reason <text>]`
+
+Tree mode notes:
+
+- `--tree` defaults to showing only `open` and `in_progress` tasks.
+- Use `--tree --full` to include all statuses in tree output.
 
 Skill installer via `init`:
 

@@ -59,7 +59,9 @@ describe("tree renderer width tiers", () => {
     expect(nodeLines[0]).not.toContain("blocks-on:");
     expect(nodeLines[1]).toContain("blocks-on: tsq-block1,tsq-block2");
     expect(nodeLines[1]).toContain("unblocks: tsq-dep1");
-    expect(/^\s+\{/.test(nodeLines[1] ?? "")).toBe(true);
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping ANSI escape codes
+    const stripped = (nodeLines[1] ?? "").replace(/\u001b\[[0-9;]*m/gu, "");
+    expect(/^\s+\{/.test(stripped)).toBe(true);
   });
 
   it("truncates title with ellipsis at narrow widths and moves metadata to following lines", () => {

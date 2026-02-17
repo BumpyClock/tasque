@@ -318,33 +318,31 @@ const applyLinkRemoved = (state: State, event: EventRecord): void => {
   }
 };
 
-export const applyEvent = (state: State, event: EventRecord): State => {
-  const next = cloneState(state);
-
+const applyEventMut = (state: State, event: EventRecord): void => {
   switch (event.type) {
     case "task.created":
-      applyTaskCreated(next, event);
+      applyTaskCreated(state, event);
       break;
     case "task.updated":
-      applyTaskUpdated(next, event);
+      applyTaskUpdated(state, event);
       break;
     case "task.claimed":
-      applyTaskClaimed(next, event);
+      applyTaskClaimed(state, event);
       break;
     case "task.superseded":
-      applyTaskSuperseded(next, event);
+      applyTaskSuperseded(state, event);
       break;
     case "dep.added":
-      applyDepAdded(next, event);
+      applyDepAdded(state, event);
       break;
     case "dep.removed":
-      applyDepRemoved(next, event);
+      applyDepRemoved(state, event);
       break;
     case "link.added":
-      applyLinkAdded(next, event);
+      applyLinkAdded(state, event);
       break;
     case "link.removed":
-      applyLinkRemoved(next, event);
+      applyLinkRemoved(state, event);
       break;
     default:
       throw new TsqError("INVALID_EVENT_TYPE", "Unknown event type", 1, {
@@ -352,15 +350,22 @@ export const applyEvent = (state: State, event: EventRecord): State => {
         type: event.type,
       });
   }
+  state.applied_events += 1;
+};
 
-  next.applied_events += 1;
+export const applyEvent = (state: State, event: EventRecord): State => {
+  const next = cloneState(state);
+  applyEventMut(next, event);
   return next;
 };
 
 export const applyEvents = (base: State, events: EventRecord[]): State => {
-  let state = base;
+  if (events.length === 0) {
+    return base;
+  }
+  const state = cloneState(base);
   for (const event of events) {
-    state = applyEvent(state, event);
+    applyEventMut(state, event);
   }
   return state;
 };

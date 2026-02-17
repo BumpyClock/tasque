@@ -54,4 +54,19 @@ describe("store snapshots", () => {
     const loaded = await loadLatestSnapshot(repo);
     expect(loaded).toEqual(second);
   });
+
+  it("picks latest snapshot by filename sort regardless of write order", async () => {
+    const repo = await makeRepo();
+    // Write later-timestamped snapshot first, earlier-timestamped second
+    const later = snapshot("2026-02-17T12:00:00.000Z", 200, 200);
+    const earlier = snapshot("2026-02-17T06:00:00.000Z", 100, 100);
+
+    await writeSnapshot(repo, later);
+    await sleep(20);
+    await writeSnapshot(repo, earlier);
+
+    const loaded = await loadLatestSnapshot(repo);
+    // Should pick "later" by filename even though "earlier" has newer mtime
+    expect(loaded).toEqual(later);
+  });
 });

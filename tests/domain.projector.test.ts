@@ -46,6 +46,36 @@ describe("projector links", () => {
   });
 });
 
+describe("projector applyEvents parity", () => {
+  test("applyEvents produces identical state to chained applyEvent calls", () => {
+    const events: EventRecord[] = [
+      event("task.created", "tsq-aaa111", { title: "A", kind: "task", priority: 1 }, 1),
+      event("task.created", "tsq-bbb222", { title: "B", kind: "feature", priority: 2 }, 2),
+      event("task.updated", "tsq-aaa111", { status: "in_progress" }, 3),
+      event("dep.added", "tsq-bbb222", { blocker: "tsq-aaa111" }, 4),
+      event("link.added", "tsq-aaa111", { target: "tsq-bbb222", type: "relates_to" }, 5),
+      event("task.claimed", "tsq-aaa111", { assignee: "alice" }, 6),
+    ];
+
+    // Chained single-event application
+    let chained = createEmptyState();
+    for (const ev of events) {
+      chained = applyEvent(chained, ev);
+    }
+
+    // Batch application
+    const batched = applyEvents(createEmptyState(), events);
+
+    expect(batched).toEqual(chained);
+  });
+
+  test("applyEvents with empty list returns base state unchanged", () => {
+    const base = createEmptyState();
+    const result = applyEvents(base, []);
+    expect(result).toBe(base);
+  });
+});
+
 describe("projector supersede", () => {
   test("closes source task and sets superseded_by while leaving target unchanged", () => {
     const initial = createEmptyState();

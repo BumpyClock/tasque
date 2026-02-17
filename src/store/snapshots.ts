@@ -1,4 +1,4 @@
-import { mkdir, open, readFile, readdir, rename, stat } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, rename } from "node:fs/promises";
 import { join } from "node:path";
 
 import { TsqError } from "../errors";
@@ -29,19 +29,13 @@ export async function loadLatestSnapshot(repoRoot: string): Promise<Snapshot | n
     return null;
   }
 
-  const withMtime = await Promise.all(
-    candidates.map(async (name) => {
-      const file = join(paths.snapshotsDir, name);
-      const details = await stat(file);
-      return { file, mtimeMs: details.mtimeMs };
-    }),
-  );
-
-  withMtime.sort((a, b) => b.mtimeMs - a.mtimeMs);
-  const latest = withMtime[0]?.file;
-  if (!latest) {
+  // Filenames encode ISO timestamps; lexicographic sort gives chronological order
+  candidates.sort();
+  const latestName = candidates.at(-1);
+  if (!latestName) {
     return null;
   }
+  const latest = join(paths.snapshotsDir, latestName);
 
   try {
     const raw = await readFile(latest, "utf8");

@@ -1,3 +1,7 @@
 # LEARNINGS
 
 - 2026-02-17: Chose JSONL-first V1 architecture (`.tasque/events.jsonl` source of truth, `state.json` derived cache). Explicitly no sqlite/dolt/backend abstraction in V1.
+- 2026-02-17: Beads-inspired plan finalized in `docs/learned/tasque-v1-implementation-plan.md`. Chosen path: Bun+TypeScript V1, JSONL source-of-truth + derived state cache + single-machine lockfile protocol for <=5 concurrent agents.
+- 2026-02-17: Locked V1 defaults: Bun runtime; fixed 6-char hash IDs + append-only child IDs; strict CAS claim; no generic link API in V1; supersede without auto-rewire; dep/supersede cycle rejection; state cache gitignored; JSON output includes schema_version=1.
+- 2026-02-17: Updated V1 spec to Beads-compatible supersede/link behavior: generic `link add/remove` in V1; `supersede` closes source task and sets `superseded_by` without dependency rewiring.
+- 2026-02-17: Locked durability decisions: bidirectional relates_to, canonical supersede command (close source + superseded_by), universal JSON envelope with schema_version=1, ULID event IDs, fail-safe stale-lock cleanup, and snapshot-based compaction with events.jsonl as canonical source.

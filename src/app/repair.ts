@@ -6,6 +6,7 @@ import { TsqError } from "../errors";
 import { appendEvents } from "../store/events";
 import { forceRemoveLock, lockExists, withWriteLock } from "../store/lock";
 import { getPaths } from "../store/paths";
+import { SNAPSHOT_RETAIN_COUNT } from "../store/snapshots";
 import type { EventRecord, RelationType, RepairPlan, RepairResult, State } from "../types";
 import { loadProjectedState, persistProjection } from "./state";
 
@@ -68,8 +69,8 @@ async function scanFilesystem(
   try {
     const snapEntries = await readdir(paths.snapshotsDir);
     const snapshots = snapEntries.filter((name) => name.endsWith(".json")).sort();
-    if (snapshots.length > 5) {
-      old_snapshots = snapshots.slice(0, snapshots.length - 5);
+    if (snapshots.length > SNAPSHOT_RETAIN_COUNT) {
+      old_snapshots = snapshots.slice(0, snapshots.length - SNAPSHOT_RETAIN_COUNT);
     }
   } catch {}
 

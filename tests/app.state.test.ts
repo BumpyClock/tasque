@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -104,5 +104,23 @@ describe("loadProjectedState incremental replay", () => {
     const { state } = await loadProjectedState(repo);
     expect(state.applied_events).toBe(1);
     expect(state.tasks["tsq-aaa111"]?.title).toBe("A");
+  });
+
+  it("surfaces warning and null snapshot when all snapshot files are invalid", async () => {
+    const repo = await makeRepo();
+    const snapshotsDir = join(repo, ".tasque", "snapshots");
+
+    await mkdir(snapshotsDir, { recursive: true });
+    await writeFile(join(snapshotsDir, "2026-02-17T00-00-02-000Z-2.json"), "{broken", "utf8");
+    await writeFile(
+      join(snapshotsDir, "2026-02-17T00-00-01-000Z-1.json"),
+      JSON.stringify({ not: "snapshot" }),
+      "utf8",
+    );
+
+    const { snapshot, warning, state } = await loadProjectedState(repo);
+    expect(snapshot).toBeNull();
+    expect(warning).toContain("Ignored invalid snapshot files");
+    expect(state.applied_events).toBe(0);
   });
 });

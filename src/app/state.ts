@@ -2,7 +2,7 @@ import { applyEvents } from "../domain/projector";
 import { createEmptyState } from "../domain/state";
 import { readConfig } from "../store/config";
 import { readEvents } from "../store/events";
-import { loadLatestSnapshot, writeSnapshot } from "../store/snapshots";
+import { loadLatestSnapshotWithWarning, writeSnapshot } from "../store/snapshots";
 import { readStateCache, writeStateCache } from "../store/state";
 import type { EventRecord, Snapshot, State } from "../types";
 
@@ -14,7 +14,7 @@ export interface LoadedState {
 }
 
 export async function loadProjectedState(repoRoot: string): Promise<LoadedState> {
-  const { events, warning } = await readEvents(repoRoot);
+  const { events, warning: eventWarning } = await readEvents(repoRoot);
   const fromCache = await readStateCache(repoRoot);
   if (fromCache && fromCache.applied_events <= events.length) {
     const offset = fromCache.applied_events ?? 0;
@@ -22,7 +22,7 @@ export async function loadProjectedState(repoRoot: string): Promise<LoadedState>
       return {
         state: fromCache,
         allEvents: events,
-        warning,
+        warning: eventWarning,
         snapshot: null,
       };
     }
@@ -32,12 +32,12 @@ export async function loadProjectedState(repoRoot: string): Promise<LoadedState>
     return {
       state,
       allEvents: events,
-      warning,
+      warning: eventWarning,
       snapshot: null,
     };
   }
 
-  const snapshot = await loadLatestSnapshot(repoRoot);
+  const { snapshot, warning: snapshotWarning } = await loadLatestSnapshotWithWarning(repoRoot);
   const base = snapshot ? snapshot.state : createEmptyState();
   const startOffset = snapshot ? Math.min(snapshot.event_count, events.length) : 0;
   const projected = applyEvents(base, events.slice(startOffset));
@@ -46,7 +46,7 @@ export async function loadProjectedState(repoRoot: string): Promise<LoadedState>
   return {
     state: projected,
     allEvents: events,
-    warning,
+    warning: combineWarnings(eventWarning, snapshotWarning),
     snapshot,
   };
 }
@@ -71,4 +71,14 @@ export async function persistProjection(
       state,
     });
   }
+}
+
+function combineWarnings(...warnings: Array<string | undefined>): string | undefined {
+  const present = warnings.filter((warning): warning is string =>
+    Boolean(warning && warning.length > 0),
+  );
+  if (present.length === 0) {
+    return undefined;
+  }
+  return present.join(" | ");
 }

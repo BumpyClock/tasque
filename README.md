@@ -147,5 +147,7 @@ Error shape:
 - Stale lock cleanup only when lock host matches current host and lock PID is dead.
 - Event appends are fsynced; event log is append-only.
 - `tasks.jsonl`, snapshots, and config writes are atomic temp-write + rename.
+- Snapshot writes keep only the latest 5 snapshot JSON files (oldest pruned best-effort).
+- Snapshot load falls back newest-to-oldest and ignores invalid snapshot files with a warning.
 - Replay recovery tolerates one malformed trailing JSONL line in `events.jsonl` (ignored with warning).
 - `events.jsonl` remains canonical source of truth.

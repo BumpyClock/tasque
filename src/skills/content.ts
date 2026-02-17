@@ -25,16 +25,40 @@ Use \`tsq\` for durable local task tracking.
 
 - \`tsq create "Title" --kind task|feature|epic -p 0..3\`
 - \`tsq show <id>\`
-- \`tsq list --status open --kind task\`
+- \`tsq list [--status S] [--assignee A] [--kind K] [--label L] [--tree [--full]]\`
+- \`tsq search "status:open label:bug some title text"\`
 - \`tsq doctor\`
+
+## Close and reopen
+
+- \`tsq close <id> [<id2> ...] [--reason <text>]\` — close one or more tasks
+- \`tsq reopen <id> [<id2> ...]\` — reopen closed tasks (not canceled)
+
+## History
+
+- \`tsq history <id> [--limit N] [--type <event-type>] [--actor <name>] [--since <iso>]\`
+
+## Labels
+
+- \`tsq label add <id> <label>\` — add label (lowercase, [a-z0-9:_/-], max 64)
+- \`tsq label remove <id> <label>\`
+- \`tsq label list\` — all labels with counts
 
 ## Dependencies and relations
 
 - \`tsq dep add <child> <blocker>\` means child waits on blocker
 - \`tsq dep remove <child> <blocker>\`
+- \`tsq dep tree <id> [--direction up|down|both] [--depth N]\` — dependency graph
 - \`tsq link add <src> <dst> --type relates_to|replies_to|duplicates|supersedes\`
 - \`tsq link remove <src> <dst> --type relates_to|replies_to|duplicates|supersedes\`
 - \`tsq supersede <old-id> --with <new-id> [--reason <text>]\`
+
+## Search
+
+- \`tsq search "<query>"\` — structured query with implicit AND
+- Fields: \`id\`, \`title\`, \`status\`, \`kind\`, \`priority\`, \`assignee\`, \`parent\`, \`label\`, \`ready\`
+- Negation: \`-status:closed\` (use \`--\` separator: \`tsq search -- -status:closed\`)
+- Bare words match title substring
 
 ## JSON mode
 

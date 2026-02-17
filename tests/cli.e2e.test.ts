@@ -611,4 +611,21 @@ describe("cli e2e", () => {
     expect(combined.envelope.ok).toBe(false);
     expect(combined.envelope.error?.code).toBe("VALIDATION_ERROR");
   });
+
+  it("returns NOT_INITIALIZED error when listing without init", async () => {
+    const repo = await makeRepo();
+
+    const listed = await runJson(repo, ["list"]);
+    expect(listed.exitCode).toBe(2);
+    expect(listed.envelope.ok).toBe(false);
+    expect(listed.envelope.error?.code).toBe("NOT_INITIALIZED");
+  });
+
+  it("init succeeds in empty directory without prior .tasque", async () => {
+    const repo = await makeRepo();
+
+    const init = await runJson(repo, ["init"]);
+    expect(init.exitCode).toBe(0);
+    expect(init.envelope.ok).toBe(true);
+  });
 });

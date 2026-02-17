@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { TsqError } from "../errors";
 
 export const DEFAULT_SNAPSHOT_EVERY = 100;
@@ -6,8 +8,27 @@ export function nowIso(): string {
   return new Date().toISOString();
 }
 
+/** Walk up from cwd to find the nearest directory containing `.tasque/`. */
+export function findTasqueRoot(): string | null {
+  let dir = process.cwd();
+  for (;;) {
+    if (existsSync(join(dir, ".tasque"))) {
+      return dir;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) {
+      return null;
+    }
+    dir = parent;
+  }
+}
+
+/**
+ * Return the project root containing `.tasque/`.
+ * Falls back to cwd when no `.tasque/` is found (needed for `tsq init`).
+ */
 export function getRepoRoot(): string {
-  return process.cwd();
+  return findTasqueRoot() ?? process.cwd();
 }
 
 export function getActor(repoRoot: string): string {

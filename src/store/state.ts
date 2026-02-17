@@ -29,7 +29,12 @@ export async function readStateCache(repoRoot: string): Promise<State | null> {
   const paths = getPaths(repoRoot);
   try {
     const raw = await readFile(paths.stateFile, "utf8");
-    return JSON.parse(raw) as State;
+    try {
+      return JSON.parse(raw) as State;
+    } catch {
+      // Corrupt cache is silently discarded; it will be rebuilt from events
+      return null;
+    }
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT") {

@@ -23,6 +23,7 @@ interface GlobalOpts {
 
 interface RuntimeDeps {
   service: TasqueService;
+  findTasqueRoot: () => string | null;
 }
 
 interface InitCommandOptions {
@@ -55,6 +56,19 @@ export function buildProgram(deps: RuntimeDeps): Command {
     .description("Local durable task graph for coding agents")
     .option("--json", "emit JSON envelope")
     .option("--exact-id", "require exact task ID match");
+
+  const INIT_SAFE_COMMANDS = new Set(["init", "doctor"]);
+
+  program.hook("preAction", (_thisCommand, actionCommand) => {
+    const rootCmd = resolveRootCommandName(actionCommand);
+    if (!INIT_SAFE_COMMANDS.has(rootCmd) && deps.findTasqueRoot() === null) {
+      throw new TsqError(
+        "NOT_INITIALIZED",
+        "No .tasque directory found. Run 'tsq init' first.",
+        2,
+      );
+    }
+  });
 
   program
     .command("init")
@@ -706,4 +720,12 @@ function applyTreeDefaults(filter: ListFilter, options: ListCommandOptions): Lis
     ...filter,
     statuses: [...TREE_DEFAULT_STATUSES],
   };
+}
+
+function resolveRootCommandName(command: Command): string {
+  let cursor: Command = command;
+  while (cursor.parent && cursor.parent.parent) {
+    cursor = cursor.parent;
+  }
+  return cursor.name();
 }

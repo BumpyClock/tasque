@@ -1,5 +1,13 @@
 import pc from "picocolors";
+import type { HistoryResult } from "../app/service";
+import type { DepTreeNode } from "../domain/dep-tree";
 import type { RepairResult, Task, TaskStatus, TaskTreeNode } from "../types";
+
+type TreeDensity = "wide" | "medium" | "narrow";
+
+interface TreeRenderOptions {
+  width?: number;
+}
 
 export function printTaskList(tasks: Task[]): void {
   if (tasks.length === 0) {
@@ -51,38 +59,95 @@ export function printTask(task: Task): void {
 }
 
 export function printTaskTree(nodes: TaskTreeNode[]): void {
-  if (nodes.length === 0) {
-    console.log(pc.dim("no tasks"));
-    return;
+  for (const line of renderTaskTree(nodes)) {
+    console.log(line);
   }
+}
+
+export function renderTaskTree(nodes: TaskTreeNode[], options: TreeRenderOptions = {}): string[] {
+  if (nodes.length === 0) {
+    return [pc.dim("no tasks")];
+  }
+
+  const width = resolveWidth(options.width);
+  const density = resolveDensity(width);
+  const lines: string[] = [];
 
   for (let idx = 0; idx < nodes.length; idx += 1) {
     const node = nodes[idx];
     if (!node) {
       continue;
     }
-    printTreeNode(node, "", idx === nodes.length - 1, true);
+    renderTreeNode(lines, node, "", idx === nodes.length - 1, true, density, width);
   }
 
   const totals = summarizeTree(nodes);
-  console.log(
+  lines.push(
     pc.dim(
       `total=${totals.total} open=${totals.open} in_progress=${totals.in_progress} blocked=${totals.blocked} closed=${totals.closed} canceled=${totals.canceled}`,
     ),
   );
+  return lines;
 }
 
-function printTreeNode(node: TaskTreeNode, prefix: string, isLast: boolean, root: boolean): void {
+function renderTreeNode(
+  lines: string[],
+  node: TaskTreeNode,
+  prefix: string,
+  isLast: boolean,
+  root: boolean,
+  density: TreeDensity,
+  width: number,
+): void {
   const connector = root ? "" : isLast ? "└── " : "├── ";
-  console.log(`${prefix}${connector}${formatTreeLine(node)}`);
-
+  const linePrefix = `${prefix}${connector}`;
   const childPrefix = root ? prefix : `${prefix}${isLast ? "    " : "│   "}`;
+  const metaPrefix = root ? (node.children.length > 0 ? "│   " : "    ") : childPrefix;
+  const status = formatStatus(node.task.status);
+  const statusText = formatStatusText(node.task.status);
+  const flow = formatFlow(node);
+  const primaryParts = [
+    status,
+    pc.bold(node.task.id),
+    density === "narrow"
+      ? truncateWithEllipsis(
+          node.task.title,
+          computeTitleWidth(width, linePrefix.length, statusText.length, node.task.id.length),
+        )
+      : node.task.title,
+  ];
+  if (density !== "narrow") {
+    primaryParts.push(pc.dim(formatMetaBadge(node.task)));
+  }
+  if (density === "wide" && flow) {
+    primaryParts.push(pc.dim(flow));
+  }
+  lines.push(`${linePrefix}${primaryParts.join(" ")}`);
+
+  if (density === "medium" && flow) {
+    lines.push(`${metaPrefix}${pc.dim(flow)}`);
+  }
+  if (density === "narrow") {
+    lines.push(`${metaPrefix}${pc.dim(formatMetaBadge(node.task))}`);
+    if (flow) {
+      lines.push(`${metaPrefix}${pc.dim(flow)}`);
+    }
+  }
+
   for (let idx = 0; idx < node.children.length; idx += 1) {
     const child = node.children[idx];
     if (!child) {
       continue;
     }
-    printTreeNode(child, childPrefix, idx === node.children.length - 1, false);
+    renderTreeNode(
+      lines,
+      child,
+      childPrefix,
+      idx === node.children.length - 1,
+      false,
+      density,
+      width,
+    );
   }
 }
 
@@ -119,14 +184,11 @@ export function printRepairResult(result: RepairResult): void {
   }
 }
 
-function formatTreeLine(node: TaskTreeNode): string {
-  const parts: string[] = [
-    formatStatus(node.task.status),
-    pc.bold(node.task.id),
-    node.task.title,
-    pc.dim(`[p${node.task.priority}${node.task.assignee ? ` @${node.task.assignee}` : ""}]`),
-  ];
+function formatMetaBadge(task: Task): string {
+  return `[p${task.priority}${task.assignee ? ` @${task.assignee}` : ""}]`;
+}
 
+function formatFlow(node: TaskTreeNode): string | undefined {
   const flow: string[] = [];
   if (node.blockers.length > 0) {
     flow.push(`blocks-on: ${node.blockers.join(",")}`);
@@ -134,10 +196,67 @@ function formatTreeLine(node: TaskTreeNode): string {
   if (node.dependents.length > 0) {
     flow.push(`unblocks: ${node.dependents.join(",")}`);
   }
-  if (flow.length > 0) {
-    parts.push(pc.dim(`{${flow.join(" | ")}}`));
+  if (flow.length === 0) {
+    return undefined;
   }
-  return parts.join(" ");
+  return `{${flow.join(" | ")}}`;
+}
+
+function resolveWidth(raw?: number): number {
+  if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) {
+    return Math.floor(raw);
+  }
+  if (typeof process.stdout.columns === "number" && process.stdout.columns > 0) {
+    return process.stdout.columns;
+  }
+  return 120;
+}
+
+function resolveDensity(width: number): TreeDensity {
+  if (width >= 120) {
+    return "wide";
+  }
+  if (width >= 90) {
+    return "medium";
+  }
+  return "narrow";
+}
+
+function computeTitleWidth(
+  width: number,
+  prefixLength: number,
+  statusLength: number,
+  taskIdLength: number,
+): number {
+  const fixedLength = prefixLength + statusLength + 1 + taskIdLength + 1;
+  return Math.max(12, width - fixedLength);
+}
+
+function truncateWithEllipsis(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  if (maxLength <= 3) {
+    return value.slice(0, maxLength);
+  }
+  return `${value.slice(0, maxLength - 3)}...`;
+}
+
+function formatStatusText(status: TaskStatus): string {
+  switch (status) {
+    case "open":
+      return "○ open";
+    case "in_progress":
+      return "◐ in_progress";
+    case "blocked":
+      return "● blocked";
+    case "closed":
+      return "✓ closed";
+    case "canceled":
+      return "✕ canceled";
+    default:
+      return status;
+  }
 }
 
 function formatStatus(status: TaskStatus): string {
@@ -179,4 +298,46 @@ function summarizeTree(nodes: TaskTreeNode[]): Record<TaskStatus | "total", numb
     visit(node);
   }
   return summary;
+}
+
+export function printHistory(data: HistoryResult): void {
+  if (data.events.length === 0) {
+    console.log(pc.dim("no events"));
+    return;
+  }
+  for (const event of data.events) {
+    console.log(`${event.ts} ${event.type} by=${event.actor} [${event.event_id}]`);
+  }
+  if (data.truncated) {
+    console.log(pc.dim(`(showing ${data.count}, use --limit to see more)`));
+  }
+}
+
+export function printLabelList(labels: Array<{ label: string; count: number }>): void {
+  if (labels.length === 0) {
+    console.log(pc.dim("no labels"));
+    return;
+  }
+  for (const entry of labels) {
+    console.log(`${entry.label} (${entry.count})`);
+  }
+}
+
+export function printDepTreeResult(root: DepTreeNode): void {
+  printDepNode(root, "", true, true);
+}
+
+function printDepNode(node: DepTreeNode, prefix: string, isLast: boolean, isRoot: boolean): void {
+  const connector = isRoot ? "" : isLast ? "└── " : "├── ";
+  const dirTag = node.direction !== "both" ? pc.dim(` [${node.direction}]`) : "";
+  console.log(
+    `${prefix}${connector}${formatStatus(node.task.status)} ${pc.bold(node.task.id)} ${node.task.title}${dirTag}`,
+  );
+
+  const childPrefix = isRoot ? prefix : `${prefix}${isLast ? "    " : "│   "}`;
+  for (let idx = 0; idx < node.children.length; idx += 1) {
+    const child = node.children[idx];
+    if (!child) continue;
+    printDepNode(child, childPrefix, idx === node.children.length - 1, false);
+  }
 }

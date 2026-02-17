@@ -72,6 +72,9 @@ Tree mode notes:
 
 - `--tree` defaults to showing only `open` and `in_progress` tasks.
 - Use `--tree --full` to include all statuses in tree output.
+- `>=120` columns: metadata stays inline with title.
+- `90-119` columns: metadata moves to a second line when needed.
+- `<90` columns: metadata always uses a second line, and long titles are truncated.
 
 Skill installer via `init`:
 

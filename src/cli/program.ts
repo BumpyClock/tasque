@@ -1,11 +1,20 @@
 import { Command } from "commander";
 import { normalizeStatus, parsePriority } from "../app/runtime";
 import type { ListFilter, TasqueService } from "../app/service";
+import type { DepDirection } from "../domain/dep-tree";
 import { TsqError } from "../errors";
 import { errEnvelope, okEnvelope } from "../output";
 import type { SkillTarget } from "../skills/types";
 import type { RelationType, TaskKind, TaskStatus } from "../types";
-import { printRepairResult, printTask, printTaskList, printTaskTree } from "./render";
+import {
+  printDepTreeResult,
+  printHistory,
+  printLabelList,
+  printRepairResult,
+  printTask,
+  printTaskList,
+  printTaskTree,
+} from "./render";
 
 interface GlobalOpts {
   json?: boolean;
@@ -32,6 +41,7 @@ interface ListCommandOptions {
   status?: string;
   assignee?: string;
   kind?: string;
+  label?: string;
   tree?: boolean;
   full?: boolean;
 }
@@ -161,6 +171,7 @@ export function buildProgram(deps: RuntimeDeps): Command {
     .option("--status <status>", "filter by status")
     .option("--assignee <assignee>", "filter by assignee")
     .option("--kind <kind>", "filter by kind")
+    .option("--label <label>", "filter by label")
     .option("--tree", "render parent/child hierarchy")
     .option("--full", "with --tree, include closed/blocked/canceled items")
     .description("List tasks")
@@ -397,6 +408,148 @@ export function buildProgram(deps: RuntimeDeps): Command {
       );
     });
 
+  program
+    .command("close")
+    .argument("<ids...>", "task ids to close")
+    .option("--reason <text>", "close reason")
+    .description("Close tasks")
+    .action(async function action(ids: string[], options: { reason?: string }) {
+      await runAction(
+        this,
+        async (opts) => deps.service.close({ ids, reason: options.reason, exactId: opts.exactId }),
+        {
+          jsonData: (tasks) => (tasks.length === 1 ? { task: tasks[0] } : { tasks }),
+          human: (tasks) => {
+            for (const task of tasks) {
+              printTask(task);
+            }
+          },
+        },
+      );
+    });
+
+  program
+    .command("reopen")
+    .argument("<ids...>", "task ids to reopen")
+    .description("Reopen closed tasks")
+    .action(async function action(ids: string[]) {
+      await runAction(this, async (opts) => deps.service.reopen({ ids, exactId: opts.exactId }), {
+        jsonData: (tasks) => (tasks.length === 1 ? { task: tasks[0] } : { tasks }),
+        human: (tasks) => {
+          for (const task of tasks) {
+            printTask(task);
+          }
+        },
+      });
+    });
+
+  program
+    .command("history")
+    .argument("<id>", "task id")
+    .option("--limit <n>", "max events to show")
+    .option("--type <type>", "filter by event type")
+    .option("--actor <name>", "filter by actor")
+    .option("--since <iso>", "filter events after this date")
+    .description("Show task history")
+    .action(async function action(
+      id: string,
+      options: { limit?: string; type?: string; actor?: string; since?: string },
+    ) {
+      await runAction(
+        this,
+        async (opts) =>
+          deps.service.history({
+            id,
+            limit: options.limit ? Number.parseInt(options.limit, 10) : undefined,
+            type: options.type,
+            actor: options.actor,
+            since: options.since,
+            exactId: opts.exactId,
+          }),
+        {
+          jsonData: (data) => data,
+          human: (data) => printHistory(data),
+        },
+      );
+    });
+
+  const label = program.command("label").description("Label operations");
+  label
+    .command("add")
+    .argument("<id>", "task id")
+    .argument("<label>", "label to add")
+    .description("Add label to task")
+    .action(async function action(id: string, labelStr: string) {
+      await runAction(
+        this,
+        async (opts) => deps.service.labelAdd({ id, label: labelStr, exactId: opts.exactId }),
+        {
+          jsonData: (task) => ({ task }),
+          human: (task) => printTask(task),
+        },
+      );
+    });
+
+  label
+    .command("remove")
+    .argument("<id>", "task id")
+    .argument("<label>", "label to remove")
+    .description("Remove label from task")
+    .action(async function action(id: string, labelStr: string) {
+      await runAction(
+        this,
+        async (opts) => deps.service.labelRemove({ id, label: labelStr, exactId: opts.exactId }),
+        {
+          jsonData: (task) => ({ task }),
+          human: (task) => printTask(task),
+        },
+      );
+    });
+
+  label
+    .command("list")
+    .description("List all labels with counts")
+    .action(async function action() {
+      await runAction(this, async () => deps.service.labelList(), {
+        jsonData: (data) => ({ labels: data }),
+        human: (data) => printLabelList(data),
+      });
+    });
+
+  dep
+    .command("tree")
+    .argument("<id>", "root task id")
+    .option("--direction <dir>", "up|down|both", "both")
+    .option("--depth <n>", "max depth")
+    .description("Show dependency tree")
+    .action(async function action(id: string, options: { direction?: string; depth?: string }) {
+      await runAction(
+        this,
+        async (opts) =>
+          deps.service.depTree({
+            id,
+            direction: parseDepDirection(options.direction),
+            depth: options.depth ? Number.parseInt(options.depth, 10) : undefined,
+            exactId: opts.exactId,
+          }),
+        {
+          jsonData: (root) => ({ root }),
+          human: (root) => printDepTreeResult(root),
+        },
+      );
+    });
+
+  program
+    .command("search")
+    .argument("<query>", "search query")
+    .description("Search tasks")
+    .action(async function action(query: string) {
+      await runAction(this, async () => deps.service.search({ query }), {
+        jsonData: (tasks) => ({ tasks }),
+        human: (tasks) => printTaskList(tasks),
+      });
+    });
+
   return program;
 }
 
@@ -506,6 +659,12 @@ function isSkillTarget(value: string): value is SkillTarget {
   return value === "claude" || value === "codex" || value === "copilot" || value === "opencode";
 }
 
+function parseDepDirection(raw?: string): DepDirection | undefined {
+  if (!raw) return undefined;
+  if (raw === "up" || raw === "down" || raw === "both") return raw;
+  throw new TsqError("VALIDATION_ERROR", "direction must be up|down|both", 1);
+}
+
 function asTsqError(error: unknown): TsqError {
   if (error instanceof TsqError) {
     return error;
@@ -532,6 +691,9 @@ function parseListFilter(options: ListCommandOptions): ListFilter {
   }
   if (options.kind) {
     filter.kind = parseKind(options.kind);
+  }
+  if (options.label) {
+    filter.label = options.label;
   }
   return filter;
 }

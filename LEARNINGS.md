@@ -11,3 +11,4 @@
 - 2026-02-17: Added skill lifecycle via `tsq init` for `claude|codex|copilot|opencode` with safe managed-marker semantics (`install`, `uninstall`, idempotent update, non-managed skip unless force) plus CLI/e2e coverage.
 - 2026-02-17: Added `tsq list --tree` with nested parent/child rendering and per-node blocker/dependent context; JSON mode returns structured `tree` nodes (`task`, `blockers`, `dependents`, `children`).
 - 2026-02-17: Renamed derived cache path from `.tasque/state.json` to `.tasque/tasks.jsonl`; dropped legacy cache-file read compatibility.
+- 2026-02-17: Polished `tsq list --tree` output with width-aware density modes (wide/medium/narrow): inline metadata on wide terminals, dependency flow on secondary line for medium, and truncated titles + metadata lanes on narrow widths; covered by dedicated renderer width-tier tests.

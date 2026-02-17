@@ -1,8 +1,12 @@
-import { mkdir, open, readFile, readdir, unlink } from "node:fs/promises";
+import { mkdir, open, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ulid } from "ulid";
+import { buildDepTree } from "../domain/dep-tree";
+import type { DepDirection, DepTreeNode } from "../domain/dep-tree";
 import { makeRootId, nextChildId } from "../domain/ids";
+import { addLabel, removeLabel } from "../domain/labels";
 import { applyEvents } from "../domain/projector";
+import { evaluateQuery, parseQuery } from "../domain/query";
 import { resolveTaskId } from "../domain/resolve";
 import { assertNoDependencyCycle, isReady, listReady } from "../domain/validate";
 import { TsqError } from "../errors";
@@ -10,13 +14,12 @@ import { applySkillOperation } from "../skills";
 import type { SkillOperationSummary, SkillTarget } from "../skills/types";
 import { writeDefaultConfig } from "../store/config";
 import { appendEvents } from "../store/events";
-import { forceRemoveLock, lockExists, withWriteLock } from "../store/lock";
+import { withWriteLock } from "../store/lock";
 import { getPaths } from "../store/paths";
 import type {
   EventRecord,
   Priority,
   RelationType,
-  RepairPlan,
   RepairResult,
   State,
   Task,
@@ -24,6 +27,7 @@ import type {
   TaskStatus,
   TaskTreeNode,
 } from "../types";
+import { executeRepair } from "./repair";
 import { loadProjectedState, persistProjection } from "./state";
 
 export interface InitResult {
@@ -86,11 +90,55 @@ export interface SupersedeInput {
   exactId?: boolean;
 }
 
+export interface CloseInput {
+  ids: string[];
+  reason?: string;
+  exactId?: boolean;
+}
+
+export interface ReopenInput {
+  ids: string[];
+  exactId?: boolean;
+}
+
+export interface HistoryInput {
+  id: string;
+  limit?: number;
+  type?: string;
+  actor?: string;
+  since?: string;
+  exactId?: boolean;
+}
+
+export interface HistoryResult {
+  events: EventRecord[];
+  count: number;
+  truncated: boolean;
+}
+
+export interface LabelInput {
+  id: string;
+  label: string;
+  exactId?: boolean;
+}
+
+export interface DepTreeInput {
+  id: string;
+  direction?: DepDirection;
+  depth?: number;
+  exactId?: boolean;
+}
+
+export interface SearchInput {
+  query: string;
+}
+
 export interface ListFilter {
   status?: TaskStatus;
   statuses?: TaskStatus[];
   assignee?: string;
   kind?: TaskKind;
+  label?: string;
 }
 
 export interface DoctorResult {
@@ -454,118 +502,145 @@ export class TasqueService {
   }
 
   async repair(opts: { fix: boolean; forceUnlock: boolean }): Promise<RepairResult> {
-    if (opts.forceUnlock && !opts.fix) {
-      throw new TsqError("VALIDATION_ERROR", "--force-unlock requires --fix", 1);
-    }
+    return executeRepair(this.repoRoot, this.actor, this.now, opts);
+  }
 
-    const { state } = await loadProjectedState(this.repoRoot);
-    const paths = getPaths(this.repoRoot);
-    const plan: RepairPlan = {
-      orphaned_deps: [],
-      orphaned_links: [],
-      stale_temps: [],
-      stale_lock: false,
-      old_snapshots: [],
-    };
-
-    for (const [child, blockers] of Object.entries(state.deps)) {
-      for (const blocker of blockers) {
-        if (!state.tasks[child] || !state.tasks[blocker]) {
-          plan.orphaned_deps.push({ child, blocker });
-        }
-      }
-    }
-
-    for (const [src, rels] of Object.entries(state.links)) {
-      for (const [kind, targets] of Object.entries(rels)) {
-        for (const target of targets ?? []) {
-          if (!state.tasks[src] || !state.tasks[target]) {
-            plan.orphaned_links.push({
-              src,
-              dst: target,
-              type: kind as RelationType,
-            });
-          }
-        }
-      }
-    }
-
-    try {
-      const entries = await readdir(paths.tasqueDir);
-      for (const entry of entries) {
-        if (entry.includes(".tmp")) {
-          plan.stale_temps.push(entry);
-        }
-      }
-    } catch {}
-
-    plan.stale_lock = await lockExists(this.repoRoot);
-
-    try {
-      const snapEntries = await readdir(paths.snapshotsDir);
-      const snapshots = snapEntries.filter((name) => name.endsWith(".json")).sort();
-      if (snapshots.length > 5) {
-        plan.old_snapshots = snapshots.slice(0, snapshots.length - 5);
-      }
-    } catch {}
-
-    if (!opts.fix) {
-      return { plan, applied: false, events_appended: 0, files_removed: 0 };
-    }
-
-    if (opts.forceUnlock && plan.stale_lock) {
-      await forceRemoveLock(this.repoRoot);
-    }
-
+  async close(input: CloseInput): Promise<Task[]> {
     return withWriteLock(this.repoRoot, async () => {
-      const { state: lockedState, allEvents } = await loadProjectedState(this.repoRoot);
+      const { state, allEvents } = await loadProjectedState(this.repoRoot);
+      const resolvedIds = input.ids.map((id) => mustResolveExisting(state, id, input.exactId));
       const events: EventRecord[] = [];
 
-      for (const dep of plan.orphaned_deps) {
-        events.push(
-          makeEvent(this.actor, this.now(), "dep.removed", dep.child, {
-            blocker: dep.blocker,
-          }),
-        );
+      for (const id of resolvedIds) {
+        const existing = mustTask(state, id);
+        if (existing.status === "closed") {
+          throw new TsqError("VALIDATION_ERROR", `task ${id} is already closed`, 1);
+        }
+        if (existing.status === "canceled") {
+          throw new TsqError("VALIDATION_ERROR", `cannot close canceled task ${id}`, 1);
+        }
+        const payload: Record<string, unknown> = { status: "closed" };
+        if (input.reason) {
+          payload.reason = input.reason;
+        }
+        events.push(makeEvent(this.actor, this.now(), "task.updated", id, payload));
       }
 
-      for (const link of plan.orphaned_links) {
-        events.push(
-          makeEvent(this.actor, this.now(), "link.removed", link.src, {
-            type: link.type,
-            target: link.dst,
-          }),
-        );
-      }
-
-      if (events.length > 0) {
-        const nextState = applyEvents(lockedState, events);
-        await appendEvents(this.repoRoot, events);
-        await persistProjection(this.repoRoot, nextState, allEvents.length + events.length);
-      }
-
-      let filesRemoved = 0;
-      for (const temp of plan.stale_temps) {
-        try {
-          await unlink(join(paths.tasqueDir, temp));
-          filesRemoved++;
-        } catch {}
-      }
-
-      for (const snap of plan.old_snapshots) {
-        try {
-          await unlink(join(paths.snapshotsDir, snap));
-          filesRemoved++;
-        } catch {}
-      }
-
-      return {
-        plan,
-        applied: true,
-        events_appended: events.length,
-        files_removed: filesRemoved,
-      };
+      const nextState = applyEvents(state, events);
+      await appendEvents(this.repoRoot, events);
+      await persistProjection(this.repoRoot, nextState, allEvents.length + events.length);
+      return resolvedIds.map((id) => mustTask(nextState, id));
     });
+  }
+
+  async reopen(input: ReopenInput): Promise<Task[]> {
+    return withWriteLock(this.repoRoot, async () => {
+      const { state, allEvents } = await loadProjectedState(this.repoRoot);
+      const resolvedIds = input.ids.map((id) => mustResolveExisting(state, id, input.exactId));
+      const events: EventRecord[] = [];
+
+      for (const id of resolvedIds) {
+        const existing = mustTask(state, id);
+        if (existing.status !== "closed") {
+          throw new TsqError(
+            "VALIDATION_ERROR",
+            `cannot reopen task ${id} with status ${existing.status}`,
+            1,
+          );
+        }
+        events.push(makeEvent(this.actor, this.now(), "task.updated", id, { status: "open" }));
+      }
+
+      const nextState = applyEvents(state, events);
+      await appendEvents(this.repoRoot, events);
+      await persistProjection(this.repoRoot, nextState, allEvents.length + events.length);
+      return resolvedIds.map((id) => mustTask(nextState, id));
+    });
+  }
+
+  async history(input: HistoryInput): Promise<HistoryResult> {
+    const { state, allEvents } = await loadProjectedState(this.repoRoot);
+    const id = mustResolveExisting(state, input.id, input.exactId);
+
+    let events = allEvents.filter((evt) => {
+      if (evt.task_id === id) return true;
+      for (const value of Object.values(evt.payload)) {
+        if (typeof value === "string" && value === id) return true;
+      }
+      return false;
+    });
+
+    if (input.type) {
+      events = events.filter((e) => e.type === input.type);
+    }
+    if (input.actor) {
+      events = events.filter((e) => e.actor === input.actor);
+    }
+    if (input.since) {
+      const since = input.since;
+      events = events.filter((e) => e.ts >= since);
+    }
+
+    events.sort((a, b) => b.ts.localeCompare(a.ts));
+
+    const limit = input.limit ?? 50;
+    const truncated = events.length > limit;
+    const limited = events.slice(0, limit);
+
+    return { events: limited, count: limited.length, truncated };
+  }
+
+  async labelAdd(input: LabelInput): Promise<Task> {
+    return withWriteLock(this.repoRoot, async () => {
+      const { state, allEvents } = await loadProjectedState(this.repoRoot);
+      const id = mustResolveExisting(state, input.id, input.exactId);
+      const existing = mustTask(state, id);
+      const newLabels = addLabel(existing.labels, input.label);
+      const event = makeEvent(this.actor, this.now(), "task.updated", id, { labels: newLabels });
+      const nextState = applyEvents(state, [event]);
+      await appendEvents(this.repoRoot, [event]);
+      await persistProjection(this.repoRoot, nextState, allEvents.length + 1);
+      return mustTask(nextState, id);
+    });
+  }
+
+  async labelRemove(input: LabelInput): Promise<Task> {
+    return withWriteLock(this.repoRoot, async () => {
+      const { state, allEvents } = await loadProjectedState(this.repoRoot);
+      const id = mustResolveExisting(state, input.id, input.exactId);
+      const existing = mustTask(state, id);
+      const newLabels = removeLabel(existing.labels, input.label);
+      const event = makeEvent(this.actor, this.now(), "task.updated", id, { labels: newLabels });
+      const nextState = applyEvents(state, [event]);
+      await appendEvents(this.repoRoot, [event]);
+      await persistProjection(this.repoRoot, nextState, allEvents.length + 1);
+      return mustTask(nextState, id);
+    });
+  }
+
+  async labelList(): Promise<Array<{ label: string; count: number }>> {
+    const { state } = await loadProjectedState(this.repoRoot);
+    const counts = new Map<string, number>();
+    for (const task of Object.values(state.tasks)) {
+      for (const label of task.labels) {
+        counts.set(label, (counts.get(label) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()]
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }
+
+  async depTree(input: DepTreeInput): Promise<DepTreeNode> {
+    const { state } = await loadProjectedState(this.repoRoot);
+    const id = mustResolveExisting(state, input.id, input.exactId);
+    return buildDepTree(state, id, input.direction ?? "both", input.depth);
+  }
+
+  async search(input: SearchInput): Promise<Task[]> {
+    const { state } = await loadProjectedState(this.repoRoot);
+    const filter = parseQuery(input.query);
+    return sortTasks(evaluateQuery(Object.values(state.tasks), filter, state));
   }
 }
 
@@ -636,6 +711,9 @@ function applyListFilter(tasks: Task[], filter: ListFilter): Task[] {
       return false;
     }
     if (filter.kind && task.kind !== filter.kind) {
+      return false;
+    }
+    if (filter.label && !task.labels.includes(filter.label)) {
       return false;
     }
     return true;

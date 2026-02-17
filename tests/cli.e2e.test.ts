@@ -447,13 +447,14 @@ describe("cli e2e", () => {
     expect(listed.stdout.includes(closedTask.id)).toBe(true);
   });
 
-  it("returns validation error for list --full --json without tree mode", async () => {
+  it("returns validation error for list --full without tree mode", async () => {
     const repo = await makeRepo();
     await runJson(repo, ["init"]);
 
-    const listed = await runCli(repo, ["list", "--full", "--json"]);
+    const listed = await runJson(repo, ["list", "--full"]);
     expect(listed.exitCode).toBe(1);
-    expect(listed.stderr.includes("VALIDATION_ERROR")).toBe(true);
+    expect(listed.envelope.ok).toBe(false);
+    expect(listed.envelope.error?.code).toBe("VALIDATION_ERROR");
   });
 
   it("installs skill files for all targets using override directories", async () => {

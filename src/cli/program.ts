@@ -165,9 +165,6 @@ export function buildProgram(deps: RuntimeDeps): Command {
     .option("--full", "with --tree, include closed/blocked/canceled items")
     .description("List tasks")
     .action(async function action(options: ListCommandOptions) {
-      if (options.full && !options.tree) {
-        throw new TsqError("VALIDATION_ERROR", "--full requires --tree", 1);
-      }
       const filter = parseListFilter(options);
       if (options.tree) {
         await runAction(
@@ -181,10 +178,19 @@ export function buildProgram(deps: RuntimeDeps): Command {
         return;
       }
 
-      await runAction(this, async () => deps.service.list(filter), {
-        jsonData: (tasks) => ({ tasks }),
-        human: (tasks) => printTaskList(tasks),
-      });
+      await runAction(
+        this,
+        async () => {
+          if (options.full) {
+            throw new TsqError("VALIDATION_ERROR", "--full requires --tree", 1);
+          }
+          return deps.service.list(filter);
+        },
+        {
+          jsonData: (tasks) => ({ tasks }),
+          human: (tasks) => printTaskList(tasks),
+        },
+      );
     });
 
   program

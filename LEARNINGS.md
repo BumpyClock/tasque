@@ -18,6 +18,7 @@
 - `resolveTaskId` throws `TASK_NOT_FOUND`, not `NOT_FOUND`.
 - Negated search queries (`-field:value`) need a `--` separator before them due to commander treating leading `-` as option flags.
 - Commander option conflict detection (e.g. `--assignee` vs `--unassigned`) must use option events, not just value checks, to handle both `--flag value` and `--flag=value` forms consistently.
+- Lock contention timeout (`LOCK_TIMEOUT`) is a concurrency-class failure and must keep `exitCode: 3` (not IO/storage code 2).
 
 ## Build & Release
 - `bun run build` compiles a single binary; `bun run release` emits a platform artifact + `SHA256SUMS.txt` in `dist/releases/`.

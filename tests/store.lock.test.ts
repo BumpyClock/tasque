@@ -77,7 +77,7 @@ describe("store lock", () => {
 
     await expect(withWriteLock(repo, async () => {})).rejects.toMatchObject({
       code: "LOCK_TIMEOUT",
-      exitCode: 2,
+      exitCode: 3,
     });
 
     await holder;
@@ -118,6 +118,7 @@ describe("store lock", () => {
 
     await expect(withWriteLock(repo, async () => {})).rejects.toMatchObject({
       code: "LOCK_TIMEOUT",
+      exitCode: 3,
     });
 
     expect(await lockExists(repo)).toBe(true);

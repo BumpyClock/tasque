@@ -138,7 +138,7 @@ async function acquireWriteLock(lockFile: string, tasqueDir: string): Promise<Lo
       }
 
       if (Date.now() >= deadline) {
-        throw new TsqError("LOCK_TIMEOUT", "Timed out acquiring write lock", 2, {
+        throw new TsqError("LOCK_TIMEOUT", "Timed out acquiring write lock", 3, {
           lockFile,
           timeout_ms: LOCK_TIMEOUT_MS,
         });

@@ -33,6 +33,7 @@
 
 ## Build & Release
 - `bun run build` compiles a single binary; `bun run release` emits a platform artifact + `SHA256SUMS.txt` in `dist/releases/`.
+- Release automation should pass the freshly built `dist/tsq(.exe)` path into release-note generation instead of relying on `tsq` from `PATH`; this keeps GitHub runners and local environments deterministic.
 - `tsq init` skill lifecycle for agents uses managed-marker semantics: install, uninstall, idempotent update, non-managed skip unless `--force`.
 - Versioning/release planning baseline: use `package.json` as version source, surface via CLI `-V/--version`, and automate release PR/tag flow with release-please + GitHub Actions artifact publishing.
 

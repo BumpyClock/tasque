@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import packageJson from "../../package.json";
 import { TsqError } from "../errors";
 import { errEnvelope, okEnvelope } from "../output";
 import type { ActionRender, RuntimeDeps } from "./action";
@@ -18,6 +19,7 @@ export function buildProgram(deps: RuntimeDeps): Command {
   program
     .name("tsq")
     .description("Local durable task graph for coding agents")
+    .version(packageJson.version, "-V, --version", "output the current version")
     .option("--json", "emit JSON envelope")
     .option("--exact-id", "require exact task ID match");
 

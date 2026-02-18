@@ -1,5 +1,5 @@
 import type { DepDirection } from "../domain/dep-tree";
-import type { SkillOperationSummary } from "../skills/types";
+import type { SkillOperationSummary, SkillTarget } from "../skills/types";
 import type {
   EventRecord,
   Priority,

@@ -86,6 +86,17 @@ const asRelationType = (value: unknown): RelationType | undefined => {
     : undefined;
 };
 
+const eventIdentifier = (event: EventRecord): string => {
+  const id = event.id ?? event.event_id;
+  if (!id || id.length === 0) {
+    throw new TsqError("INVALID_EVENT", "event requires id", 1, {
+      type: event.type,
+      task_id: event.task_id,
+    });
+  }
+  return id;
+};
+
 const cloneState = (state: State): State => ({
   tasks: { ...state.tasks },
   deps: Object.fromEntries(Object.entries(state.deps).map(([id, deps]) => [id, [...deps]])),
@@ -173,7 +184,7 @@ const applyTaskCreated = (state: State, event: EventRecord): void => {
   const title = asString(payload.title);
   if (!title || title.length === 0) {
     throw new TsqError("INVALID_EVENT", "task.created requires a title", 1, {
-      event_id: event.event_id,
+      event_id: event.id ?? event.event_id,
     });
   }
 
@@ -221,7 +232,7 @@ const applyTaskUpdated = (state: State, event: EventRecord): void => {
   if (title !== undefined) {
     if (title.length === 0) {
       throw new TsqError("INVALID_EVENT", "task.updated title must not be empty", 1, {
-        event_id: event.event_id,
+        event_id: event.id ?? event.event_id,
       });
     }
     next.title = title;
@@ -246,7 +257,7 @@ const applyTaskUpdated = (state: State, event: EventRecord): void => {
   if (duplicateOf !== undefined) {
     if (duplicateOf === event.task_id) {
       throw new TsqError("INVALID_EVENT", "task.updated duplicate_of cannot reference itself", 1, {
-        event_id: event.event_id,
+        event_id: event.id ?? event.event_id,
       });
     }
     next.duplicate_of = duplicateOf;
@@ -261,7 +272,7 @@ const applyTaskUpdated = (state: State, event: EventRecord): void => {
       "task.updated cannot combine description with clear_description",
       1,
       {
-        event_id: event.event_id,
+        event_id: event.id ?? event.event_id,
       },
     );
   }
@@ -277,7 +288,7 @@ const applyTaskUpdated = (state: State, event: EventRecord): void => {
       "task.updated cannot combine external_ref with clear_external_ref",
       1,
       {
-        event_id: event.event_id,
+        event_id: event.id ?? event.event_id,
       },
     );
   }
@@ -299,7 +310,7 @@ const applyTaskStatusSet = (state: State, event: EventRecord): void => {
   const status = asTaskStatus(payload.status);
   if (!status) {
     throw new TsqError("INVALID_EVENT", "task.status_set requires a valid status", 1, {
-      event_id: event.event_id,
+      event_id: event.id ?? event.event_id,
     });
   }
   if (TERMINAL_STATUSES.includes(current.status) && status === "in_progress") {
@@ -307,7 +318,7 @@ const applyTaskStatusSet = (state: State, event: EventRecord): void => {
       "INVALID_TRANSITION",
       `cannot transition from ${current.status} to in_progress`,
       1,
-      { event_id: event.event_id, from: current.status, to: status },
+      { event_id: event.id ?? event.event_id, from: current.status, to: status },
     );
   }
   const closedAt = status === "closed" ? event.ts : undefined;
@@ -321,6 +332,12 @@ const applyTaskStatusSet = (state: State, event: EventRecord): void => {
 
 const applyTaskClaimed = (state: State, event: EventRecord): void => {
   const current = requireTask(state, event.task_id);
+  if (current.status === "closed" || current.status === "canceled") {
+    throw new TsqError("INVALID_TRANSITION", `cannot claim task with status ${current.status}`, 1, {
+      event_id: event.id ?? event.event_id,
+      status: current.status,
+    });
+  }
   const payload = extractPayload<TaskClaimedPayload>(event.payload);
   const assignee = asString(payload.assignee) ?? event.actor;
   const nextStatus = current.status === "open" ? "in_progress" : current.status;
@@ -338,11 +355,11 @@ const applyTaskNoted = (state: State, event: EventRecord): void => {
   const text = asString(payload.text);
   if (!text || text.length === 0) {
     throw new TsqError("INVALID_EVENT", "task.noted requires text", 1, {
-      event_id: event.event_id,
+      event_id: event.id ?? event.event_id,
     });
   }
   const note: TaskNote = {
-    event_id: event.event_id,
+    event_id: eventIdentifier(event),
     ts: event.ts,
     actor: event.actor,
     text,
@@ -367,7 +384,7 @@ const applyTaskSpecAttached = (state: State, event: EventRecord): void => {
       "INVALID_EVENT",
       "task.spec_attached requires spec_path and spec_fingerprint",
       1,
-      { event_id: event.event_id },
+      { event_id: event.id ?? event.event_id },
     );
   }
 
@@ -387,7 +404,7 @@ const applyTaskSuperseded = (state: State, event: EventRecord): void => {
   const replacement = asString(payload.with);
   if (!replacement) {
     throw new TsqError("INVALID_EVENT", "task.superseded requires replacement task", 1, {
-      event_id: event.event_id,
+      event_id: event.id ?? event.event_id,
     });
   }
   if (replacement === event.task_id) {
@@ -407,7 +424,7 @@ const applyDepAdded = (state: State, event: EventRecord): void => {
   const blocker = asString(payload.blocker);
   if (!blocker) {
     throw new TsqError("INVALID_EVENT", "dep.added requires blocker", 1, {
-      event_id: event.event_id,
+      event_id: event.id ?? event.event_id,
     });
   }
   requireTask(state, event.task_id);
@@ -424,7 +441,7 @@ const applyDepRemoved = (state: State, event: EventRecord): void => {
   const blocker = asString(payload.blocker);
   if (!blocker) {
     throw new TsqError("INVALID_EVENT", "dep.removed requires blocker", 1, {
-      event_id: event.event_id,
+      event_id: event.id ?? event.event_id,
     });
   }
   const deps = state.deps[event.task_id] ?? [];
@@ -441,7 +458,7 @@ const applyLinkAdded = (state: State, event: EventRecord): void => {
   const target = relationTarget(payload);
   if (!type || !target) {
     throw new TsqError("INVALID_EVENT", "link.added requires target and type", 1, {
-      event_id: event.event_id,
+      event_id: event.id ?? event.event_id,
     });
   }
   if (target === event.task_id) {
@@ -463,7 +480,7 @@ const applyLinkRemoved = (state: State, event: EventRecord): void => {
   const target = relationTarget(payload);
   if (!type || !target) {
     throw new TsqError("INVALID_EVENT", "link.removed requires target and type", 1, {
-      event_id: event.event_id,
+      event_id: event.id ?? event.event_id,
     });
   }
   removeDirectedLink(state.links, event.task_id, target, type);
@@ -509,7 +526,7 @@ const applyEventMut = (state: State, event: EventRecord): void => {
       break;
     default:
       throw new TsqError("INVALID_EVENT_TYPE", "Unknown event type", 1, {
-        event_id: event.event_id,
+        event_id: event.id ?? event.event_id,
         type: event.type,
       });
   }

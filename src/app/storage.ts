@@ -119,7 +119,7 @@ export async function ensureEventsFile(repoRoot: string): Promise<void> {
 
 export async function ensureTasqueGitignore(repoRoot: string): Promise<void> {
   const target = join(getPaths(repoRoot).tasqueDir, ".gitignore");
-  const desired = ["tasks.jsonl", "tasks.jsonl.tmp*", ".lock", "snapshots/", "snapshots/*.tmp"];
+  const desired = ["state.json", "state.json.tmp*", ".lock", "snapshots/", "snapshots/*.tmp"];
   try {
     await Bun.write(target, `${desired.join("\n")}\n`);
   } catch (error) {

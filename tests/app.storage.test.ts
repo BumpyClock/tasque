@@ -83,7 +83,7 @@ describe("storage adapter: persistProjection writes cache and triggers snapshot"
     const projected = applyEvents(createEmptyState(), events);
     await persistProjection(repo, projected, 1);
 
-    const cacheRaw = await readFile(join(repo, ".tasque", "tasks.jsonl"), "utf8");
+    const cacheRaw = await readFile(join(repo, ".tasque", "state.json"), "utf8");
     const cached = JSON.parse(cacheRaw);
     expect(cached.applied_events).toBe(1);
     expect(cached.tasks["tsq-ccc333"]?.title).toBe("Cache test");
@@ -118,8 +118,11 @@ describe("storage adapter: persistProjection writes cache and triggers snapshot"
     const entries = await readdir(snapshotsDir);
     const snapFiles = entries.filter((name) => name.endsWith(".json"));
     expect(snapFiles.length).toBeGreaterThanOrEqual(1);
-
-    const snapContent = JSON.parse(await readFile(join(snapshotsDir, snapFiles[0]!), "utf8"));
+    const firstSnapshot = snapFiles[0];
+    if (!firstSnapshot) {
+      throw new Error("expected at least one snapshot file");
+    }
+    const snapContent = JSON.parse(await readFile(join(snapshotsDir, firstSnapshot), "utf8"));
     expect(snapContent.event_count).toBe(2);
     expect(snapContent.state.tasks["tsq-ddd444"]).toBeDefined();
     expect(snapContent.state.tasks["tsq-eee555"]).toBeDefined();
@@ -205,6 +208,6 @@ describe("storage adapter: ensureTasqueGitignore creates expected file", () => {
     const content = await readFile(join(repo, ".tasque", ".gitignore"), "utf8");
     expect(content).toContain(".lock");
     expect(content).toContain("snapshots/");
-    expect(content).toContain("tasks.jsonl");
+    expect(content).toContain("state.json");
   });
 });

@@ -2,7 +2,7 @@ import { makeEvent } from "../domain/events";
 import { applyEvents } from "../domain/projector";
 import { assertNoDependencyCycle } from "../domain/validate";
 import { TsqError } from "../errors";
-import type { EventRecord, RelationType, Task, TaskStatus } from "../types";
+import type { EventRecord, RelationType, Task } from "../types";
 import type {
   ClaimInput,
   CloseInput,

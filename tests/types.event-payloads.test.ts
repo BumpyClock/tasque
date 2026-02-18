@@ -490,7 +490,7 @@ describe("runtime payload validation in readEvents", () => {
     const err = await readEvents(repo).catch((e) => e);
     expect(err).toBeInstanceOf(TsqError);
     expect(err.code).toBe("EVENTS_CORRUPT");
-    expect(err.message).toContain("payload must be an object");
+    expect(err.message).toContain("expected record");
   });
 
   test("accepts task.updated with empty payload (all fields optional)", async () => {

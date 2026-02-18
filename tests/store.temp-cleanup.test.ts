@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -48,7 +48,7 @@ describe("temp file cleanup on write failure", () => {
     await mkdir(tasqueDir, { recursive: true });
 
     // Make the target path a directory so rename fails
-    const stateFilePath = join(tasqueDir, "tasks.jsonl");
+    const stateFilePath = join(tasqueDir, "state.json");
     await mkdir(stateFilePath, { recursive: true });
 
     let threw = false;

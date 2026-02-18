@@ -123,7 +123,11 @@ function matchTerm(task: Task, term: QueryTerm, state: State): boolean {
         note.text.toLowerCase().includes(term.value.toLowerCase()),
       );
     case "status":
-      return task.status === term.value;
+      return (
+        task.status === term.value ||
+        (term.value === "done" && task.status === "closed") ||
+        (term.value === "todo" && task.status === "open")
+      );
     case "kind":
       return task.kind === term.value;
     case "priority":

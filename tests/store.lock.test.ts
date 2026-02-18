@@ -64,7 +64,7 @@ describe("store lock", () => {
     const result = await lockExists(repo);
     expect(result).toBe(true);
 
-    resolveInner!();
+    resolveInner?.();
     await holder;
   });
 

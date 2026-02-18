@@ -59,7 +59,7 @@ export function parsePriority(raw: string | number): 0 | 1 | 2 | 3 {
 }
 
 export function normalizeStatus(raw: string) {
-  const normalized = raw === "done" ? "closed" : raw;
+  const normalized = raw === "done" ? "closed" : raw === "todo" ? "open" : raw;
   if (
     normalized === "open" ||
     normalized === "in_progress" ||
@@ -71,7 +71,7 @@ export function normalizeStatus(raw: string) {
   }
   throw new TsqError(
     "VALIDATION_ERROR",
-    "status must be one of: open, in_progress, blocked, closed, canceled, done",
+    "status must be one of: open, todo, in_progress, blocked, closed, done, canceled",
     1,
   );
 }

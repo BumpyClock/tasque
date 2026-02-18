@@ -41,17 +41,17 @@ bun run release
 Repo-local `.tasque/`:
 
 - `events.jsonl`: canonical append-only event log.
-- `tasks.jsonl`: derived projection cache (rebuildable, gitignored).
+- `state.json`: derived projection cache (rebuildable, gitignored).
 - `snapshots/`: periodic checkpoints (gitignored by default).
 - `specs/<task-id>/spec.md`: canonical markdown specs attached to tasks.
 - `config.json`: config (`snapshot_every` default `200`).
 - `.lock`: ephemeral write lock.
-- `.gitignore`: local-only artifacts (`tasks.jsonl`, `.lock`, `snapshots/`, temp files).
+- `.gitignore`: local-only artifacts (`state.json`, `.lock`, `snapshots/`, temp files).
 
 Recommended commit policy:
 
 - Commit `.tasque/events.jsonl` and `.tasque/config.json`.
-- Do not commit `.tasque/tasks.jsonl`.
+- Do not commit `.tasque/state.json`.
 
 ## Command List
 
@@ -169,7 +169,7 @@ Error shape:
 - Lock timeout: `3s`; retry jitter: `20-80ms`.
 - Stale lock cleanup only when lock host matches current host and lock PID is dead.
 - Event appends are fsynced; event log is append-only.
-- `tasks.jsonl`, snapshots, specs, and config writes are atomic temp-write + rename.
+- `state.json`, snapshots, specs, and config writes are atomic temp-write + rename.
 - Snapshot writes keep only the latest 5 snapshot JSON files (oldest pruned best-effort).
 - Snapshot load falls back newest-to-oldest and ignores invalid snapshot files with a warning.
 - Replay recovery tolerates one malformed trailing JSONL line in `events.jsonl` (ignored with warning).

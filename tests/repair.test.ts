@@ -65,7 +65,7 @@ async function pathExists(path: string): Promise<boolean> {
 }
 
 async function injectOrphanDep(repoDir: string, child: string, blocker: string): Promise<void> {
-  const stateFile = join(repoDir, ".tasque", "tasks.jsonl");
+  const stateFile = join(repoDir, ".tasque", "state.json");
   const raw = await readFile(stateFile, "utf8");
   const state = JSON.parse(raw);
   const deps: string[] = state.deps[child] ?? [];
@@ -82,7 +82,7 @@ async function injectOrphanLink(
   target: string,
   type: string,
 ): Promise<void> {
-  const stateFile = join(repoDir, ".tasque", "tasks.jsonl");
+  const stateFile = join(repoDir, ".tasque", "state.json");
   const raw = await readFile(stateFile, "utf8");
   const state = JSON.parse(raw);
   if (!state.links[src]) {

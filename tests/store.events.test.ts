@@ -42,6 +42,7 @@ const MINIMAL_PAYLOADS: Record<EventRecord["type"], Record<string, unknown>> = {
 
 function event(id: string, type: EventRecord["type"]): EventRecord {
   return {
+    id,
     event_id: id,
     ts: "2026-02-17T00:00:00.000Z",
     actor: "test",

@@ -133,7 +133,7 @@ describe("projector claim transitions", () => {
     expect(claimed.tasks["tsq-clm003"]?.assignee).toBe("carol");
   });
 
-  test("claim on closed task preserves closed status at projector level", () => {
+  test("claim on closed task throws invalid transition", () => {
     const initial = createEmptyState();
     const withTask = applyEvents(initial, [
       event("task.created", "tsq-clm004", { title: "Closed task", kind: "task", priority: 1 }, 1),
@@ -142,17 +142,12 @@ describe("projector claim transitions", () => {
 
     expect(withTask.tasks["tsq-clm004"]?.status).toBe("closed");
 
-    // Projector doesn't reject — service layer guards this.
-    const claimed = applyEvent(
-      withTask,
-      event("task.claimed", "tsq-clm004", { assignee: "dave" }, 3),
-    );
-
-    expect(claimed.tasks["tsq-clm004"]?.status).toBe("closed");
-    expect(claimed.tasks["tsq-clm004"]?.assignee).toBe("dave");
+    expect(() =>
+      applyEvent(withTask, event("task.claimed", "tsq-clm004", { assignee: "dave" }, 3)),
+    ).toThrow(TsqError);
   });
 
-  test("claim on canceled task preserves canceled status at projector level", () => {
+  test("claim on canceled task throws invalid transition", () => {
     const initial = createEmptyState();
     const withTask = applyEvents(initial, [
       event("task.created", "tsq-clm005", { title: "Canceled task", kind: "task", priority: 1 }, 1),
@@ -161,14 +156,9 @@ describe("projector claim transitions", () => {
 
     expect(withTask.tasks["tsq-clm005"]?.status).toBe("canceled");
 
-    // Projector doesn't reject — service layer guards this.
-    const claimed = applyEvent(
-      withTask,
-      event("task.claimed", "tsq-clm005", { assignee: "eve" }, 3),
-    );
-
-    expect(claimed.tasks["tsq-clm005"]?.status).toBe("canceled");
-    expect(claimed.tasks["tsq-clm005"]?.assignee).toBe("eve");
+    expect(() =>
+      applyEvent(withTask, event("task.claimed", "tsq-clm005", { assignee: "eve" }, 3)),
+    ).toThrow(TsqError);
   });
 
   test("claim uses actor as fallback when payload has no assignee", () => {

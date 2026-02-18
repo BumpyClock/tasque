@@ -95,7 +95,7 @@ Add \`--json\` to any command for stable automation output:
 ## Restart durability
 
 - Canonical history is append-only: \`.tasque/events.jsonl\`
-- Derived cache is rebuildable: \`.tasque/tasks.jsonl\`
+- Derived cache is rebuildable: \`.tasque/state.json\`
 - State recovers by replaying snapshot + event tail after restart
 `;
 }

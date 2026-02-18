@@ -28,13 +28,13 @@ JSONL only.
 - Runtime: Bun (latest)
 - Language: TypeScript (`strict`)
 - CLI parser: `commander` (simple, stable)
-- Validation: manual type guards + `TsqError` (zod listed as dep but unused; all runtime validation uses hand-written coercion helpers in the projector and service layers)
+- Validation: `zod` + `TsqError` (event-line schema validation at JSONL parse boundaries; projector/service still perform domain validation)
 - Terminal output: `picocolors` + minimal table util
 
 ## Storage Model (JSONL)
 Repo-local `.tasque/`:
 - `.tasque/events.jsonl` (source of truth, append-only)
-- `.tasque/tasks.jsonl` (derived cache; rebuildable)
+- `.tasque/state.json` (derived cache; rebuildable)
 - `.tasque/config.json` (project settings)
 
 Each event: one JSON object/line.
@@ -56,7 +56,7 @@ Event types:
 - `link.removed`
 
 Read path:
-- load `tasks.jsonl` if present + fresh
+- load `state.json` if present + fresh
 - else replay `events.jsonl`
 - on write: append event, update cache
 
@@ -105,12 +105,12 @@ Exit codes:
 ## Concurrency + Integrity
 - single-process write lock: `.tasque/.lock` (`open wx`, short retry)
 - append-only writes
-- atomic cache writes (`tasks.jsonl.tmp` -> rename)
+- atomic cache writes (`state.json.tmp` -> rename)
 - startup recovery: ignore malformed trailing JSONL line; warn once
 
 ## Repo Conventions
 - commit `.tasque/events.jsonl` + `.tasque/config.json`
-- optional: commit `tasks.jsonl` (or regenerate in CI)
+- optional: commit `state.json` (or regenerate in CI)
 - no manual edits to generated cache
 
 ## Build Plan

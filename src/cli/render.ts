@@ -303,7 +303,8 @@ export function printHistory(data: HistoryResult): void {
     return;
   }
   for (const event of data.events) {
-    console.log(`${event.ts} ${event.type} by=${event.actor} [${event.event_id}]`);
+    const eventId = event.id ?? event.event_id ?? "unknown";
+    console.log(`${event.ts} ${event.type} by=${event.actor} [${eventId}]`);
   }
   if (data.truncated) {
     console.log(pc.dim(`(showing ${data.count}, use --limit to see more)`));

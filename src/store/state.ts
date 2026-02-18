@@ -1,4 +1,5 @@
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
+import { join } from "node:path";
 
 import { TsqError } from "../errors";
 import type { State } from "../types";
@@ -32,19 +33,24 @@ export async function writeStateCache(repoRoot: string, state: State): Promise<v
 
 export async function readStateCache(repoRoot: string): Promise<State | null> {
   const paths = getPaths(repoRoot);
-  try {
-    const raw = await readFile(paths.stateFile, "utf8");
+  const legacyStateFile = join(paths.tasqueDir, "tasks.jsonl");
+  const candidates = [paths.stateFile, legacyStateFile];
+  for (const stateFile of candidates) {
     try {
-      return JSON.parse(raw) as State;
-    } catch {
-      // Corrupt cache is silently discarded; it will be rebuilt from events
-      return null;
+      const raw = await readFile(stateFile, "utf8");
+      try {
+        return JSON.parse(raw) as State;
+      } catch {
+        // Corrupt cache is silently discarded; it will be rebuilt from events
+        return null;
+      }
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") {
+        continue;
+      }
+      throw new TsqError("STATE_READ_FAILED", "Failed reading state cache", 2, error);
     }
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ENOENT") {
-      return null;
-    }
-    throw new TsqError("STATE_READ_FAILED", "Failed reading state cache", 2, error);
   }
+  return null;
 }

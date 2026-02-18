@@ -7,7 +7,7 @@ import { appendEvents } from "../store/events";
 import { forceRemoveLock, lockExists, withWriteLock } from "../store/lock";
 import { getPaths } from "../store/paths";
 import { SNAPSHOT_RETAIN_COUNT } from "../store/snapshots";
-import type { RelationType, RepairPlan, RepairResult, State } from "../types";
+import type { EventRecord, RelationType, RepairPlan, RepairResult, State } from "../types";
 import { loadProjectedState, persistProjection } from "./state";
 
 function buildRepairPlan(

@@ -1,5 +1,4 @@
 import { buildDependentsByBlocker } from "../domain/dep-tree";
-import { applyEvents } from "../domain/projector";
 import { evaluateQuery, parseQuery } from "../domain/query";
 import { isReady, listReady } from "../domain/validate";
 import { TsqError } from "../errors";

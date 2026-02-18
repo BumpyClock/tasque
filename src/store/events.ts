@@ -1,4 +1,5 @@
 import { mkdir, open, readFile } from "node:fs/promises";
+import { z } from "zod";
 
 import { TsqError } from "../errors";
 import type { EventRecord, EventType } from "../types";
@@ -28,6 +29,30 @@ const PAYLOAD_REQUIRED_FIELDS: Record<EventType, Array<{ field: string; type: st
 
 const VALID_EVENT_TYPES = new Set<string>(Object.keys(PAYLOAD_REQUIRED_FIELDS));
 
+const RAW_EVENT_SCHEMA = z
+  .object({
+    id: z.string().min(1).optional(),
+    event_id: z.string().min(1).optional(),
+    ts: z.string().min(1),
+    actor: z.string().min(1),
+    type: z.string().min(1),
+    task_id: z.string().min(1),
+    payload: z.record(z.string(), z.unknown()),
+  })
+  .superRefine((raw, ctx) => {
+    if (!raw.id && !raw.event_id) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["id"],
+        message: 'missing required field "id" (or legacy "event_id")',
+      });
+    }
+  });
+
+function eventIdOf(raw: Pick<EventRecord, "id" | "event_id">): string | undefined {
+  return raw.id ?? raw.event_id;
+}
+
 /**
  * Validates that an event's payload contains the required fields for its type.
  * Throws `TsqError` with code `EVENTS_CORRUPT` if validation fails.
@@ -49,7 +74,7 @@ function validateEventPayload(raw: Record<string, unknown>, lineNumber: number):
       "EVENTS_CORRUPT",
       `Invalid event at line ${lineNumber}: payload must be an object`,
       2,
-      { line: lineNumber, event_id: raw.event_id },
+      { line: lineNumber, id: raw.id ?? raw.event_id },
     );
   }
 
@@ -57,12 +82,18 @@ function validateEventPayload(raw: Record<string, unknown>, lineNumber: number):
   const requiredFields = PAYLOAD_REQUIRED_FIELDS[eventType as EventType];
   for (const { field, type: expectedType } of requiredFields) {
     const value = payloadObj[field];
-    if (value === undefined || value === null || typeof value !== expectedType) {
+    const typeMismatch = expectedType === "string" ? typeof value !== "string" : true;
+    if (value === undefined || value === null || typeMismatch) {
       throw new TsqError(
         "EVENTS_CORRUPT",
         `Invalid event at line ${lineNumber}: ${eventType} payload missing required field "${field}" (expected ${expectedType})`,
         2,
-        { line: lineNumber, event_id: raw.event_id, field, expected_type: expectedType },
+        {
+          line: lineNumber,
+          id: raw.id ?? raw.event_id,
+          field,
+          expected_type: expectedType,
+        },
       );
     }
   }
@@ -122,20 +153,31 @@ export async function readEvents(
     }
 
     try {
-      const raw = JSON.parse(line) as Record<string, unknown>;
-      const REQUIRED_FIELDS = ["event_id", "ts", "actor", "type", "task_id"] as const;
-      for (const field of REQUIRED_FIELDS) {
-        if (typeof raw[field] !== "string") {
-          throw new TsqError(
-            "EVENTS_CORRUPT",
-            `Invalid event at line ${index + 1}: missing or non-string field "${field}"`,
-            2,
-            { line: index + 1, field },
-          );
-        }
+      const parsed = JSON.parse(line);
+      const validated = RAW_EVENT_SCHEMA.safeParse(parsed);
+      if (!validated.success) {
+        const issue = validated.error.issues[0];
+        throw new TsqError(
+          "EVENTS_CORRUPT",
+          `Invalid event at line ${index + 1}: ${issue?.message ?? "invalid event shape"}`,
+          2,
+          { line: index + 1, issues: validated.error.issues },
+        );
       }
-      validateEventPayload(raw, index + 1);
-      events.push(raw as unknown as EventRecord);
+      const normalizedId = validated.data.id ?? validated.data.event_id;
+      const normalized: EventRecord = {
+        ...validated.data,
+        type: validated.data.type as EventType,
+        id: normalizedId,
+        event_id: normalizedId,
+      };
+      if (!eventIdOf(normalized)) {
+        throw new TsqError("EVENTS_CORRUPT", `Invalid event at line ${index + 1}: missing id`, 2, {
+          line: index + 1,
+        });
+      }
+      validateEventPayload(normalized as unknown as Record<string, unknown>, index + 1);
+      events.push(normalized);
     } catch (error) {
       if (error instanceof TsqError) {
         throw error;

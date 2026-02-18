@@ -16,7 +16,7 @@ export function getPaths(repoRoot: string): TasquePaths {
     tasqueDir,
     eventsFile: join(tasqueDir, "events.jsonl"),
     configFile: join(tasqueDir, "config.json"),
-    stateFile: join(tasqueDir, "tasks.jsonl"),
+    stateFile: join(tasqueDir, "state.json"),
     lockFile: join(tasqueDir, ".lock"),
     snapshotsDir: join(tasqueDir, "snapshots"),
     specsDir: join(tasqueDir, "specs"),

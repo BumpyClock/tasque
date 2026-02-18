@@ -42,13 +42,14 @@ Durable across restarts and context compaction.
 ## Storage Model
 Repo-local `.tasque/`:
 - `.tasque/events.jsonl` (canonical source of truth, append-only)
-- `.tasque/tasks.jsonl` (derived cache, rebuildable, gitignored)
+- `.tasque/state.json` (derived cache, rebuildable, gitignored)
 - `.tasque/snapshots/` (replay checkpoints, local by default)
 - `.tasque/config.json` (project settings)
 - `.tasque/.lock` (ephemeral write lock)
 
 Event fields:
-- `event_id` (ULID)
+- `id` (ULID, canonical)
+- `event_id` (legacy alias accepted on read)
 - `ts` (ISO datetime)
 - `type`
 - `actor`
@@ -69,7 +70,7 @@ Event types:
 Read path:
 - load latest snapshot (if any)
 - replay event tail
-- refresh `tasks.jsonl` cache
+- refresh `state.json` cache
 
 Write path:
 - append event(s)
@@ -162,13 +163,13 @@ Error:
 - lock timeout `3s`; jitter `20-80ms`
 - stale cleanup only if same host and PID confirmed dead
 - append-only event log
-- atomic cache writes (`tasks.jsonl.tmp-*` -> rename)
+- atomic cache writes (`state.json.tmp-*` -> rename)
 - startup recovery ignores one malformed trailing JSONL line with warning
 - deterministic rebuild from snapshot + event tail
 
 ## Repo Conventions
 - commit `.tasque/events.jsonl` and `.tasque/config.json`
-- do not commit `.tasque/tasks.jsonl`
+- do not commit `.tasque/state.json`
 - snapshots optional to commit (default local-only)
 - do not manually edit generated cache files
 

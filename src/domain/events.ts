@@ -9,8 +9,10 @@ export function makeEvent<T extends EventType>(
   taskId: string,
   payload: EventPayloadMap[T],
 ): EventRecord {
+  const id = ulid();
   return {
-    event_id: ulid(),
+    id,
+    event_id: id,
     ts,
     actor,
     type,

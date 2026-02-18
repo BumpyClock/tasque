@@ -58,7 +58,10 @@ export type EventType =
 
 /** Backward-compatible untyped event record. Payload is `Record<string, unknown>`. */
 export interface EventRecord {
-  event_id: string;
+  /** Canonical event identifier field. */
+  id?: string;
+  /** Legacy alias retained for compatibility with existing logs/tools. */
+  event_id?: string;
   ts: string;
   actor: string;
   type: EventType;
@@ -146,7 +149,8 @@ export interface LinkRemovedPayload {
 // ---------------------------------------------------------------------------
 
 interface TypedEventBase {
-  event_id: string;
+  id?: string;
+  event_id?: string;
   ts: string;
   actor: string;
   task_id: string;

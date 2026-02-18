@@ -361,4 +361,45 @@ describe("cli search", () => {
     const ids = data.tasks.map((task) => task.id);
     expect(ids.includes(created.id)).toBe(true);
   });
+
+  it("search with field-prefixed quoted value matches multi-word title", async () => {
+    const repo = await makeRepo();
+    await runJson(repo, ["init"]);
+
+    const target = okData<{ task: { id: string } }>(
+      (await runJson(repo, ["create", "my special task"])).envelope,
+    ).task;
+    const other = okData<{ task: { id: string } }>(
+      (await runJson(repo, ["create", "unrelated work"])).envelope,
+    ).task;
+
+    const result = await runJson(repo, ["search", 'title:"my special"']);
+    expect(result.exitCode).toBe(0);
+    const data = okData<{ tasks: Array<{ id: string }> }>(result.envelope);
+    const ids = data.tasks.map((task) => task.id);
+    expect(ids.includes(target.id)).toBe(true);
+    expect(ids.includes(other.id)).toBe(false);
+  });
+
+  it("search with mixed field-prefixed quoted and unquoted terms works", async () => {
+    const repo = await makeRepo();
+    await runJson(repo, ["init"]);
+
+    const match = okData<{ task: { id: string } }>(
+      (await runJson(repo, ["create", "fix auth bug"])).envelope,
+    ).task;
+    const noMatch = okData<{ task: { id: string } }>(
+      (await runJson(repo, ["create", "fix auth feature"])).envelope,
+    ).task;
+
+    await runJson(repo, ["label", "add", match.id, "bug"]);
+    await runJson(repo, ["label", "add", noMatch.id, "feature"]);
+
+    const result = await runJson(repo, ["search", 'label:bug title:"fix auth"']);
+    expect(result.exitCode).toBe(0);
+    const data = okData<{ tasks: Array<{ id: string }> }>(result.envelope);
+    const ids = data.tasks.map((task) => task.id);
+    expect(ids.includes(match.id)).toBe(true);
+    expect(ids.includes(noMatch.id)).toBe(false);
+  });
 });

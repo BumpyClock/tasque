@@ -47,7 +47,7 @@ export function buildDepTree(
     throw new TsqError("NOT_FOUND", `task not found: ${rootId}`, 1);
   }
 
-  const dependentsByBlocker = buildDependentsByBlocker(state);
+  const dependentsByBlocker = buildDependentsByBlocker(state.deps);
 
   if (direction === "both") {
     const visitedUp = new Set<string>([rootId]);
@@ -167,9 +167,10 @@ function walkDown(
   return nodes;
 }
 
-function buildDependentsByBlocker(state: State): Map<string, string[]> {
+/** Build a reverse index: blocker -> list of dependents (children). */
+export function buildDependentsByBlocker(deps: State["deps"]): Map<string, string[]> {
   const map = new Map<string, string[]>();
-  for (const [child, blockers] of Object.entries(state.deps)) {
+  for (const [child, blockers] of Object.entries(deps)) {
     for (const blocker of blockers) {
       const list = map.get(blocker);
       if (list) {

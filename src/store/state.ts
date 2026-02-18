@@ -1,4 +1,4 @@
-import { mkdir, open, readFile, rename } from "node:fs/promises";
+import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 
 import { TsqError } from "../errors";
 import type { State } from "../types";
@@ -21,6 +21,11 @@ export async function writeStateCache(repoRoot: string, state: State): Promise<v
     }
     await rename(temp, paths.stateFile);
   } catch (error) {
+    try {
+      await unlink(temp);
+    } catch {
+      // best-effort cleanup
+    }
     throw new TsqError("STATE_WRITE_FAILED", "Failed writing state cache", 2, error);
   }
 }

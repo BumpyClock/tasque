@@ -21,6 +21,7 @@ import type {
   TaskCreatedPayload,
   TaskNotedPayload,
   TaskSpecAttachedPayload,
+  TaskStatusSetPayload,
   TaskSupersededPayload,
   TaskUpdatedPayload,
   TypedEventRecord,
@@ -47,6 +48,8 @@ function verifyNarrowsPayload(evt: TypedEventRecord): string {
       return evt.payload.title + evt.payload.id;
     case "task.updated":
       return String(evt.payload.title ?? "");
+    case "task.status_set":
+      return evt.payload.status;
     case "task.claimed":
       return String(evt.payload.assignee ?? "");
     case "task.noted":
@@ -74,6 +77,7 @@ const TYPE_CHECKS = [
   // EventPayloadMap maps each event type to its typed payload
   assertType<EventPayloadMap["task.created"], TaskCreatedPayload>(),
   assertType<EventPayloadMap["task.updated"], TaskUpdatedPayload>(),
+  assertType<EventPayloadMap["task.status_set"], TaskStatusSetPayload>(),
   assertType<EventPayloadMap["task.claimed"], TaskClaimedPayload>(),
   assertType<EventPayloadMap["task.noted"], TaskNotedPayload>(),
   assertType<EventPayloadMap["task.spec_attached"], TaskSpecAttachedPayload>(),
@@ -132,6 +136,7 @@ describe("typed payload compile-time checks", () => {
     const allTypes: EventType[] = [
       "task.created",
       "task.updated",
+      "task.status_set",
       "task.claimed",
       "task.noted",
       "task.spec_attached",
@@ -148,7 +153,7 @@ describe("typed payload compile-time checks", () => {
     for (const type of allTypes) {
       expect(type).toBeString();
     }
-    expect(allTypes.length).toBe(10);
+    expect(allTypes.length).toBe(11);
   });
 });
 
@@ -202,6 +207,27 @@ describe("typed payload projector integration", () => {
     expect(updated.tasks["tsq-typed2"]?.title).toBe("Updated title");
     expect(updated.tasks["tsq-typed2"]?.priority).toBe(3);
     expect(updated.tasks["tsq-typed2"]?.status).toBe("open");
+  });
+
+  test("task.status_set with typed payload transitions status", () => {
+    const withTask = applyEvent(
+      createEmptyState(),
+      event(
+        "task.created",
+        "tsq-typed3",
+        { title: "Status test", kind: "task", priority: 1, status: "open" },
+        1,
+      ),
+    );
+
+    const payload: TaskStatusSetPayload = { status: "closed" };
+    const closed = applyEvent(
+      withTask,
+      event("task.status_set", "tsq-typed3", payload as unknown as Record<string, unknown>, 2),
+    );
+
+    expect(closed.tasks["tsq-typed3"]?.status).toBe("closed");
+    expect(closed.tasks["tsq-typed3"]?.closed_at).toBeDefined();
   });
 
   test("dep.added with typed payload links dependency", () => {

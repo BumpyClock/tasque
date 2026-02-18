@@ -16,6 +16,7 @@ import type {
   TaskNotedPayload,
   TaskSpecAttachedPayload,
   TaskStatus,
+  TaskStatusSetPayload,
   TaskSupersededPayload,
   TaskUpdatedPayload,
 } from "../types";
@@ -217,16 +218,17 @@ const applyTaskUpdated = (state: State, event: EventRecord): void => {
   };
 
   const title = asString(payload.title);
-  if (title) {
+  if (title !== undefined) {
+    if (title.length === 0) {
+      throw new TsqError("INVALID_EVENT", "task.updated title must not be empty", 1, {
+        event_id: event.event_id,
+      });
+    }
     next.title = title;
   }
   const kind = asTaskKind(payload.kind);
   if (kind) {
     next.kind = kind;
-  }
-  const status = asTaskStatus(payload.status);
-  if (status) {
-    next.status = status;
   }
   const priority = asPriority(payload.priority);
   if (priority !== undefined) {
@@ -286,12 +288,35 @@ const applyTaskUpdated = (state: State, event: EventRecord): void => {
     next.external_ref = undefined;
   }
 
-  if (next.status === "closed") {
-    next.closed_at = next.closed_at ?? event.ts;
-  } else {
-    next.closed_at = undefined;
-  }
   state.tasks[event.task_id] = next;
+};
+
+const TERMINAL_STATUSES: TaskStatus[] = ["closed", "canceled"];
+
+const applyTaskStatusSet = (state: State, event: EventRecord): void => {
+  const current = requireTask(state, event.task_id);
+  const payload = extractPayload<TaskStatusSetPayload>(event.payload);
+  const status = asTaskStatus(payload.status);
+  if (!status) {
+    throw new TsqError("INVALID_EVENT", "task.status_set requires a valid status", 1, {
+      event_id: event.event_id,
+    });
+  }
+  if (TERMINAL_STATUSES.includes(current.status) && status === "in_progress") {
+    throw new TsqError(
+      "INVALID_TRANSITION",
+      `cannot transition from ${current.status} to in_progress`,
+      1,
+      { event_id: event.event_id, from: current.status, to: status },
+    );
+  }
+  const closedAt = status === "closed" ? event.ts : undefined;
+  state.tasks[event.task_id] = {
+    ...current,
+    status,
+    updated_at: event.ts,
+    closed_at: closedAt,
+  };
 };
 
 const applyTaskClaimed = (state: State, event: EventRecord): void => {
@@ -359,8 +384,7 @@ const applyTaskSpecAttached = (state: State, event: EventRecord): void => {
 const applyTaskSuperseded = (state: State, event: EventRecord): void => {
   const source = requireTask(state, event.task_id);
   const payload = extractPayload<TaskSupersededPayload>(event.payload);
-  const replacement =
-    asString(payload.with) ?? asString(payload.new_id) ?? asString(payload.target);
+  const replacement = asString(payload.with);
   if (!replacement) {
     throw new TsqError("INVALID_EVENT", "task.superseded requires replacement task", 1, {
       event_id: event.event_id,
@@ -386,6 +410,8 @@ const applyDepAdded = (state: State, event: EventRecord): void => {
       event_id: event.event_id,
     });
   }
+  requireTask(state, event.task_id);
+  requireTask(state, blocker);
   assertNoDependencyCycle(state, event.task_id, blocker);
   const deps = state.deps[event.task_id] ?? [];
   if (!deps.includes(blocker)) {
@@ -406,7 +432,7 @@ const applyDepRemoved = (state: State, event: EventRecord): void => {
 };
 
 const relationTarget = (payload: Record<string, unknown>): string | undefined => {
-  return asString(payload.target) ?? asString(payload.dst) ?? asString(payload.to);
+  return asString(payload.target);
 };
 
 const applyLinkAdded = (state: State, event: EventRecord): void => {
@@ -423,6 +449,8 @@ const applyLinkAdded = (state: State, event: EventRecord): void => {
       task_id: event.task_id,
     });
   }
+  requireTask(state, event.task_id);
+  requireTask(state, target);
   upsertDirectedLink(state.links, event.task_id, target, type);
   if (type === "relates_to") {
     upsertDirectedLink(state.links, target, event.task_id, type);
@@ -451,6 +479,9 @@ const applyEventMut = (state: State, event: EventRecord): void => {
       break;
     case "task.updated":
       applyTaskUpdated(state, event);
+      break;
+    case "task.status_set":
+      applyTaskStatusSet(state, event);
       break;
     case "task.claimed":
       applyTaskClaimed(state, event);

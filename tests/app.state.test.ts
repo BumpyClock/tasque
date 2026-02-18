@@ -47,7 +47,7 @@ describe("loadProjectedState incremental replay", () => {
       ev("task.created", "tsq-bbb222", { title: "B", kind: "task", priority: 1 }, 2),
     ];
     const secondBatch: EventRecord[] = [
-      ev("task.updated", "tsq-aaa111", { status: "in_progress" }, 3),
+      ev("task.status_set", "tsq-aaa111", { status: "in_progress" }, 3),
     ];
 
     // Write all events

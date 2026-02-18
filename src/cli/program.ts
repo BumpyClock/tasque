@@ -22,6 +22,8 @@ export function buildProgram(deps: RuntimeDeps): Command {
     .option("--exact-id", "require exact task ID match");
 
   program.hook("preAction", (_thisCommand, actionCommand) => {
+    // Reset any previously-set exit code so each command invocation starts clean.
+    process.exitCode = 0;
     const rootCmd = resolveRootCommandName(actionCommand);
     if (!INIT_SAFE_COMMANDS.has(rootCmd) && deps.findTasqueRoot() === null) {
       throw new TsqError("NOT_INITIALIZED", "No .tasque directory found. Run 'tsq init' first.", 2);

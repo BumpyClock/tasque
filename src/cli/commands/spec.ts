@@ -1,7 +1,7 @@
 import type { Command } from "commander";
-import { printTask } from "../render";
-import type { RuntimeDeps, RunAction } from "../action";
+import type { RunAction, RuntimeDeps } from "../action";
 import { type SpecAttachCommandOptions, asOptionalString } from "../parsers";
+import { printTask } from "../render";
 
 export function registerSpecCommands(
   program: Command,

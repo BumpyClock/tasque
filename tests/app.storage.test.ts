@@ -55,7 +55,7 @@ describe("storage adapter: loadProjectedState returns correct state after event 
     const events: EventRecord[] = [
       ev("task.created", "tsq-aaa111", { title: "Alpha", kind: "task", priority: 1 }, 1),
       ev("task.created", "tsq-bbb222", { title: "Beta", kind: "task", priority: 2 }, 2),
-      ev("task.updated", "tsq-aaa111", { status: "in_progress" }, 3),
+      ev("task.status_set", "tsq-aaa111", { status: "in_progress" }, 3),
     ];
     await appendEvents(repo, events);
 

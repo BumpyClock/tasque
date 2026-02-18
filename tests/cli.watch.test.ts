@@ -216,4 +216,24 @@ describe("tsq watch", () => {
     const data = envelope.data as WatchFrameData;
     expect(data.interval_s).toBe(10);
   });
+
+  it("--once --json validation error produces consistent error envelope", async () => {
+    const repo = await makeRepo();
+    await initRepo(repo);
+
+    const { exitCode, envelope } = await runJson(repo, ["watch", "--once", "--interval", "0"]);
+    expect(exitCode).toBe(1);
+    expect(envelope.ok).toBe(false);
+    expect(envelope.error?.code).toBe("VALIDATION_ERROR");
+    expect(envelope.error?.message).toContain("interval");
+  });
+
+  it("--once human validation error uses VALIDATION_ERROR code", async () => {
+    const repo = await makeRepo();
+    await initRepo(repo);
+
+    const result = await runCli(repo, ["watch", "--once", "--interval", "abc"]);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("VALIDATION_ERROR");
+  });
 });

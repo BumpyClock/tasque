@@ -258,4 +258,51 @@ describe("cli dep tree", () => {
     expect(result.stdout.includes(taskA)).toBe(true);
     expect(result.stdout.includes(taskB)).toBe(true);
   });
+
+  it("dep tree rejects non-numeric --depth with validation error", async () => {
+    const repo = await makeRepo();
+    await initRepo(repo);
+
+    const taskA = await createTask(repo, "Depth validation A");
+
+    const result = await runJson(repo, ["dep", "tree", taskA, "--depth", "foo"]);
+    expect(result.exitCode).toBe(1);
+    expect(result.envelope.ok).toBe(false);
+    expect(result.envelope.error?.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("dep tree rejects negative --depth with validation error", async () => {
+    const repo = await makeRepo();
+    await initRepo(repo);
+
+    const taskA = await createTask(repo, "Depth validation B");
+
+    const result = await runJson(repo, ["dep", "tree", taskA, "--depth", "-1"]);
+    expect(result.exitCode).toBe(1);
+    expect(result.envelope.ok).toBe(false);
+    expect(result.envelope.error?.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("dep tree rejects zero --depth with validation error", async () => {
+    const repo = await makeRepo();
+    await initRepo(repo);
+
+    const taskA = await createTask(repo, "Depth validation C");
+
+    const result = await runJson(repo, ["dep", "tree", taskA, "--depth", "0"]);
+    expect(result.exitCode).toBe(1);
+    expect(result.envelope.ok).toBe(false);
+    expect(result.envelope.error?.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("dep tree accepts valid positive --depth", async () => {
+    const repo = await makeRepo();
+    await initRepo(repo);
+
+    const taskA = await createTask(repo, "Depth validation D");
+
+    const result = await runJson(repo, ["dep", "tree", taskA, "--depth", "5"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.envelope.ok).toBe(true);
+  });
 });

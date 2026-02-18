@@ -1,4 +1,4 @@
-import { mkdir, open, readFile, rename } from "node:fs/promises";
+import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 
 import { TsqError } from "../errors";
 import { type Config, SCHEMA_VERSION } from "../types";
@@ -50,6 +50,11 @@ export async function writeDefaultConfig(repoRoot: string): Promise<void> {
     }
     await rename(temp, paths.configFile);
   } catch (error) {
+    try {
+      await unlink(temp);
+    } catch {
+      // best-effort cleanup
+    }
     throw new TsqError("CONFIG_WRITE_FAILED", "Failed writing default config", 2, error);
   }
 }

@@ -46,6 +46,7 @@ export interface TaskTreeNode {
 export type EventType =
   | "task.created"
   | "task.updated"
+  | "task.status_set"
   | "task.claimed"
   | "task.noted"
   | "task.spec_attached"
@@ -84,7 +85,6 @@ export interface TaskCreatedPayload {
 
 export interface TaskUpdatedPayload {
   title?: string;
-  status?: TaskStatus;
   priority?: Priority;
   assignee?: string;
   labels?: string[];
@@ -94,8 +94,12 @@ export interface TaskUpdatedPayload {
   clear_external_ref?: boolean;
   kind?: TaskKind;
   duplicate_of?: string;
-  reason?: string;
+}
+
+export interface TaskStatusSetPayload {
+  status: TaskStatus;
   closed_at?: string;
+  reason?: string;
 }
 
 export interface TaskClaimedPayload {
@@ -151,6 +155,7 @@ interface TypedEventBase {
 export type TypedEventRecord =
   | (TypedEventBase & { type: "task.created"; payload: TaskCreatedPayload })
   | (TypedEventBase & { type: "task.updated"; payload: TaskUpdatedPayload })
+  | (TypedEventBase & { type: "task.status_set"; payload: TaskStatusSetPayload })
   | (TypedEventBase & { type: "task.claimed"; payload: TaskClaimedPayload })
   | (TypedEventBase & { type: "task.noted"; payload: TaskNotedPayload })
   | (TypedEventBase & { type: "task.spec_attached"; payload: TaskSpecAttachedPayload })
@@ -164,6 +169,7 @@ export type TypedEventRecord =
 export type EventPayloadMap = {
   "task.created": TaskCreatedPayload;
   "task.updated": TaskUpdatedPayload;
+  "task.status_set": TaskStatusSetPayload;
   "task.claimed": TaskClaimedPayload;
   "task.noted": TaskNotedPayload;
   "task.spec_attached": TaskSpecAttachedPayload;

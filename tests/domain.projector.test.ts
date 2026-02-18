@@ -52,7 +52,7 @@ describe("projector applyEvents parity", () => {
     const events: EventRecord[] = [
       event("task.created", "tsq-aaa111", { title: "A", kind: "task", priority: 1 }, 1),
       event("task.created", "tsq-bbb222", { title: "B", kind: "feature", priority: 2 }, 2),
-      event("task.updated", "tsq-aaa111", { status: "in_progress" }, 3),
+      event("task.status_set", "tsq-aaa111", { status: "in_progress" }, 3),
       event("dep.added", "tsq-bbb222", { blocker: "tsq-aaa111" }, 4),
       event("link.added", "tsq-aaa111", { target: "tsq-bbb222", type: "relates_to" }, 5),
       event("task.claimed", "tsq-aaa111", { assignee: "alice" }, 6),
@@ -99,7 +99,7 @@ describe("projector claim transitions", () => {
     const initial = createEmptyState();
     const withTask = applyEvents(initial, [
       event("task.created", "tsq-clm002", { title: "Started task", kind: "task", priority: 1 }, 1),
-      event("task.updated", "tsq-clm002", { status: "in_progress" }, 2),
+      event("task.status_set", "tsq-clm002", { status: "in_progress" }, 2),
     ]);
 
     expect(withTask.tasks["tsq-clm002"]?.status).toBe("in_progress");
@@ -117,7 +117,7 @@ describe("projector claim transitions", () => {
     const initial = createEmptyState();
     const withTask = applyEvents(initial, [
       event("task.created", "tsq-clm003", { title: "Blocked task", kind: "task", priority: 1 }, 1),
-      event("task.updated", "tsq-clm003", { status: "blocked" }, 2),
+      event("task.status_set", "tsq-clm003", { status: "blocked" }, 2),
     ]);
 
     expect(withTask.tasks["tsq-clm003"]?.status).toBe("blocked");
@@ -137,7 +137,7 @@ describe("projector claim transitions", () => {
     const initial = createEmptyState();
     const withTask = applyEvents(initial, [
       event("task.created", "tsq-clm004", { title: "Closed task", kind: "task", priority: 1 }, 1),
-      event("task.updated", "tsq-clm004", { status: "closed" }, 2),
+      event("task.status_set", "tsq-clm004", { status: "closed" }, 2),
     ]);
 
     expect(withTask.tasks["tsq-clm004"]?.status).toBe("closed");
@@ -156,7 +156,7 @@ describe("projector claim transitions", () => {
     const initial = createEmptyState();
     const withTask = applyEvents(initial, [
       event("task.created", "tsq-clm005", { title: "Canceled task", kind: "task", priority: 1 }, 1),
-      event("task.updated", "tsq-clm005", { status: "canceled" }, 2),
+      event("task.status_set", "tsq-clm005", { status: "canceled" }, 2),
     ]);
 
     expect(withTask.tasks["tsq-clm005"]?.status).toBe("canceled");
@@ -397,14 +397,18 @@ describe("projector duplicate updates", () => {
       event("dep.added", "tsq-child2", { blocker: "tsq-src001" }, 4),
     ]);
 
-    const duplicated = applyEvent(
+    const withDupField = applyEvent(
       withTasks,
-      event("task.updated", "tsq-src001", { duplicate_of: "tsq-can001", status: "closed" }, 5),
+      event("task.updated", "tsq-src001", { duplicate_of: "tsq-can001" }, 5),
+    );
+    const duplicated = applyEvent(
+      withDupField,
+      event("task.status_set", "tsq-src001", { status: "closed" }, 6),
     );
 
     expect(duplicated.tasks["tsq-src001"]?.duplicate_of).toBe("tsq-can001");
     expect(duplicated.tasks["tsq-src001"]?.status).toBe("closed");
-    expect(duplicated.tasks["tsq-src001"]?.closed_at).toBe(at(5));
+    expect(duplicated.tasks["tsq-src001"]?.closed_at).toBe(at(6));
     expect(duplicated.deps["tsq-child2"]).toEqual(["tsq-src001"]);
   });
 });
@@ -451,6 +455,409 @@ describe("projector cycle detection on dep.added", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(TsqError);
       expect((error as TsqError).code).toBe("DEPENDENCY_CYCLE");
+    }
+  });
+});
+
+describe("projector dep/link target validation", () => {
+  test("dep.added rejects missing child task", () => {
+    const withTask = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-dep001", { title: "Blocker", kind: "task", priority: 1 }, 1),
+    ]);
+
+    try {
+      applyEvent(withTask, event("dep.added", "tsq-missing", { blocker: "tsq-dep001" }, 2));
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(TsqError);
+      expect((error as TsqError).code).toBe("TASK_NOT_FOUND");
+    }
+  });
+
+  test("dep.added rejects missing blocker task", () => {
+    const withTask = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-dep002", { title: "Child", kind: "task", priority: 1 }, 1),
+    ]);
+
+    try {
+      applyEvent(withTask, event("dep.added", "tsq-dep002", { blocker: "tsq-missing" }, 2));
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(TsqError);
+      expect((error as TsqError).code).toBe("TASK_NOT_FOUND");
+    }
+  });
+
+  test("dep.added succeeds when both child and blocker exist", () => {
+    const withTasks = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-dep003", { title: "Child", kind: "task", priority: 1 }, 1),
+      event("task.created", "tsq-dep004", { title: "Blocker", kind: "task", priority: 1 }, 2),
+    ]);
+
+    const result = applyEvent(
+      withTasks,
+      event("dep.added", "tsq-dep003", { blocker: "tsq-dep004" }, 3),
+    );
+
+    expect(result.deps["tsq-dep003"]).toEqual(["tsq-dep004"]);
+  });
+
+  test("link.added rejects missing source task", () => {
+    const withTask = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-lnk001", { title: "Target", kind: "task", priority: 1 }, 1),
+    ]);
+
+    try {
+      applyEvent(
+        withTask,
+        event("link.added", "tsq-missing", { target: "tsq-lnk001", type: "relates_to" }, 2),
+      );
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(TsqError);
+      expect((error as TsqError).code).toBe("TASK_NOT_FOUND");
+    }
+  });
+
+  test("link.added rejects missing target task", () => {
+    const withTask = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-lnk002", { title: "Source", kind: "task", priority: 1 }, 1),
+    ]);
+
+    try {
+      applyEvent(
+        withTask,
+        event("link.added", "tsq-lnk002", { target: "tsq-missing", type: "relates_to" }, 2),
+      );
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(TsqError);
+      expect((error as TsqError).code).toBe("TASK_NOT_FOUND");
+    }
+  });
+
+  test("link.added succeeds when both source and target exist", () => {
+    const withTasks = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-lnk003", { title: "Source", kind: "task", priority: 1 }, 1),
+      event("task.created", "tsq-lnk004", { title: "Target", kind: "task", priority: 1 }, 2),
+    ]);
+
+    const result = applyEvent(
+      withTasks,
+      event("link.added", "tsq-lnk003", { target: "tsq-lnk004", type: "relates_to" }, 3),
+    );
+
+    expect(result.links["tsq-lnk003"]?.relates_to).toEqual(["tsq-lnk004"]);
+    expect(result.links["tsq-lnk004"]?.relates_to).toEqual(["tsq-lnk003"]);
+  });
+
+  test("valid historical logs with deps and links still replay successfully", () => {
+    const events: EventRecord[] = [
+      event("task.created", "tsq-hist01", { title: "A", kind: "task", priority: 1 }, 1),
+      event("task.created", "tsq-hist02", { title: "B", kind: "task", priority: 1 }, 2),
+      event("task.created", "tsq-hist03", { title: "C", kind: "task", priority: 1 }, 3),
+      event("dep.added", "tsq-hist02", { blocker: "tsq-hist01" }, 4),
+      event("link.added", "tsq-hist01", { target: "tsq-hist03", type: "relates_to" }, 5),
+      event("link.added", "tsq-hist02", { target: "tsq-hist03", type: "duplicates" }, 6),
+    ];
+
+    const result = applyEvents(createEmptyState(), events);
+
+    expect(result.deps["tsq-hist02"]).toEqual(["tsq-hist01"]);
+    expect(result.links["tsq-hist01"]?.relates_to).toEqual(["tsq-hist03"]);
+    expect(result.links["tsq-hist02"]?.duplicates).toEqual(["tsq-hist03"]);
+  });
+});
+
+describe("projector empty title validation", () => {
+  test("task.updated with empty string title throws validation error", () => {
+    const withTask = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-ttl001", { title: "Original", kind: "task", priority: 1 }, 1),
+    ]);
+
+    try {
+      applyEvent(withTask, event("task.updated", "tsq-ttl001", { title: "" }, 2));
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(TsqError);
+      expect((error as TsqError).code).toBe("INVALID_EVENT");
+      expect((error as TsqError).message).toContain("empty");
+    }
+  });
+
+  test("task.updated with non-empty title applies correctly", () => {
+    const withTask = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-ttl002", { title: "Original", kind: "task", priority: 1 }, 1),
+    ]);
+
+    const updated = applyEvent(
+      withTask,
+      event("task.updated", "tsq-ttl002", { title: "Updated title" }, 2),
+    );
+
+    expect(updated.tasks["tsq-ttl002"]?.title).toBe("Updated title");
+  });
+
+  test("task.updated without title field preserves existing title", () => {
+    const withTask = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-ttl003", { title: "Keep me", kind: "task", priority: 1 }, 1),
+    ]);
+
+    const updated = applyEvent(withTask, event("task.updated", "tsq-ttl003", { priority: 2 }, 2));
+
+    expect(updated.tasks["tsq-ttl003"]?.title).toBe("Keep me");
+  });
+});
+
+describe("projector task.status_set transitions", () => {
+  test("task.status_set rejects closed to in_progress transition", () => {
+    const withTask = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-cls001", { title: "Closed task", kind: "task", priority: 1 }, 1),
+      event("task.status_set", "tsq-cls001", { status: "closed" }, 2),
+    ]);
+
+    try {
+      applyEvent(withTask, event("task.status_set", "tsq-cls001", { status: "in_progress" }, 3));
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(TsqError);
+      expect((error as TsqError).code).toBe("INVALID_TRANSITION");
+    }
+  });
+
+  test("task.status_set allows closed to open (reopen path)", () => {
+    const withTask = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-cls002", { title: "Closed task", kind: "task", priority: 1 }, 1),
+      event("task.status_set", "tsq-cls002", { status: "closed" }, 2),
+    ]);
+
+    const reopened = applyEvent(
+      withTask,
+      event("task.status_set", "tsq-cls002", { status: "open" }, 3),
+    );
+
+    expect(reopened.tasks["tsq-cls002"]?.status).toBe("open");
+    expect(reopened.tasks["tsq-cls002"]?.closed_at).toBeUndefined();
+  });
+
+  test("task.status_set allows open to in_progress", () => {
+    const withTask = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-cls003", { title: "Open task", kind: "task", priority: 1 }, 1),
+    ]);
+
+    const updated = applyEvent(
+      withTask,
+      event("task.status_set", "tsq-cls003", { status: "in_progress" }, 2),
+    );
+
+    expect(updated.tasks["tsq-cls003"]?.status).toBe("in_progress");
+  });
+
+  test("task.status_set rejects canceled to in_progress transition", () => {
+    const withTask = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-cls004", { title: "Canceled task", kind: "task", priority: 1 }, 1),
+      event("task.status_set", "tsq-cls004", { status: "canceled" }, 2),
+    ]);
+
+    try {
+      applyEvent(withTask, event("task.status_set", "tsq-cls004", { status: "in_progress" }, 3));
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(TsqError);
+      expect((error as TsqError).code).toBe("INVALID_TRANSITION");
+    }
+  });
+
+  test("task.status_set sets closed_at when transitioning to closed", () => {
+    const withTask = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-cls005", { title: "To close", kind: "task", priority: 1 }, 1),
+    ]);
+
+    const closed = applyEvent(
+      withTask,
+      event("task.status_set", "tsq-cls005", { status: "closed" }, 2),
+    );
+
+    expect(closed.tasks["tsq-cls005"]?.status).toBe("closed");
+    expect(closed.tasks["tsq-cls005"]?.closed_at).toBe(at(2));
+    expect(closed.tasks["tsq-cls005"]?.updated_at).toBe(at(2));
+  });
+
+  test("task.status_set clears closed_at when reopening", () => {
+    const withTask = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-cls006", { title: "Reopen me", kind: "task", priority: 1 }, 1),
+      event("task.status_set", "tsq-cls006", { status: "closed" }, 2),
+    ]);
+
+    expect(withTask.tasks["tsq-cls006"]?.closed_at).toBe(at(2));
+
+    const reopened = applyEvent(
+      withTask,
+      event("task.status_set", "tsq-cls006", { status: "open" }, 3),
+    );
+
+    expect(reopened.tasks["tsq-cls006"]?.status).toBe("open");
+    expect(reopened.tasks["tsq-cls006"]?.closed_at).toBeUndefined();
+  });
+
+  test("task.status_set rejects missing status", () => {
+    const withTask = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-cls007", { title: "No status", kind: "task", priority: 1 }, 1),
+    ]);
+
+    try {
+      applyEvent(withTask, event("task.status_set", "tsq-cls007", {}, 2));
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(TsqError);
+      expect((error as TsqError).code).toBe("INVALID_EVENT");
+    }
+  });
+
+  test("task.status_set rejects invalid status value", () => {
+    const withTask = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-cls008", { title: "Bad status", kind: "task", priority: 1 }, 1),
+    ]);
+
+    try {
+      applyEvent(withTask, event("task.status_set", "tsq-cls008", { status: "invalid" }, 2));
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(TsqError);
+      expect((error as TsqError).code).toBe("INVALID_EVENT");
+    }
+  });
+});
+
+describe("projector supersede canonical field only", () => {
+  test("task.superseded accepts canonical 'with' field", () => {
+    const withTasks = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-sup001", { title: "Old", kind: "task", priority: 1 }, 1),
+      event("task.created", "tsq-sup002", { title: "New", kind: "task", priority: 1 }, 2),
+    ]);
+
+    const result = applyEvent(
+      withTasks,
+      event("task.superseded", "tsq-sup001", { with: "tsq-sup002" }, 3),
+    );
+
+    expect(result.tasks["tsq-sup001"]?.status).toBe("closed");
+    expect(result.tasks["tsq-sup001"]?.superseded_by).toBe("tsq-sup002");
+  });
+
+  test("task.superseded rejects payload with only 'new_id' fallback", () => {
+    const withTasks = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-sup003", { title: "Old", kind: "task", priority: 1 }, 1),
+      event("task.created", "tsq-sup004", { title: "New", kind: "task", priority: 1 }, 2),
+    ]);
+
+    try {
+      applyEvent(withTasks, event("task.superseded", "tsq-sup003", { new_id: "tsq-sup004" }, 3));
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(TsqError);
+      expect((error as TsqError).code).toBe("INVALID_EVENT");
+    }
+  });
+
+  test("task.superseded rejects payload with only 'target' fallback", () => {
+    const withTasks = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-sup005", { title: "Old", kind: "task", priority: 1 }, 1),
+      event("task.created", "tsq-sup006", { title: "New", kind: "task", priority: 1 }, 2),
+    ]);
+
+    try {
+      applyEvent(withTasks, event("task.superseded", "tsq-sup005", { target: "tsq-sup006" }, 3));
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(TsqError);
+      expect((error as TsqError).code).toBe("INVALID_EVENT");
+    }
+  });
+
+  test("task.superseded rejects empty payload", () => {
+    const withTasks = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-sup007", { title: "Old", kind: "task", priority: 1 }, 1),
+      event("task.created", "tsq-sup008", { title: "New", kind: "task", priority: 1 }, 2),
+    ]);
+
+    try {
+      applyEvent(withTasks, event("task.superseded", "tsq-sup007", {}, 3));
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(TsqError);
+      expect((error as TsqError).code).toBe("INVALID_EVENT");
+    }
+  });
+});
+
+describe("projector link target canonical field only", () => {
+  test("link.added accepts canonical 'target' field", () => {
+    const withTasks = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-rel001", { title: "A", kind: "task", priority: 1 }, 1),
+      event("task.created", "tsq-rel002", { title: "B", kind: "task", priority: 1 }, 2),
+    ]);
+
+    const result = applyEvent(
+      withTasks,
+      event("link.added", "tsq-rel001", { target: "tsq-rel002", type: "relates_to" }, 3),
+    );
+
+    expect(result.links["tsq-rel001"]?.relates_to).toEqual(["tsq-rel002"]);
+  });
+
+  test("link.added rejects payload with only 'dst' fallback", () => {
+    const withTasks = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-rel003", { title: "A", kind: "task", priority: 1 }, 1),
+      event("task.created", "tsq-rel004", { title: "B", kind: "task", priority: 1 }, 2),
+    ]);
+
+    try {
+      applyEvent(
+        withTasks,
+        event("link.added", "tsq-rel003", { dst: "tsq-rel004", type: "relates_to" }, 3),
+      );
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(TsqError);
+      expect((error as TsqError).code).toBe("INVALID_EVENT");
+    }
+  });
+
+  test("link.added rejects payload with only 'to' fallback", () => {
+    const withTasks = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-rel005", { title: "A", kind: "task", priority: 1 }, 1),
+      event("task.created", "tsq-rel006", { title: "B", kind: "task", priority: 1 }, 2),
+    ]);
+
+    try {
+      applyEvent(
+        withTasks,
+        event("link.added", "tsq-rel005", { to: "tsq-rel006", type: "relates_to" }, 3),
+      );
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(TsqError);
+      expect((error as TsqError).code).toBe("INVALID_EVENT");
+    }
+  });
+
+  test("link.removed rejects payload with only 'dst' fallback", () => {
+    const withTasks = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-rel007", { title: "A", kind: "task", priority: 1 }, 1),
+      event("task.created", "tsq-rel008", { title: "B", kind: "task", priority: 1 }, 2),
+      event("link.added", "tsq-rel007", { target: "tsq-rel008", type: "relates_to" }, 3),
+    ]);
+
+    try {
+      applyEvent(
+        withTasks,
+        event("link.removed", "tsq-rel007", { dst: "tsq-rel008", type: "relates_to" }, 4),
+      );
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(TsqError);
+      expect((error as TsqError).code).toBe("INVALID_EVENT");
     }
   });
 });

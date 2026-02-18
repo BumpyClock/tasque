@@ -1,4 +1,5 @@
-import { mkdir, open, readFile, unlink } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { hostname } from "node:os";
 
 import { TsqError } from "../errors";
@@ -95,16 +96,48 @@ async function tryCleanupStaleLock(lockFile: string, currentHost: string): Promi
     return false;
   }
 
+  // Atomically rename the lock file to prevent concurrent stale-lock cleaners
+  // from both removing and reacquiring the same lock (TOCTOU race).
+  const suffix = randomBytes(4).toString("hex");
+  const tempFile = `${lockFile}.stale-${suffix}`;
   try {
-    await unlink(lockFile);
-    return true;
+    await rename(lockFile, tempFile);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT") {
+      // Another process already cleaned it up
       return true;
     }
     return false;
   }
+
+  // Verify the renamed file still contains the payload we validated as stale.
+  // If the content changed (lock was released and reacquired between our read
+  // and rename), restore it and back off.
+  let movedRaw: string;
+  try {
+    movedRaw = await readFile(tempFile, "utf8");
+  } catch {
+    return false;
+  }
+
+  if (movedRaw !== raw) {
+    // Content changed — a different lock was at this path; restore it
+    try {
+      await rename(tempFile, lockFile);
+    } catch {
+      // Best-effort restore; the temp file will be orphaned
+    }
+    return false;
+  }
+
+  // Confirmed stale — remove the temp file
+  try {
+    await unlink(tempFile);
+  } catch {
+    // Best-effort cleanup of temp file
+  }
+  return true;
 }
 
 async function acquireWriteLock(lockFile: string, tasqueDir: string): Promise<LockPayload> {
@@ -130,7 +163,9 @@ async function acquireWriteLock(lockFile: string, tasqueDir: string): Promise<Lo
       return payload;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "EEXIST") {
+      // EEXIST: lock file already exists (normal contention)
+      // EPERM: on Windows, transient during concurrent rename/create operations
+      if (code !== "EEXIST" && code !== "EPERM") {
         throw new TsqError("LOCK_ACQUIRE_FAILED", "Failed to acquire write lock", 2, error);
       }
 
@@ -228,9 +263,24 @@ export async function lockExists(repoRoot: string): Promise<boolean> {
 export async function withWriteLock<T>(repoRoot: string, fn: () => Promise<T>): Promise<T> {
   const paths = getPaths(repoRoot);
   const lock = await acquireWriteLock(paths.lockFile, paths.tasqueDir);
+
+  let result: T;
   try {
-    return await fn();
-  } finally {
-    await releaseWriteLock(paths.lockFile, lock);
+    result = await fn();
+  } catch (callbackError) {
+    // Callback failed — attempt release, then surface both errors if release also fails
+    try {
+      await releaseWriteLock(paths.lockFile, lock);
+    } catch (releaseError) {
+      throw new AggregateError(
+        [callbackError, releaseError],
+        "Both callback and lock release failed",
+      );
+    }
+    throw callbackError;
   }
+
+  // Callback succeeded — release (release errors propagate directly)
+  await releaseWriteLock(paths.lockFile, lock);
+  return result;
 }

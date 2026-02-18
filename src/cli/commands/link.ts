@@ -1,5 +1,5 @@
 import type { Command } from "commander";
-import type { RuntimeDeps, RunAction } from "../action";
+import type { RunAction, RuntimeDeps } from "../action";
 import { parseRelationType } from "../parsers";
 
 export function registerLinkCommands(

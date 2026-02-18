@@ -6,6 +6,7 @@ import { TsqError } from "./errors";
 import { errEnvelope } from "./output";
 
 async function main(): Promise<void> {
+  process.exitCode = 0;
   const repoRoot = getRepoRoot();
   const actor = getActor(repoRoot);
   const service = new TasqueService(repoRoot, actor, nowIso);

@@ -1,33 +1,18 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { ulid } from "ulid";
 import { buildDepTree } from "../domain/dep-tree";
-import type { DepDirection, DepTreeNode } from "../domain/dep-tree";
-import { makeRootId, nextChildId } from "../domain/ids";
+import { makeEvent } from "../domain/events";
+import { nextChildId } from "../domain/ids";
 import { addLabel, removeLabel } from "../domain/labels";
 import { applyEvents } from "../domain/projector";
-import { evaluateQuery, parseQuery } from "../domain/query";
-import { resolveTaskId } from "../domain/resolve";
-import { assertNoDependencyCycle, isReady, listReady } from "../domain/validate";
 import { TsqError } from "../errors";
 import { applySkillOperation } from "../skills";
-import type { SkillOperationSummary, SkillTarget } from "../skills/types";
-import type {
-  EventPayloadMap,
-  EventRecord,
-  EventType,
-  Priority,
-  RelationType,
-  RepairResult,
-  State,
-  Task,
-  TaskKind,
-  TaskNote,
-  TaskStatus,
-  TaskTreeNode,
-  TaskUpdatedPayload,
-} from "../types";
+import type { EventRecord, RepairResult, Task, TaskStatus, TaskUpdatedPayload } from "../types";
 import { executeRepair } from "./repair";
+import * as lifecycle from "./service-lifecycle";
+import * as query from "./service-query";
+import type { ServiceContext } from "./service-types";
+import { mustResolveExisting, mustTask, uniqueRootId } from "./service-utils";
 import {
   appendEvents,
   ensureEventsFile,
@@ -43,221 +28,40 @@ import {
   writeDefaultConfig,
   writeTaskSpecAtomic,
 } from "./storage";
-import type { SpecCheckResult } from "./storage";
 
-export interface InitResult {
-  initialized: boolean;
-  files: string[];
-  skill_operation?: SkillOperationSummary;
-}
-
-export interface InitInput {
-  installSkill?: boolean;
-  uninstallSkill?: boolean;
-  skillTargets?: SkillTarget[];
-  skillName?: string;
-  forceSkillOverwrite?: boolean;
-  skillDirClaude?: string;
-  skillDirCodex?: string;
-  skillDirCopilot?: string;
-  skillDirOpencode?: string;
-}
-
-export interface CreateInput {
-  title: string;
-  kind: TaskKind;
-  priority: Priority;
-  description?: string;
-  externalRef?: string;
-  parent?: string;
-  exactId?: boolean;
-}
-
-export interface UpdateInput {
-  id: string;
-  title?: string;
-  description?: string;
-  clearDescription?: boolean;
-  externalRef?: string;
-  clearExternalRef?: boolean;
-  status?: TaskStatus;
-  priority?: Priority;
-  exactId?: boolean;
-}
-
-export interface ClaimInput {
-  id: string;
-  assignee?: string;
-  requireSpec?: boolean;
-  exactId?: boolean;
-}
-
-export interface LinkInput {
-  src: string;
-  dst: string;
-  type: RelationType;
-  exactId?: boolean;
-}
-
-export interface DepInput {
-  child: string;
-  blocker: string;
-  exactId?: boolean;
-}
-
-export interface SupersedeInput {
-  source: string;
-  withId: string;
-  reason?: string;
-  exactId?: boolean;
-}
-
-export interface DuplicateInput {
-  source: string;
-  canonical: string;
-  reason?: string;
-  exactId?: boolean;
-}
-
-export interface CloseInput {
-  ids: string[];
-  reason?: string;
-  exactId?: boolean;
-}
-
-export interface ReopenInput {
-  ids: string[];
-  exactId?: boolean;
-}
-
-export interface HistoryInput {
-  id: string;
-  limit?: number;
-  type?: string;
-  actor?: string;
-  since?: string;
-  exactId?: boolean;
-}
-
-export interface HistoryResult {
-  events: EventRecord[];
-  count: number;
-  truncated: boolean;
-}
-
-export interface DuplicateCandidatesResult {
-  scanned: number;
-  groups: Array<{
-    key: string;
-    tasks: Task[];
-  }>;
-}
-
-export interface LabelInput {
-  id: string;
-  label: string;
-  exactId?: boolean;
-}
-
-export interface DepTreeInput {
-  id: string;
-  direction?: DepDirection;
-  depth?: number;
-  exactId?: boolean;
-}
-
-export interface NoteAddInput {
-  id: string;
-  text: string;
-  exactId?: boolean;
-}
-
-export interface NoteListInput {
-  id: string;
-  exactId?: boolean;
-}
-
-/** Input for attaching a markdown spec to a task. */
-export interface SpecAttachInput {
-  id: string;
-  file?: string;
-  source?: string;
-  text?: string;
-  stdin?: boolean;
-  force?: boolean;
-  exactId?: boolean;
-}
-
-export interface SpecCheckInput {
-  id: string;
-  exactId?: boolean;
-}
-
-export interface NoteAddResult {
-  task_id: string;
-  note: TaskNote;
-  notes_count: number;
-}
-
-export interface NoteListResult {
-  task_id: string;
-  notes: TaskNote[];
-}
-
-export interface SpecAttachResult {
-  task: Task;
-  spec: {
-    spec_path: string;
-    spec_fingerprint: string;
-    spec_attached_at: string;
-    spec_attached_by: string;
-    bytes: number;
-  };
-}
-
-export type { SpecCheckDiagnostic, SpecCheckResult } from "./storage";
-
-export interface SearchInput {
-  query: string;
-}
-
-/** Declarative filter applied to task listings. All fields are optional; unset fields match everything. */
-export interface ListFilter {
-  statuses?: TaskStatus[];
-  assignee?: string;
-  externalRef?: string;
-  kind?: TaskKind;
-  label?: string;
-  labelAny?: string[];
-  createdAfter?: string;
-  updatedAfter?: string;
-  closedAfter?: string;
-  unassigned?: boolean;
-  ids?: string[];
-}
-
-export interface StaleInput {
-  days: number;
-  status?: TaskStatus;
-  assignee?: string;
-}
-
-export interface StaleResult {
-  tasks: Task[];
-  days: number;
-  cutoff: string;
-  statuses: TaskStatus[];
-}
-
-export interface DoctorResult {
-  tasks: number;
-  events: number;
-  snapshot_loaded: boolean;
-  warning?: string;
-  issues: string[];
-}
-
-const DEFAULT_STALE_STATUSES: TaskStatus[] = ["open", "in_progress", "blocked"];
+// Re-export all types so existing importers continue to work
+export type {
+  ClaimInput,
+  CloseInput,
+  CreateInput,
+  DepInput,
+  DepTreeInput,
+  DoctorResult,
+  DuplicateCandidatesResult,
+  DuplicateInput,
+  HistoryInput,
+  HistoryResult,
+  InitInput,
+  InitResult,
+  LabelInput,
+  LinkInput,
+  ListFilter,
+  NoteAddInput,
+  NoteAddResult,
+  NoteListInput,
+  NoteListResult,
+  ReopenInput,
+  SearchInput,
+  SpecAttachInput,
+  SpecAttachResult,
+  SpecCheckDiagnostic,
+  SpecCheckInput,
+  SpecCheckResult,
+  StaleInput,
+  StaleResult,
+  SupersedeInput,
+  UpdateInput,
+} from "./service-types";
 
 /**
  * Core service orchestrating business logic for task management.
@@ -267,13 +71,19 @@ const DEFAULT_STALE_STATUSES: TaskStatus[] = ["open", "in_progress", "blocked"];
  *   const task = await svc.create({ title: "Fix bug", kind: "task", priority: 1 });
  */
 export class TasqueService {
+  private readonly ctx: ServiceContext;
+
   constructor(
     private readonly repoRoot: string,
     private readonly actor: string,
     private readonly now: () => string,
-  ) {}
+  ) {
+    this.ctx = { repoRoot, actor, now };
+  }
 
-  async init(input: InitInput = {}): Promise<InitResult> {
+  async init(
+    input: import("./service-types").InitInput = {},
+  ): Promise<import("./service-types").InitResult> {
     if (input.installSkill && input.uninstallSkill) {
       throw new TsqError(
         "VALIDATION_ERROR",
@@ -315,7 +125,7 @@ export class TasqueService {
     };
   }
 
-  async create(input: CreateInput): Promise<Task> {
+  async create(input: import("./service-types").CreateInput): Promise<Task> {
     return withWriteLock(this.repoRoot, async () => {
       const { state, allEvents } = await loadProjectedState(this.repoRoot);
       const parentId = input.parent
@@ -345,170 +155,31 @@ export class TasqueService {
     });
   }
 
-  async show(
-    idRaw: string,
-    exactId?: boolean,
-  ): Promise<{
-    task: Task;
-    blockers: string[];
-    dependents: string[];
-    ready: boolean;
-    links: Record<string, string[]>;
-    history: EventRecord[];
-  }> {
-    const { state, allEvents } = await loadProjectedState(this.repoRoot);
-    const id = mustResolveExisting(state, idRaw, exactId);
-    const task = mustTask(state, id);
-    const blockers = [...(state.deps[id] ?? [])];
-    const dependents = Object.entries(state.deps)
-      .filter(([, blockersForChild]) => blockersForChild.includes(id))
-      .map(([child]) => child);
-    const linksRaw = state.links[id] ?? {};
-    const links: Record<string, string[]> = {};
-    for (const [kind, values] of Object.entries(linksRaw)) {
-      links[kind] = [...(values ?? [])];
-    }
-
-    const history = allEvents.filter((evt) => {
-      if (evt.task_id === id) {
-        return true;
-      }
-      const payloadTaskIds: string[] = [];
-      for (const value of Object.values(evt.payload)) {
-        if (typeof value === "string" && value.startsWith("tsq-")) {
-          payloadTaskIds.push(value);
-        }
-      }
-      return payloadTaskIds.includes(id);
-    });
-
-    return {
-      task,
-      blockers,
-      dependents,
-      ready: isReady(state, id),
-      links,
-      history,
-    };
+  async show(idRaw: string, exactId?: boolean) {
+    return query.show(this.ctx, idRaw, exactId);
   }
 
-  async list(filter: ListFilter): Promise<Task[]> {
-    const { state } = await loadProjectedState(this.repoRoot);
-    return sortTasks(applyListFilter(Object.values(state.tasks), filter));
+  async list(filter: import("./service-types").ListFilter): Promise<Task[]> {
+    return query.list(this.ctx, filter);
   }
 
-  async stale(input: StaleInput): Promise<StaleResult> {
-    if (!Number.isInteger(input.days) || input.days < 0) {
-      throw new TsqError("VALIDATION_ERROR", "days must be an integer >= 0", 1);
-    }
-
-    const { state } = await loadProjectedState(this.repoRoot);
-    const nowValue = this.now();
-    const nowMs = Date.parse(nowValue);
-    if (!Number.isFinite(nowMs)) {
-      throw new TsqError("INTERNAL_ERROR", `invalid current timestamp: ${nowValue}`, 2);
-    }
-
-    const cutoff = new Date(nowMs - input.days * 24 * 60 * 60 * 1000).toISOString();
-    const statuses = input.status ? [input.status] : [...DEFAULT_STALE_STATUSES];
-    const tasks = Object.values(state.tasks).filter((task) => {
-      if (!statuses.includes(task.status)) {
-        return false;
-      }
-      if (input.assignee && task.assignee !== input.assignee) {
-        return false;
-      }
-      return task.updated_at <= cutoff;
-    });
-
-    return {
-      tasks: sortStaleTasks(tasks),
-      days: input.days,
-      cutoff,
-      statuses,
-    };
+  async stale(input: import("./service-types").StaleInput) {
+    return query.stale(this.ctx, input);
   }
 
-  async listTree(filter: ListFilter): Promise<TaskTreeNode[]> {
-    const { state } = await loadProjectedState(this.repoRoot);
-    const filteredTasks = applyListFilter(Object.values(state.tasks), filter);
-    const tasksById = new Map(filteredTasks.map((task) => [task.id, task]));
-    const childrenByParent = new Map<string, Task[]>();
-    const roots: Task[] = [];
-
-    for (const task of filteredTasks) {
-      const parentId = task.parent_id;
-      if (parentId && tasksById.has(parentId)) {
-        const siblings = childrenByParent.get(parentId);
-        if (siblings) {
-          siblings.push(task);
-        } else {
-          childrenByParent.set(parentId, [task]);
-        }
-        continue;
-      }
-      roots.push(task);
-    }
-
-    const dependentsByBlocker = buildDependentsByBlocker(state.deps);
-    const buildNode = (task: Task): TaskTreeNode => {
-      const blockers = sortTaskIds(state.deps[task.id] ?? []);
-      const dependents = sortTaskIds(dependentsByBlocker.get(task.id) ?? []);
-      const childTasks = sortTasks(childrenByParent.get(task.id) ?? []);
-      return {
-        task,
-        blockers,
-        dependents,
-        children: childTasks.map((child) => buildNode(child)),
-      };
-    };
-
-    return sortTasks(roots).map((task) => buildNode(task));
+  async listTree(filter: import("./service-types").ListFilter) {
+    return query.listTree(this.ctx, filter);
   }
 
   async ready(): Promise<Task[]> {
-    const { state } = await loadProjectedState(this.repoRoot);
-    return sortTasks(listReady(state));
+    return query.ready(this.ctx);
   }
 
-  async doctor(): Promise<DoctorResult> {
-    const { state, allEvents, warning, snapshot } = await loadProjectedState(this.repoRoot);
-    const issues: string[] = [];
-
-    for (const [child, blockers] of Object.entries(state.deps)) {
-      if (!state.tasks[child]) {
-        issues.push(`dependency source missing: ${child}`);
-      }
-      for (const blocker of blockers) {
-        if (!state.tasks[blocker]) {
-          issues.push(`dependency blocker missing: ${child} -> ${blocker}`);
-        }
-      }
-    }
-
-    for (const [src, rels] of Object.entries(state.links)) {
-      if (!state.tasks[src]) {
-        issues.push(`relation source missing: ${src}`);
-      }
-      for (const [kind, targets] of Object.entries(rels)) {
-        for (const target of targets ?? []) {
-          if (!state.tasks[target]) {
-            issues.push(`relation target missing: ${src} -[${kind}]-> ${target}`);
-          }
-        }
-      }
-    }
-
-    return {
-      tasks: Object.keys(state.tasks).length,
-      events: allEvents.length,
-      snapshot_loaded: Boolean(snapshot),
-      warning,
-      issues,
-    };
+  async doctor() {
+    return query.doctor(this.ctx);
   }
 
-  async update(input: UpdateInput): Promise<Task> {
+  async update(input: import("./service-types").UpdateInput): Promise<Task> {
     if (input.description !== undefined && input.clearDescription) {
       throw new TsqError(
         "VALIDATION_ERROR",
@@ -536,12 +207,6 @@ export class TasqueService {
       if (input.priority !== undefined) {
         patch.priority = input.priority;
       }
-      if (input.status !== undefined) {
-        patch.status = input.status;
-        if (input.status === "closed") {
-          patch.closed_at = this.now();
-        }
-      }
       if (input.description !== undefined) {
         patch.description = input.description;
       }
@@ -555,23 +220,39 @@ export class TasqueService {
         patch.clear_external_ref = true;
       }
 
-      if (Object.keys(patch).length === 0) {
+      const hasFieldPatch = Object.keys(patch).length > 0;
+      const hasStatusChange = input.status !== undefined;
+
+      if (!hasFieldPatch && !hasStatusChange) {
         throw new TsqError("VALIDATION_ERROR", "no update fields provided", 1);
       }
 
-      if (existing.status === "canceled" && patch.status === "in_progress") {
+      if (existing.status === "canceled" && input.status === "in_progress") {
         throw new TsqError("VALIDATION_ERROR", "cannot move canceled task to in_progress", 1);
       }
 
-      const event = makeEvent(this.actor, this.now(), "task.updated", id, patch);
-      const nextState = applyEvents(state, [event]);
-      await appendEvents(this.repoRoot, [event]);
-      await persistProjection(this.repoRoot, nextState, allEvents.length + 1);
+      const events: EventRecord[] = [];
+      if (hasFieldPatch) {
+        events.push(makeEvent(this.actor, this.now(), "task.updated", id, patch));
+      }
+      if (hasStatusChange) {
+        const ts = this.now();
+        events.push(
+          makeEvent(this.actor, ts, "task.status_set", id, {
+            status: input.status as TaskStatus,
+            closed_at: input.status === "closed" ? ts : undefined,
+          }),
+        );
+      }
+
+      const nextState = applyEvents(state, events);
+      await appendEvents(this.repoRoot, events);
+      await persistProjection(this.repoRoot, nextState, allEvents.length + events.length);
       return mustTask(nextState, id);
     });
   }
 
-  async noteAdd(input: NoteAddInput): Promise<NoteAddResult> {
+  async noteAdd(input: import("./service-types").NoteAddInput) {
     const text = input.text.trim();
     if (text.length === 0) {
       throw new TsqError("VALIDATION_ERROR", "note text must not be empty", 1);
@@ -599,7 +280,7 @@ export class TasqueService {
     });
   }
 
-  async noteList(input: NoteListInput): Promise<NoteListResult> {
+  async noteList(input: import("./service-types").NoteListInput) {
     const { state } = await loadProjectedState(this.repoRoot);
     const id = mustResolveExisting(state, input.id, input.exactId);
     const task = mustTask(state, id);
@@ -609,7 +290,7 @@ export class TasqueService {
     };
   }
 
-  async specAttach(input: SpecAttachInput): Promise<SpecAttachResult> {
+  async specAttach(input: import("./service-types").SpecAttachInput) {
     const source = resolveSpecAttachSource(input);
     const sourceContent = await readSpecAttachContent(source);
     if (sourceContent.trim().length === 0) {
@@ -660,342 +341,62 @@ export class TasqueService {
     });
   }
 
-  async specCheck(input: SpecCheckInput): Promise<SpecCheckResult> {
+  async specCheck(input: import("./service-types").SpecCheckInput) {
     const { state } = await loadProjectedState(this.repoRoot);
     const id = mustResolveExisting(state, input.id, input.exactId);
     const task = mustTask(state, id);
     return evaluateTaskSpec(this.repoRoot, id, task);
   }
 
-  async claim(input: ClaimInput): Promise<Task> {
-    return withWriteLock(this.repoRoot, async () => {
-      const { state, allEvents } = await loadProjectedState(this.repoRoot);
-      const id = mustResolveExisting(state, input.id, input.exactId);
-      const existing = mustTask(state, id);
-      const CLAIMABLE_STATUSES = ["open", "in_progress"];
-      if (!CLAIMABLE_STATUSES.includes(existing.status)) {
-        throw new TsqError(
-          "INVALID_STATUS",
-          `cannot claim task with status '${existing.status}'`,
-          1,
-        );
-      }
-      if (existing.assignee) {
-        throw new TsqError("CLAIM_CONFLICT", `task already assigned to ${existing.assignee}`, 1);
-      }
-      if (input.requireSpec) {
-        const specCheck = await evaluateTaskSpec(this.repoRoot, id, existing);
-        if (!specCheck.ok) {
-          throw new TsqError(
-            "SPEC_VALIDATION_FAILED",
-            "cannot claim task because required spec check failed",
-            1,
-            {
-              task_id: id,
-              diagnostics: specCheck.diagnostics,
-            },
-          );
-        }
-      }
-      const assignee = input.assignee ?? this.actor;
-      const event = makeEvent(this.actor, this.now(), "task.claimed", id, {
-        assignee,
-      });
-      const nextState = applyEvents(state, [event]);
-      await appendEvents(this.repoRoot, [event]);
-      await persistProjection(this.repoRoot, nextState, allEvents.length + 1);
-      return mustTask(nextState, id);
-    });
+  async claim(input: import("./service-types").ClaimInput): Promise<Task> {
+    return lifecycle.claim(this.ctx, input);
   }
 
-  async depAdd(input: DepInput): Promise<{ child: string; blocker: string }> {
-    return withWriteLock(this.repoRoot, async () => {
-      const { state, allEvents } = await loadProjectedState(this.repoRoot);
-      const child = mustResolveExisting(state, input.child, input.exactId);
-      const blocker = mustResolveExisting(state, input.blocker, input.exactId);
-      if (child === blocker) {
-        throw new TsqError("VALIDATION_ERROR", "task cannot depend on itself", 1);
-      }
-      assertNoDependencyCycle(state, child, blocker);
-      const event = makeEvent(this.actor, this.now(), "dep.added", child, {
-        blocker,
-      });
-      const nextState = applyEvents(state, [event]);
-      await appendEvents(this.repoRoot, [event]);
-      await persistProjection(this.repoRoot, nextState, allEvents.length + 1);
-      return { child, blocker };
-    });
+  async depAdd(input: import("./service-types").DepInput) {
+    return lifecycle.depAdd(this.ctx, input);
   }
 
-  async depRemove(input: DepInput): Promise<{ child: string; blocker: string }> {
-    return withWriteLock(this.repoRoot, async () => {
-      const { state, allEvents } = await loadProjectedState(this.repoRoot);
-      const child = mustResolveExisting(state, input.child, input.exactId);
-      const blocker = mustResolveExisting(state, input.blocker, input.exactId);
-      const event = makeEvent(this.actor, this.now(), "dep.removed", child, {
-        blocker,
-      });
-      const nextState = applyEvents(state, [event]);
-      await appendEvents(this.repoRoot, [event]);
-      await persistProjection(this.repoRoot, nextState, allEvents.length + 1);
-      return { child, blocker };
-    });
+  async depRemove(input: import("./service-types").DepInput) {
+    return lifecycle.depRemove(this.ctx, input);
   }
 
-  async linkAdd(input: LinkInput): Promise<{ src: string; dst: string; type: RelationType }> {
-    return withWriteLock(this.repoRoot, async () => {
-      const { state, allEvents } = await loadProjectedState(this.repoRoot);
-      const src = mustResolveExisting(state, input.src, input.exactId);
-      const dst = mustResolveExisting(state, input.dst, input.exactId);
-      if (src === dst) {
-        throw new TsqError("VALIDATION_ERROR", "self-edge not allowed", 1);
-      }
-      const event = makeEvent(this.actor, this.now(), "link.added", src, {
-        type: input.type,
-        target: dst,
-      });
-      const nextState = applyEvents(state, [event]);
-      await appendEvents(this.repoRoot, [event]);
-      await persistProjection(this.repoRoot, nextState, allEvents.length + 1);
-      return { src, dst, type: input.type };
-    });
+  async linkAdd(input: import("./service-types").LinkInput) {
+    return lifecycle.linkAdd(this.ctx, input);
   }
 
-  async linkRemove(input: LinkInput): Promise<{ src: string; dst: string; type: RelationType }> {
-    return withWriteLock(this.repoRoot, async () => {
-      const { state, allEvents } = await loadProjectedState(this.repoRoot);
-      const src = mustResolveExisting(state, input.src, input.exactId);
-      const dst = mustResolveExisting(state, input.dst, input.exactId);
-      if (src === dst) {
-        throw new TsqError("VALIDATION_ERROR", "self-edge not allowed", 1);
-      }
-      const event = makeEvent(this.actor, this.now(), "link.removed", src, {
-        type: input.type,
-        target: dst,
-      });
-      const nextState = applyEvents(state, [event]);
-      await appendEvents(this.repoRoot, [event]);
-      await persistProjection(this.repoRoot, nextState, allEvents.length + 1);
-      return { src, dst, type: input.type };
-    });
+  async linkRemove(input: import("./service-types").LinkInput) {
+    return lifecycle.linkRemove(this.ctx, input);
   }
 
-  async supersede(input: SupersedeInput): Promise<Task> {
-    return withWriteLock(this.repoRoot, async () => {
-      const { state, allEvents } = await loadProjectedState(this.repoRoot);
-      const source = mustResolveExisting(state, input.source, input.exactId);
-      const withId = mustResolveExisting(state, input.withId, input.exactId);
-      if (source === withId) {
-        throw new TsqError("VALIDATION_ERROR", "cannot supersede task with itself", 1);
-      }
-      const event = makeEvent(this.actor, this.now(), "task.superseded", source, {
-        with: withId,
-        reason: input.reason,
-      });
-      const nextState = applyEvents(state, [event]);
-      await appendEvents(this.repoRoot, [event]);
-      await persistProjection(this.repoRoot, nextState, allEvents.length + 1);
-      return mustTask(nextState, source);
-    });
+  async supersede(input: import("./service-types").SupersedeInput): Promise<Task> {
+    return lifecycle.supersede(this.ctx, input);
   }
 
-  async duplicate(input: DuplicateInput): Promise<Task> {
-    return withWriteLock(this.repoRoot, async () => {
-      const { state, allEvents } = await loadProjectedState(this.repoRoot);
-      const source = mustResolveExisting(state, input.source, input.exactId);
-      const canonical = mustResolveExisting(state, input.canonical, input.exactId);
-      if (source === canonical) {
-        throw new TsqError("VALIDATION_ERROR", "cannot mark task as duplicate of itself", 1);
-      }
-
-      const sourceTask = mustTask(state, source);
-      const canonicalTask = mustTask(state, canonical);
-      if (sourceTask.status === "canceled") {
-        throw new TsqError("INVALID_STATUS", `cannot duplicate canceled task ${source}`, 1);
-      }
-      if (canonicalTask.status === "canceled") {
-        throw new TsqError("INVALID_STATUS", `cannot use canceled canonical task ${canonical}`, 1);
-      }
-      if (sourceTask.duplicate_of && sourceTask.duplicate_of !== canonical) {
-        throw new TsqError(
-          "VALIDATION_ERROR",
-          `task ${source} is already marked as duplicate of ${sourceTask.duplicate_of}`,
-          1,
-        );
-      }
-      if (createsDuplicateCycle(state, source, canonical)) {
-        throw new TsqError(
-          "DUPLICATE_CYCLE",
-          `duplicate cycle detected: ${source} -> ${canonical}`,
-          1,
-        );
-      }
-
-      const events: EventRecord[] = [];
-      if (!hasDuplicateLink(state, source, canonical)) {
-        events.push(
-          makeEvent(this.actor, this.now(), "link.added", source, {
-            type: "duplicates",
-            target: canonical,
-          }),
-        );
-      }
-
-      const updatePayload: TaskUpdatedPayload = {
-        duplicate_of: canonical,
-        status: "closed",
-      };
-      if (input.reason) {
-        updatePayload.reason = input.reason;
-      }
-      events.push(makeEvent(this.actor, this.now(), "task.updated", source, updatePayload));
-
-      const nextState = applyEvents(state, events);
-      await appendEvents(this.repoRoot, events);
-      await persistProjection(this.repoRoot, nextState, allEvents.length + events.length);
-      return mustTask(nextState, source);
-    });
+  async duplicate(input: import("./service-types").DuplicateInput): Promise<Task> {
+    return lifecycle.duplicate(this.ctx, input);
   }
 
-  async duplicateCandidates(limit = 20): Promise<DuplicateCandidatesResult> {
-    if (!Number.isInteger(limit) || limit <= 0 || limit > 200) {
-      throw new TsqError("VALIDATION_ERROR", "limit must be an integer between 1 and 200", 1);
-    }
-
-    const { state } = await loadProjectedState(this.repoRoot);
-    const candidates = Object.values(state.tasks).filter((task) => {
-      if (task.status === "closed" || task.status === "canceled") {
-        return false;
-      }
-      return !task.duplicate_of;
-    });
-
-    const groups = new Map<string, Task[]>();
-    for (const task of candidates) {
-      const key = normalizeDuplicateTitle(task.title);
-      if (key.length < 4) {
-        continue;
-      }
-      const grouped = groups.get(key);
-      if (grouped) {
-        grouped.push(task);
-      } else {
-        groups.set(key, [task]);
-      }
-    }
-
-    const grouped = [...groups.entries()]
-      .filter(([, tasks]) => tasks.length > 1)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .slice(0, limit)
-      .map(([key, tasks]) => ({
-        key,
-        tasks: sortTasks(tasks),
-      }));
-
-    return {
-      scanned: candidates.length,
-      groups: grouped,
-    };
+  async duplicateCandidates(limit = 20) {
+    return lifecycle.duplicateCandidates(this.ctx, limit);
   }
 
-  async repair(opts: {
-    fix: boolean;
-    forceUnlock: boolean;
-  }): Promise<RepairResult> {
+  async repair(opts: { fix: boolean; forceUnlock: boolean }): Promise<RepairResult> {
     return executeRepair(this.repoRoot, this.actor, this.now, opts);
   }
 
-  async close(input: CloseInput): Promise<Task[]> {
-    return withWriteLock(this.repoRoot, async () => {
-      const { state, allEvents } = await loadProjectedState(this.repoRoot);
-      const resolvedIds = input.ids.map((id) => mustResolveExisting(state, id, input.exactId));
-      const events: EventRecord[] = [];
-
-      for (const id of resolvedIds) {
-        const existing = mustTask(state, id);
-        if (existing.status === "closed") {
-          throw new TsqError("VALIDATION_ERROR", `task ${id} is already closed`, 1);
-        }
-        if (existing.status === "canceled") {
-          throw new TsqError("VALIDATION_ERROR", `cannot close canceled task ${id}`, 1);
-        }
-        const payload: TaskUpdatedPayload = { status: "closed" };
-        if (input.reason) {
-          payload.reason = input.reason;
-        }
-        events.push(makeEvent(this.actor, this.now(), "task.updated", id, payload));
-      }
-
-      const nextState = applyEvents(state, events);
-      await appendEvents(this.repoRoot, events);
-      await persistProjection(this.repoRoot, nextState, allEvents.length + events.length);
-      return resolvedIds.map((id) => mustTask(nextState, id));
-    });
+  async close(input: import("./service-types").CloseInput): Promise<Task[]> {
+    return lifecycle.close(this.ctx, input);
   }
 
-  async reopen(input: ReopenInput): Promise<Task[]> {
-    return withWriteLock(this.repoRoot, async () => {
-      const { state, allEvents } = await loadProjectedState(this.repoRoot);
-      const resolvedIds = input.ids.map((id) => mustResolveExisting(state, id, input.exactId));
-      const events: EventRecord[] = [];
-
-      for (const id of resolvedIds) {
-        const existing = mustTask(state, id);
-        if (existing.status !== "closed") {
-          throw new TsqError(
-            "VALIDATION_ERROR",
-            `cannot reopen task ${id} with status ${existing.status}`,
-            1,
-          );
-        }
-        events.push(
-          makeEvent(this.actor, this.now(), "task.updated", id, {
-            status: "open",
-          }),
-        );
-      }
-
-      const nextState = applyEvents(state, events);
-      await appendEvents(this.repoRoot, events);
-      await persistProjection(this.repoRoot, nextState, allEvents.length + events.length);
-      return resolvedIds.map((id) => mustTask(nextState, id));
-    });
+  async reopen(input: import("./service-types").ReopenInput): Promise<Task[]> {
+    return lifecycle.reopen(this.ctx, input);
   }
 
-  async history(input: HistoryInput): Promise<HistoryResult> {
-    const { state, allEvents } = await loadProjectedState(this.repoRoot);
-    const id = mustResolveExisting(state, input.id, input.exactId);
-
-    let events = allEvents.filter((evt) => {
-      if (evt.task_id === id) return true;
-      for (const value of Object.values(evt.payload)) {
-        if (typeof value === "string" && value === id) return true;
-      }
-      return false;
-    });
-
-    if (input.type) {
-      events = events.filter((e) => e.type === input.type);
-    }
-    if (input.actor) {
-      events = events.filter((e) => e.actor === input.actor);
-    }
-    if (input.since) {
-      const since = input.since;
-      events = events.filter((e) => e.ts >= since);
-    }
-
-    events.sort((a, b) => b.ts.localeCompare(a.ts));
-
-    const limit = input.limit ?? 50;
-    const truncated = events.length > limit;
-    const limited = events.slice(0, limit);
-
-    return { events: limited, count: limited.length, truncated };
+  async history(input: import("./service-types").HistoryInput) {
+    return query.history(this.ctx, input);
   }
 
-  async labelAdd(input: LabelInput): Promise<Task> {
+  async labelAdd(input: import("./service-types").LabelInput): Promise<Task> {
     return withWriteLock(this.repoRoot, async () => {
       const { state, allEvents } = await loadProjectedState(this.repoRoot);
       const id = mustResolveExisting(state, input.id, input.exactId);
@@ -1011,7 +412,7 @@ export class TasqueService {
     });
   }
 
-  async labelRemove(input: LabelInput): Promise<Task> {
+  async labelRemove(input: import("./service-types").LabelInput): Promise<Task> {
     return withWriteLock(this.repoRoot, async () => {
       const { state, allEvents } = await loadProjectedState(this.repoRoot);
       const id = mustResolveExisting(state, input.id, input.exactId);
@@ -1040,179 +441,13 @@ export class TasqueService {
       .sort((a, b) => a.label.localeCompare(b.label));
   }
 
-  async depTree(input: DepTreeInput): Promise<DepTreeNode> {
+  async depTree(input: import("./service-types").DepTreeInput) {
     const { state } = await loadProjectedState(this.repoRoot);
     const id = mustResolveExisting(state, input.id, input.exactId);
     return buildDepTree(state, id, input.direction ?? "both", input.depth);
   }
 
-  async search(input: SearchInput): Promise<Task[]> {
-    const { state } = await loadProjectedState(this.repoRoot);
-    const filter = parseQuery(input.query);
-    return sortTasks(evaluateQuery(Object.values(state.tasks), filter, state));
+  async search(input: import("./service-types").SearchInput): Promise<Task[]> {
+    return query.search(this.ctx, input);
   }
-}
-
-function makeEvent<T extends EventType>(
-  actor: string,
-  ts: string,
-  type: T,
-  taskId: string,
-  payload: EventPayloadMap[T],
-): EventRecord {
-  return {
-    event_id: ulid(),
-    ts,
-    actor,
-    type,
-    task_id: taskId,
-    payload: payload as Record<string, unknown>,
-  };
-}
-
-function uniqueRootId(state: State, title: string): string {
-  const maxAttempts = 10;
-  for (let idx = 0; idx < maxAttempts; idx += 1) {
-    const nonce = idx === 0 ? undefined : ulid();
-    const id = makeRootId(title, nonce);
-    if (!state.tasks[id]) {
-      return id;
-    }
-  }
-  throw new TsqError("ID_COLLISION", "unable to allocate unique task id", 2);
-}
-
-function mustTask(state: State, id: string): Task {
-  const task = state.tasks[id];
-  if (!task) {
-    throw new TsqError("NOT_FOUND", `task not found: ${id}`, 1);
-  }
-  return task;
-}
-
-function mustResolveExisting(state: State, raw: string, exactId?: boolean): string {
-  const id = resolveTaskId(state, raw, exactId);
-  if (!state.tasks[id]) {
-    throw new TsqError("NOT_FOUND", `task not found: ${raw}`, 1);
-  }
-  return id;
-}
-
-function sortTasks(tasks: Task[]): Task[] {
-  return [...tasks].sort((a, b) => {
-    if (a.priority !== b.priority) {
-      return a.priority - b.priority;
-    }
-    if (a.created_at === b.created_at) {
-      return a.id.localeCompare(b.id);
-    }
-    return a.created_at.localeCompare(b.created_at);
-  });
-}
-
-function sortStaleTasks(tasks: Task[]): Task[] {
-  return [...tasks].sort((a, b) => {
-    if (a.updated_at !== b.updated_at) {
-      return a.updated_at.localeCompare(b.updated_at);
-    }
-    if (a.priority !== b.priority) {
-      return a.priority - b.priority;
-    }
-    return a.id.localeCompare(b.id);
-  });
-}
-
-function applyListFilter(tasks: Task[], filter: ListFilter): Task[] {
-  return tasks.filter((task) => {
-    if (filter.statuses && !filter.statuses.includes(task.status)) {
-      return false;
-    }
-    if (filter.ids && !filter.ids.includes(task.id)) {
-      return false;
-    }
-    if (filter.assignee && task.assignee !== filter.assignee) {
-      return false;
-    }
-    if (filter.externalRef && task.external_ref !== filter.externalRef) {
-      return false;
-    }
-    if (filter.unassigned && hasAssignee(task.assignee)) {
-      return false;
-    }
-    if (filter.kind && task.kind !== filter.kind) {
-      return false;
-    }
-    if (filter.label && !task.labels.includes(filter.label)) {
-      return false;
-    }
-    if (filter.labelAny && !filter.labelAny.some((label) => task.labels.includes(label))) {
-      return false;
-    }
-    if (filter.createdAfter && task.created_at <= filter.createdAfter) {
-      return false;
-    }
-    if (filter.updatedAfter && task.updated_at <= filter.updatedAfter) {
-      return false;
-    }
-    if (filter.closedAfter) {
-      if (!task.closed_at) {
-        return false;
-      }
-      if (task.closed_at <= filter.closedAfter) {
-        return false;
-      }
-    }
-    return true;
-  });
-}
-
-function hasAssignee(value: string | undefined): boolean {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
-function hasDuplicateLink(state: State, source: string, canonical: string): boolean {
-  return (state.links[source]?.duplicates ?? []).includes(canonical);
-}
-
-function createsDuplicateCycle(state: State, source: string, canonical: string): boolean {
-  const visited = new Set<string>();
-  let cursor: string | undefined = canonical;
-  while (cursor) {
-    if (cursor === source) {
-      return true;
-    }
-    if (visited.has(cursor)) {
-      return false;
-    }
-    visited.add(cursor);
-    cursor = state.tasks[cursor]?.duplicate_of;
-  }
-  return false;
-}
-
-function normalizeDuplicateTitle(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function buildDependentsByBlocker(deps: State["deps"]): Map<string, string[]> {
-  const dependentsByBlocker = new Map<string, string[]>();
-  for (const [child, blockers] of Object.entries(deps)) {
-    for (const blocker of blockers) {
-      const dependents = dependentsByBlocker.get(blocker);
-      if (dependents) {
-        dependents.push(child);
-      } else {
-        dependentsByBlocker.set(blocker, [child]);
-      }
-    }
-  }
-  return dependentsByBlocker;
-}
-
-function sortTaskIds(taskIds: string[]): string[] {
-  return [...taskIds].sort((a, b) => a.localeCompare(b));
 }

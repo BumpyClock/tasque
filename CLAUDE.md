@@ -28,13 +28,13 @@ JSONL only.
 - Runtime: Bun (latest)
 - Language: TypeScript (`strict`)
 - CLI parser: `commander` (simple, stable)
-- Validation: `zod`
+- Validation: manual type guards + `TsqError` (zod listed as dep but unused; all runtime validation uses hand-written coercion helpers in the projector and service layers)
 - Terminal output: `picocolors` + minimal table util
 
 ## Storage Model (JSONL)
 Repo-local `.tasque/`:
 - `.tasque/events.jsonl` (source of truth, append-only)
-- `.tasque/state.json` (derived cache; rebuildable)
+- `.tasque/tasks.jsonl` (derived cache; rebuildable)
 - `.tasque/config.json` (project settings)
 
 Each event: one JSON object/line.
@@ -56,7 +56,7 @@ Event types:
 - `link.removed`
 
 Read path:
-- load `state.json` if present + fresh
+- load `tasks.jsonl` if present + fresh
 - else replay `events.jsonl`
 - on write: append event, update cache
 
@@ -64,7 +64,7 @@ Read path:
 Task fields:
 - `id` (`tsq-<hash>` root, `<parent>.<n>` child)
 - `title`
-- `status` (`todo|in_progress|blocked|done|canceled`)
+- `status` (`open|in_progress|blocked|closed|canceled`)
 - `priority` (`0..3`)
 - `assignee` (optional)
 - `parent_id` (optional)
@@ -77,13 +77,13 @@ Links:
 
 ## Ready Semantics
 `ready` if:
-- task status in `todo|in_progress`
+- task status in `open|in_progress`
 - task has zero open blockers
-- task not `canceled|done`
+- task not `canceled|closed`
 
 Open blocker:
 - linked dependency target exists
-- target status not in `done|canceled`
+- target status not in `closed|canceled`
 
 ## CLI Contract (V1)
 - `tsq init`
@@ -105,12 +105,12 @@ Exit codes:
 ## Concurrency + Integrity
 - single-process write lock: `.tasque/.lock` (`open wx`, short retry)
 - append-only writes
-- atomic cache writes (`state.json.tmp` -> rename)
+- atomic cache writes (`tasks.jsonl.tmp` -> rename)
 - startup recovery: ignore malformed trailing JSONL line; warn once
 
 ## Repo Conventions
 - commit `.tasque/events.jsonl` + `.tasque/config.json`
-- optional: commit `state.json` (or regenerate in CI)
+- optional: commit `tasks.jsonl` (or regenerate in CI)
 - no manual edits to generated cache
 
 ## Build Plan

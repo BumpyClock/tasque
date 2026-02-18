@@ -145,6 +145,11 @@ export async function writeSnapshot(repoRoot: string, snapshot: Snapshot): Promi
     await rename(temp, target);
     await pruneSnapshots(paths);
   } catch (error) {
+    try {
+      await unlink(temp);
+    } catch {
+      // best-effort cleanup
+    }
     throw new TsqError("SNAPSHOT_WRITE_FAILED", "Failed writing snapshot", 2, error);
   }
 }

@@ -191,10 +191,11 @@ describe("cli close and reopen", () => {
       closed.envelope,
     );
     expect(closedData.tasks).toHaveLength(1);
-    const closedTask = closedData.tasks[0]!;
-    expect(closedTask.id).toBe(created.id);
-    expect(closedTask.status).toBe("closed");
-    expect(typeof closedTask.closed_at).toBe("string");
+    const closedTask = closedData.tasks[0];
+    expect(closedTask).toBeDefined();
+    expect(closedTask?.id).toBe(created.id);
+    expect(closedTask?.status).toBe("closed");
+    expect(typeof closedTask?.closed_at).toBe("string");
 
     const reopened = await runJson(repo, ["reopen", created.id]);
     expect(reopened.exitCode).toBe(0);
@@ -205,10 +206,68 @@ describe("cli close and reopen", () => {
       tasks: Array<{ id: string; status: string; closed_at?: unknown }>;
     }>(reopened.envelope);
     expect(reopenedData.tasks).toHaveLength(1);
-    const reopenedTask = reopenedData.tasks[0]!;
-    expect(reopenedTask.id).toBe(created.id);
-    expect(reopenedTask.status).toBe("open");
-    expect(reopenedTask.closed_at == null).toBe(true);
+    const reopenedTask = reopenedData.tasks[0];
+    expect(reopenedTask).toBeDefined();
+    expect(reopenedTask?.id).toBe(created.id);
+    expect(reopenedTask?.status).toBe("open");
+    expect(reopenedTask?.closed_at == null).toBe(true);
+  });
+
+  it("close event payload includes closed_at that matches projected value", async () => {
+    const repo = await makeRepo();
+    await runJson(repo, ["init"]);
+
+    const created = okData<{ task: { id: string } }>(
+      (await runJson(repo, ["create", "Event payload test"])).envelope,
+    ).task;
+
+    const closed = await runJson(repo, ["close", created.id]);
+    expect(closed.exitCode).toBe(0);
+
+    // Verify projected closed_at exists
+    const shown = okData<{ task: { id: string; status: string; closed_at: string } }>(
+      (await runJson(repo, ["show", created.id])).envelope,
+    );
+    expect(shown.task.status).toBe("closed");
+    const projectedClosedAt = shown.task.closed_at;
+    expect(typeof projectedClosedAt).toBe("string");
+
+    // Verify the event history contains closed_at in the payload
+    const history = await runJson(repo, ["history", created.id, "--type", "task.status_set"]);
+    expect(history.exitCode).toBe(0);
+    const histData = okData<{
+      events: Array<{ type: string; payload: Record<string, unknown> }>;
+    }>(history.envelope);
+
+    const closeEvent = histData.events.find(
+      (e) => e.type === "task.status_set" && e.payload.status === "closed",
+    );
+    expect(closeEvent).toBeDefined();
+    expect(closeEvent?.payload.closed_at).toBe(projectedClosedAt);
+  });
+
+  it("reopen clears closed_at set by close", async () => {
+    const repo = await makeRepo();
+    await runJson(repo, ["init"]);
+
+    const created = okData<{ task: { id: string } }>(
+      (await runJson(repo, ["create", "Reopen clears closed_at"])).envelope,
+    ).task;
+
+    await runJson(repo, ["close", created.id]);
+
+    const beforeReopen = okData<{ task: { closed_at?: string } }>(
+      (await runJson(repo, ["show", created.id])).envelope,
+    );
+    expect(typeof beforeReopen.task.closed_at).toBe("string");
+
+    await runJson(repo, ["reopen", created.id]);
+
+    const afterReopen = okData<{ task: { status: string; closed_at?: unknown } }>(
+      (await runJson(repo, ["show", created.id])).envelope,
+    );
+    expect(afterReopen.task.status).toBe("open");
+    expect(afterReopen.task.closed_at == null).toBe(true);
   });
 
   it("reopen multiple tasks at once sets all back to open", async () => {

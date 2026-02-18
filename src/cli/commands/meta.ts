@@ -1,8 +1,6 @@
 import type { Command } from "commander";
 import { normalizeStatus } from "../../app/runtime";
-import { printHistory, printRepairResult } from "../render";
-import { startWatch } from "../watch";
-import type { RuntimeDeps, RunAction } from "../action";
+import type { RunAction, RuntimeDeps } from "../action";
 import {
   type GlobalOpts,
   type InitCommandOptions,
@@ -11,6 +9,8 @@ import {
   parsePositiveInt,
   parseSkillTargets,
 } from "../parsers";
+import { printHistory, printRepairResult } from "../render";
+import { startWatch } from "../watch";
 
 export function registerMetaCommands(
   program: Command,
@@ -135,7 +135,7 @@ export function registerMetaCommands(
         async (opts) =>
           deps.service.history({
             id,
-            limit: options.limit ? Number.parseInt(options.limit, 10) : undefined,
+            limit: options.limit ? parsePositiveInt(options.limit, "limit", 1, 10000) : undefined,
             type: options.type,
             actor: options.actor,
             since: options.since,

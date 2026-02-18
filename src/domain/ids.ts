@@ -1,11 +1,34 @@
-import { createHash } from "node:crypto";
+import { randomBytes } from "node:crypto";
 
 import type { State } from "../types";
 
-export const makeRootId = (title: string, nonce?: string): string => {
-  const seed = nonce ? `${title}::${nonce}` : title;
-  const hash = createHash("sha256").update(seed).digest("hex").slice(0, 6);
-  return `tsq-${hash}`;
+/**
+ * Crockford base32 alphabet used by ULID.
+ * 8 chars at 5 bits each = 40 bits of entropy (~1 trillion combinations).
+ */
+const CROCKFORD = "0123456789abcdefghjkmnpqrstvwxyz";
+
+/**
+ * Generate a root task ID using ULID short-form encoding.
+ * Produces `tsq-<8 crockford base32 chars>` with 40 bits of randomness.
+ *
+ * Parameters are accepted for backward compatibility but ignored;
+ * all IDs are now random to maximize entropy.
+ */
+export const makeRootId = (_title?: string, _nonce?: string): string => {
+  const bytes = randomBytes(5); // 40 bits
+  let id = "";
+  let bits = 0;
+  let acc = 0;
+  for (const byte of bytes) {
+    acc = (acc << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      bits -= 5;
+      id += CROCKFORD[(acc >> bits) & 0x1f];
+    }
+  }
+  return `tsq-${id}`;
 };
 
 // child_counters[parentId] is maintained by the projector during task.created

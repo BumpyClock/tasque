@@ -1,7 +1,7 @@
 import pc from "picocolors";
 import type { TasqueService } from "../app/service";
 import { TsqError } from "../errors";
-import { okEnvelope } from "../output";
+import { errEnvelope, okEnvelope } from "../output";
 import type { Task, TaskStatus, TaskTreeNode } from "../types";
 import {
   formatMetaBadge,
@@ -10,6 +10,7 @@ import {
   renderTaskTree,
   truncateWithEllipsis,
 } from "./render";
+import { resolveDensity, resolveWidth } from "./terminal";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -37,7 +38,9 @@ interface WatchFrameData {
   tasks: Task[];
 }
 
-type FrameResult = { ok: true; data: WatchFrameData } | { ok: false; error: string };
+type FrameResult =
+  | { ok: true; data: WatchFrameData }
+  | { ok: false; error: string; code: string; exitCode: number };
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -59,7 +62,7 @@ export async function startWatch(service: TasqueService, options: WatchOptions):
     const frame = await loadFrame(service, options);
     outputFrame(frame, options);
     if (!frame.ok) {
-      process.exitCode = 2;
+      process.exitCode = frame.exitCode;
     }
     return;
   }
@@ -99,6 +102,8 @@ export async function startWatch(service: TasqueService, options: WatchOptions):
       const errFrame: FrameResult = {
         ok: false,
         error: `refresh failed: ${error instanceof Error ? error.message : String(error)}`,
+        code: error instanceof TsqError ? error.code : "REFRESH_ERROR",
+        exitCode: error instanceof TsqError ? error.exitCode : 2,
       };
       if (lastFrame?.ok) {
         outputFrame(lastFrame, options, isTTY && !options.json);
@@ -172,8 +177,11 @@ async function loadFrame(service: TasqueService, options: WatchOptions): Promise
       },
     };
   } catch (err) {
+    if (err instanceof TsqError) {
+      return { ok: false, error: err.message, code: err.code, exitCode: err.exitCode };
+    }
     const message = err instanceof Error ? err.message : "unknown error";
-    return { ok: false, error: message };
+    return { ok: false, error: message, code: "REFRESH_ERROR", exitCode: 2 };
   }
 }
 
@@ -196,14 +204,7 @@ function outputJsonFrame(frame: FrameResult): void {
   if (frame.ok) {
     console.log(JSON.stringify(okEnvelope("tsq watch", frame.data)));
   } else {
-    console.log(
-      JSON.stringify({
-        schema_version: 1,
-        command: "tsq watch",
-        ok: false,
-        error: { code: "REFRESH_ERROR", message: frame.error },
-      }),
-    );
+    console.log(JSON.stringify(errEnvelope("tsq watch", frame.code, frame.error)));
   }
 }
 
@@ -364,19 +365,4 @@ function buildWatchTree(tasks: Task[]): TaskTreeNode[] {
   };
 
   return roots.map(buildNode);
-}
-
-function resolveWidth(): number {
-  if (typeof process.stdout.columns === "number" && process.stdout.columns > 0) {
-    return process.stdout.columns;
-  }
-  return 120;
-}
-
-type Density = "wide" | "medium" | "narrow";
-
-function resolveDensity(width: number): Density {
-  if (width >= 120) return "wide";
-  if (width >= 90) return "medium";
-  return "narrow";
 }

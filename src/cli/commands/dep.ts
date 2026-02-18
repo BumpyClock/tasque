@@ -1,7 +1,7 @@
 import type { Command } from "commander";
+import type { RunAction, RuntimeDeps } from "../action";
+import { parseDepDirection, parsePositiveInt } from "../parsers";
 import { printDepTreeResult } from "../render";
-import type { RuntimeDeps, RunAction } from "../action";
-import { parseDepDirection } from "../parsers";
 
 export function registerDepCommands(
   program: Command,
@@ -55,7 +55,7 @@ export function registerDepCommands(
           deps.service.depTree({
             id,
             direction: parseDepDirection(options.direction),
-            depth: options.depth ? Number.parseInt(options.depth, 10) : undefined,
+            depth: options.depth ? parsePositiveInt(options.depth, "depth", 1, 100) : undefined,
             exactId: opts.exactId,
           }),
         {

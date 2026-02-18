@@ -2,8 +2,9 @@ import pc from "picocolors";
 import type { HistoryResult } from "../app/service";
 import type { DepTreeNode } from "../domain/dep-tree";
 import type { RepairResult, Task, TaskNote, TaskStatus, TaskTreeNode } from "../types";
+import { type Density, resolveDensity, resolveWidth } from "./terminal";
 
-type TreeDensity = "wide" | "medium" | "narrow";
+type TreeDensity = Density;
 
 interface TreeRenderOptions {
   width?: number;
@@ -216,26 +217,6 @@ function formatFlow(node: TaskTreeNode): string | undefined {
     return undefined;
   }
   return `{${flow.join(" | ")}}`;
-}
-
-function resolveWidth(raw?: number): number {
-  if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) {
-    return Math.floor(raw);
-  }
-  if (typeof process.stdout.columns === "number" && process.stdout.columns > 0) {
-    return process.stdout.columns;
-  }
-  return 120;
-}
-
-function resolveDensity(width: number): TreeDensity {
-  if (width >= 120) {
-    return "wide";
-  }
-  if (width >= 90) {
-    return "medium";
-  }
-  return "narrow";
 }
 
 function computeTitleWidth(

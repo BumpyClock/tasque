@@ -1,20 +1,9 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import {
-  access,
-  appendFile,
-  mkdir,
-  mkdtemp,
-  readdir,
-  rm,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { type JsonResult, assertEnvelopeShape, cliCmd, okData } from "./helpers";
-
-// CliResult removed — unused in this test file
 
 interface RepairPlan {
   orphaned_deps: Array<{ child: string; blocker: string }>;
@@ -75,11 +64,36 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-async function deleteStateCache(repoDir: string): Promise<void> {
+async function injectOrphanDep(repoDir: string, child: string, blocker: string): Promise<void> {
   const stateFile = join(repoDir, ".tasque", "tasks.jsonl");
-  try {
-    await unlink(stateFile);
-  } catch {}
+  const raw = await readFile(stateFile, "utf8");
+  const state = JSON.parse(raw);
+  const deps: string[] = state.deps[child] ?? [];
+  if (!deps.includes(blocker)) {
+    deps.push(blocker);
+  }
+  state.deps[child] = deps;
+  await writeFile(stateFile, JSON.stringify(state, null, 2), "utf8");
+}
+
+async function injectOrphanLink(
+  repoDir: string,
+  src: string,
+  target: string,
+  type: string,
+): Promise<void> {
+  const stateFile = join(repoDir, ".tasque", "tasks.jsonl");
+  const raw = await readFile(stateFile, "utf8");
+  const state = JSON.parse(raw);
+  if (!state.links[src]) {
+    state.links[src] = {};
+  }
+  const targets: string[] = state.links[src][type] ?? [];
+  if (!targets.includes(target)) {
+    targets.push(target);
+  }
+  state.links[src][type] = targets;
+  await writeFile(stateFile, JSON.stringify(state, null, 2), "utf8");
 }
 
 describe("tsq repair", () => {
@@ -107,16 +121,8 @@ describe("tsq repair", () => {
     expect(created.exitCode).toBe(0);
     const taskId = okData<{ task: { id: string } }>(created.envelope).task.id;
 
-    const depEvent = JSON.stringify({
-      event_id: "repair-test-dep",
-      ts: "2025-01-01T00:00:00.000Z",
-      actor: "test",
-      type: "dep.added",
-      task_id: taskId,
-      payload: { blocker: "tsq-nonexistent" },
-    });
-    await appendFile(join(repo, ".tasque", "events.jsonl"), `${depEvent}\n`);
-    await deleteStateCache(repo);
+    // Inject orphaned dep directly into state cache (bypasses projector validation)
+    await injectOrphanDep(repo, taskId, "tsq-nonexistent");
 
     const result = await runJson(repo, ["repair"]);
 
@@ -134,16 +140,8 @@ describe("tsq repair", () => {
     expect(created.exitCode).toBe(0);
     const taskId = okData<{ task: { id: string } }>(created.envelope).task.id;
 
-    const depEvent = JSON.stringify({
-      event_id: "repair-test-dep-fix",
-      ts: "2025-01-01T00:00:00.000Z",
-      actor: "test",
-      type: "dep.added",
-      task_id: taskId,
-      payload: { blocker: "tsq-nonexistent" },
-    });
-    await appendFile(join(repo, ".tasque", "events.jsonl"), `${depEvent}\n`);
-    await deleteStateCache(repo);
+    // Inject orphaned dep directly into state cache (bypasses projector validation)
+    await injectOrphanDep(repo, taskId, "tsq-nonexistent");
 
     const result = await runJson(repo, ["repair", "--fix"]);
 
@@ -166,16 +164,8 @@ describe("tsq repair", () => {
     expect(created.exitCode).toBe(0);
     const taskId = okData<{ task: { id: string } }>(created.envelope).task.id;
 
-    const linkEvent = JSON.stringify({
-      event_id: "repair-test-link",
-      ts: "2025-01-01T00:00:00.000Z",
-      actor: "test",
-      type: "link.added",
-      task_id: taskId,
-      payload: { type: "relates_to", target: "tsq-nonexistent" },
-    });
-    await appendFile(join(repo, ".tasque", "events.jsonl"), `${linkEvent}\n`);
-    await deleteStateCache(repo);
+    // Inject orphaned link directly into state cache (bypasses projector validation)
+    await injectOrphanLink(repo, taskId, "tsq-nonexistent", "relates_to");
 
     const result = await runJson(repo, ["repair"]);
 

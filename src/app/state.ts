@@ -55,6 +55,7 @@ export async function persistProjection(
   repoRoot: string,
   state: State,
   eventCount: number,
+  now?: () => Date,
 ): Promise<void> {
   state.applied_events = eventCount;
   await writeStateCache(repoRoot, state);
@@ -65,8 +66,9 @@ export async function persistProjection(
   }
 
   if (eventCount > 0 && eventCount % config.snapshot_every === 0) {
+    const clock = now ?? (() => new Date());
     await writeSnapshot(repoRoot, {
-      taken_at: new Date().toISOString(),
+      taken_at: clock().toISOString(),
       event_count: eventCount,
       state,
     });

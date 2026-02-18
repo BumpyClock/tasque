@@ -175,24 +175,19 @@ function tokenize(input: string): string[] {
       continue;
     }
 
-    const spaceIdx = input.indexOf(" ", idx);
-    const tabIdx = input.indexOf("\t", idx);
-    const nextWhitespace =
-      spaceIdx === -1 && tabIdx === -1
-        ? -1
-        : spaceIdx === -1
-          ? tabIdx
-          : tabIdx === -1
-            ? spaceIdx
-            : Math.min(spaceIdx, tabIdx);
-
-    if (nextWhitespace === -1) {
-      tokens.push(input.slice(idx));
-      break;
+    // Scan a non-whitespace token, handling embedded quoted strings
+    // (e.g. title:"my task" should be one token).
+    let end = idx;
+    while (end < input.length && input[end] !== " " && input[end] !== "\t") {
+      if (input[end] === '"') {
+        const closeQuote = input.indexOf('"', end + 1);
+        end = closeQuote === -1 ? input.length : closeQuote + 1;
+      } else {
+        end += 1;
+      }
     }
-
-    tokens.push(input.slice(idx, nextWhitespace));
-    idx = nextWhitespace + 1;
+    tokens.push(input.slice(idx, end));
+    idx = end;
   }
 
   return tokens;

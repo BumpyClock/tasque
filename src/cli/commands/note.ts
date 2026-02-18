@@ -1,6 +1,6 @@
 import type { Command } from "commander";
+import type { RunAction, RuntimeDeps } from "../action";
 import { printTaskNote, printTaskNotes } from "../render";
-import type { RuntimeDeps, RunAction } from "../action";
 
 export function registerNoteCommands(
   program: Command,

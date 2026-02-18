@@ -7,7 +7,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { mkdir, open, readFile, rename } from "node:fs/promises";
+import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { TsqError } from "../errors";
 import { getPaths, taskSpecFile, taskSpecRelativePath } from "../store/paths";
@@ -153,6 +153,11 @@ export async function writeTaskSpecAtomic(
       content: await readFile(specFile, "utf8"),
     };
   } catch (error) {
+    try {
+      await unlink(temp);
+    } catch {
+      // best-effort cleanup
+    }
     throw new TsqError("IO_ERROR", "failed writing attached spec", 2, error);
   }
 }

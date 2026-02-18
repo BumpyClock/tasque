@@ -24,6 +24,7 @@ afterEach(async () => {
 const MINIMAL_PAYLOADS: Record<EventRecord["type"], Record<string, unknown>> = {
   "task.created": { title: "Test task", kind: "task", priority: 1, status: "open" },
   "task.updated": {},
+  "task.status_set": { status: "in_progress" },
   "task.claimed": {},
   "task.noted": { text: "A note" },
   "task.spec_attached": {

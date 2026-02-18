@@ -12,6 +12,7 @@ import { getPaths } from "./paths";
 const PAYLOAD_REQUIRED_FIELDS: Record<EventType, Array<{ field: string; type: string }>> = {
   "task.created": [{ field: "title", type: "string" }],
   "task.updated": [],
+  "task.status_set": [{ field: "status", type: "string" }],
   "task.claimed": [],
   "task.noted": [{ field: "text", type: "string" }],
   "task.spec_attached": [

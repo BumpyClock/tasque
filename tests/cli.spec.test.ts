@@ -1,26 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-
-interface JsonEnvelope {
-  schema_version: number;
-  command: string;
-  ok: boolean;
-  data?: unknown;
-  error?: {
-    code: string;
-    message: string;
-    details?: unknown;
-  };
-}
-
-interface JsonResult {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-  envelope: JsonEnvelope;
-}
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { cleanupRepos, makeRepo as makeRepoBase, okData, runJson as runJsonBase } from "./helpers";
 
 interface SpecAttachData {
   task: {
@@ -59,9 +40,6 @@ interface SpecCheckData {
   }>;
 }
 
-const repos: string[] = [];
-const repoRoot = resolve(import.meta.dir, "..");
-const cliEntry = join(repoRoot, "src", "main.ts");
 const VALID_SPEC_MARKDOWN = `# Feature Spec
 
 ## Overview
@@ -87,75 +65,13 @@ Deliver durable workflow checks for task specs.
 `;
 
 async function makeRepo(): Promise<string> {
-  const repo = await mkdtemp(join(tmpdir(), "tasque-spec-e2e-"));
-  repos.push(repo);
-  return repo;
+  return makeRepoBase("tasque-spec-e2e-");
 }
 
-afterEach(async () => {
-  await Promise.all(repos.splice(0).map((repo) => rm(repo, { recursive: true, force: true })));
-});
+afterEach(cleanupRepos);
 
-function assertEnvelopeShape(value: unknown): asserts value is JsonEnvelope {
-  expect(value).toBeObject();
-  const envelope = value as Record<string, unknown>;
-  expect(envelope.schema_version).toBe(1);
-  expect(typeof envelope.command).toBe("string");
-  expect(typeof envelope.ok).toBe("boolean");
-  if (envelope.ok === true) {
-    expect("data" in envelope).toBe(true);
-  } else {
-    expect("error" in envelope).toBe(true);
-  }
-}
-
-async function runJson(
-  repoDir: string,
-  args: string[],
-  actor = "test-spec",
-  stdinText?: string,
-): Promise<JsonResult> {
-  const proc = Bun.spawn({
-    cmd: ["bun", "run", cliEntry, ...args, "--json"],
-    cwd: repoDir,
-    env: {
-      ...process.env,
-      TSQ_ACTOR: actor,
-    },
-    stdin: stdinText === undefined ? "ignore" : "pipe",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  if (stdinText !== undefined) {
-    const stdin = proc.stdin;
-    expect(stdin).toBeDefined();
-    stdin?.write(stdinText);
-    stdin?.end();
-  }
-
-  const [exitCode, stdout, stderr] = await Promise.all([
-    proc.exited,
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
-
-  const trimmed = stdout.trim();
-  expect(trimmed.length > 0).toBe(true);
-  const parsed = JSON.parse(trimmed) as unknown;
-  assertEnvelopeShape(parsed);
-
-  return {
-    exitCode,
-    stdout,
-    stderr,
-    envelope: parsed,
-  };
-}
-
-function okData<T>(envelope: JsonEnvelope): T {
-  expect(envelope.ok).toBe(true);
-  return envelope.data as T;
+async function runJson(repoDir: string, args: string[], actor = "test-spec", stdinText?: string) {
+  return runJsonBase(repoDir, args, actor, stdinText);
 }
 
 async function createTask(repo: string, title: string): Promise<string> {
@@ -234,6 +150,17 @@ describe("cli spec attach", () => {
     );
   });
 
+  it("returns validation error when stdin content is empty", async () => {
+    const repo = await makeRepo();
+    await runJson(repo, ["init"]);
+    const taskId = await createTask(repo, "Spec empty stdin task");
+
+    const result = await runJson(repo, ["spec", "attach", taskId, "--stdin"], "test-spec", "");
+    expect(result.exitCode).toBe(1);
+    expect(result.envelope.ok).toBe(false);
+    expect(result.envelope.error?.code).toBe("VALIDATION_ERROR");
+  });
+
   it("returns validation error when multiple sources are provided", async () => {
     const repo = await makeRepo();
     await runJson(repo, ["init"]);
@@ -280,6 +207,83 @@ describe("cli spec attach", () => {
     const data = okData<SpecAttachData>(result.envelope);
     expectSpecMetadata(data, taskId, "test-spec");
     expect(data.spec.spec_path).toBe(`.tasque/specs/${taskId}/spec.md`);
+  });
+});
+
+describe("cli spec attach conflict detection", () => {
+  it("rejects second attach with different content when force is not set", async () => {
+    const repo = await makeRepo();
+    await runJson(repo, ["init"]);
+    const taskId = await createTask(repo, "Conflict detect task");
+    const specV1 = "# Spec V1\n\nOriginal content";
+    const specV2 = "# Spec V2\n\nDifferent content";
+
+    const first = await runJson(repo, ["spec", "attach", taskId, "--text", specV1]);
+    expect(first.exitCode).toBe(0);
+
+    const second = await runJson(repo, ["spec", "attach", taskId, "--text", specV2]);
+    expect(second.exitCode).toBe(1);
+    expect(second.envelope.ok).toBe(false);
+    expect(second.envelope.error?.code).toBe("SPEC_CONFLICT");
+    const details = second.envelope.error?.details as
+      | { old_fingerprint?: string; new_fingerprint?: string }
+      | undefined;
+    expect(typeof details?.old_fingerprint).toBe("string");
+    expect(typeof details?.new_fingerprint).toBe("string");
+    expect(details?.old_fingerprint).not.toBe(details?.new_fingerprint);
+  });
+
+  it("allows second attach with --force to overwrite", async () => {
+    const repo = await makeRepo();
+    await runJson(repo, ["init"]);
+    const taskId = await createTask(repo, "Force overwrite task");
+    const specV1 = "# Spec V1\n\nOriginal content";
+    const specV2 = "# Spec V2\n\nForced overwrite";
+
+    const first = await runJson(repo, ["spec", "attach", taskId, "--text", specV1]);
+    expect(first.exitCode).toBe(0);
+    const firstData = okData<SpecAttachData>(first.envelope);
+    const firstFingerprint = firstData.spec.spec_fingerprint;
+
+    const second = await runJson(repo, ["spec", "attach", taskId, "--text", specV2, "--force"]);
+    expect(second.exitCode).toBe(0);
+    expect(second.envelope.ok).toBe(true);
+    const secondData = okData<SpecAttachData>(second.envelope);
+    expect(secondData.spec.spec_fingerprint).not.toBe(firstFingerprint);
+    expect(secondData.spec.bytes).toBe(specV2.length);
+
+    const persisted = await readFile(join(repo, ".tasque", "specs", taskId, "spec.md"), "utf8");
+    expect(persisted).toBe(specV2);
+  });
+
+  it("allows second attach with identical content without force", async () => {
+    const repo = await makeRepo();
+    await runJson(repo, ["init"]);
+    const taskId = await createTask(repo, "Identical content task");
+    const specContent = "# Same Spec\n\nIdentical content both times";
+
+    const first = await runJson(repo, ["spec", "attach", taskId, "--text", specContent]);
+    expect(first.exitCode).toBe(0);
+    const firstData = okData<SpecAttachData>(first.envelope);
+
+    const second = await runJson(repo, ["spec", "attach", taskId, "--text", specContent]);
+    expect(second.exitCode).toBe(0);
+    expect(second.envelope.ok).toBe(true);
+    const secondData = okData<SpecAttachData>(second.envelope);
+    expect(secondData.spec.spec_fingerprint).toBe(firstData.spec.spec_fingerprint);
+  });
+
+  it("first attach on a task without existing spec succeeds normally", async () => {
+    const repo = await makeRepo();
+    await runJson(repo, ["init"]);
+    const taskId = await createTask(repo, "Fresh attach task");
+    const specContent = "# Fresh Spec\n\nFirst-time attach";
+
+    const result = await runJson(repo, ["spec", "attach", taskId, "--text", specContent]);
+    expect(result.exitCode).toBe(0);
+    expect(result.envelope.ok).toBe(true);
+    const data = okData<SpecAttachData>(result.envelope);
+    expectSpecMetadata(data, taskId, "test-spec");
   });
 });
 

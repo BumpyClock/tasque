@@ -43,24 +43,136 @@ export interface TaskTreeNode {
   children: TaskTreeNode[];
 }
 
+export type EventType =
+  | "task.created"
+  | "task.updated"
+  | "task.claimed"
+  | "task.noted"
+  | "task.spec_attached"
+  | "task.superseded"
+  | "dep.added"
+  | "dep.removed"
+  | "link.added"
+  | "link.removed";
+
+/** Backward-compatible untyped event record. Payload is `Record<string, unknown>`. */
 export interface EventRecord {
   event_id: string;
   ts: string;
   actor: string;
-  type:
-    | "task.created"
-    | "task.updated"
-    | "task.claimed"
-    | "task.noted"
-    | "task.spec_attached"
-    | "task.superseded"
-    | "dep.added"
-    | "dep.removed"
-    | "link.added"
-    | "link.removed";
+  type: EventType;
   task_id: string;
   payload: Record<string, unknown>;
 }
+
+// ---------------------------------------------------------------------------
+// Typed payload interfaces per event type
+// ---------------------------------------------------------------------------
+
+export interface TaskCreatedPayload {
+  id: string;
+  title: string;
+  kind: TaskKind;
+  priority: Priority;
+  status: TaskStatus;
+  parent_id?: string;
+  assignee?: string;
+  labels?: string[];
+  external_ref?: string;
+  description?: string;
+}
+
+export interface TaskUpdatedPayload {
+  title?: string;
+  status?: TaskStatus;
+  priority?: Priority;
+  assignee?: string;
+  labels?: string[];
+  external_ref?: string;
+  description?: string;
+  clear_description?: boolean;
+  clear_external_ref?: boolean;
+  kind?: TaskKind;
+  duplicate_of?: string;
+  reason?: string;
+  closed_at?: string;
+}
+
+export interface TaskClaimedPayload {
+  assignee?: string;
+}
+
+export interface TaskNotedPayload {
+  text: string;
+}
+
+export interface TaskSpecAttachedPayload {
+  spec_path: string;
+  spec_fingerprint: string;
+  spec_attached_at: string;
+  spec_attached_by: string;
+}
+
+export interface TaskSupersededPayload {
+  /** The replacement task ID. Stored as `with` in the event payload. */
+  with: string;
+  reason?: string;
+}
+
+export interface DepAddedPayload {
+  blocker: string;
+}
+
+export interface DepRemovedPayload {
+  blocker: string;
+}
+
+export interface LinkAddedPayload {
+  target: string;
+  type: RelationType;
+}
+
+export interface LinkRemovedPayload {
+  target: string;
+  type: RelationType;
+}
+
+// ---------------------------------------------------------------------------
+// Discriminated union: event type -> typed payload
+// ---------------------------------------------------------------------------
+
+interface TypedEventBase {
+  event_id: string;
+  ts: string;
+  actor: string;
+  task_id: string;
+}
+
+export type TypedEventRecord =
+  | (TypedEventBase & { type: "task.created"; payload: TaskCreatedPayload })
+  | (TypedEventBase & { type: "task.updated"; payload: TaskUpdatedPayload })
+  | (TypedEventBase & { type: "task.claimed"; payload: TaskClaimedPayload })
+  | (TypedEventBase & { type: "task.noted"; payload: TaskNotedPayload })
+  | (TypedEventBase & { type: "task.spec_attached"; payload: TaskSpecAttachedPayload })
+  | (TypedEventBase & { type: "task.superseded"; payload: TaskSupersededPayload })
+  | (TypedEventBase & { type: "dep.added"; payload: DepAddedPayload })
+  | (TypedEventBase & { type: "dep.removed"; payload: DepRemovedPayload })
+  | (TypedEventBase & { type: "link.added"; payload: LinkAddedPayload })
+  | (TypedEventBase & { type: "link.removed"; payload: LinkRemovedPayload });
+
+/** Map from event type string to its typed payload interface. */
+export type EventPayloadMap = {
+  "task.created": TaskCreatedPayload;
+  "task.updated": TaskUpdatedPayload;
+  "task.claimed": TaskClaimedPayload;
+  "task.noted": TaskNotedPayload;
+  "task.spec_attached": TaskSpecAttachedPayload;
+  "task.superseded": TaskSupersededPayload;
+  "dep.added": DepAddedPayload;
+  "dep.removed": DepRemovedPayload;
+  "link.added": LinkAddedPayload;
+  "link.removed": LinkRemovedPayload;
+};
 
 export interface State {
   tasks: Record<string, Task>;

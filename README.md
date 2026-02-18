@@ -65,7 +65,7 @@ Commands:
 - `tsq init`
 - `tsq create "<title>" [--kind task|feature|epic] [-p|--priority 0..3] [--parent <id>] [--description <text>] [--external-ref <ref>]`
 - `tsq show <id>`
-- `tsq list [--status <open|in_progress|blocked|closed|canceled|done>] [--assignee <name>] [--external-ref <ref>] [--kind <task|feature|epic>] [--label <label>] [--label-any <csv-or-repeat>] [--created-after <iso>] [--updated-after <iso>] [--closed-after <iso>] [--no-assignee] [--id <csv-or-repeat>] [--tree] [--full]`
+- `tsq list [--status <open|in_progress|blocked|closed|canceled|done>] [--assignee <name>] [--external-ref <ref>] [--kind <task|feature|epic>] [--label <label>] [--label-any <csv-or-repeat>] [--created-after <iso>] [--updated-after <iso>] [--closed-after <iso>] [--unassigned] [--id <csv-or-repeat>] [--tree] [--full]`
 - `tsq ready`
 - `tsq watch [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--tree]`
 - `tsq stale [--days <n>] [--status <open|in_progress|blocked|closed|canceled|done>] [--assignee <name>]`

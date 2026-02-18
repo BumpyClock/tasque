@@ -5,12 +5,27 @@ export const MANAGED_MARKER = "tsq-managed-skill:v1";
 export function renderSkillMarkdown(skillName: string): string {
   return `---
 name: ${skillName}
-description: Operational guide for Tasque (tsq) local task tracking
+description: Operational guide for Tasque (tsq) local task tracking and management.
 ---
 
 <!-- ${MANAGED_MARKER} -->
 
 # Tasque Skill
+
+Use Tasque for creating and managing tasks, features, and epics. These will persist across sessions and devices. Use tsq cli to create and manage tasks.
+
+## CORE TASK CREATION RULES
+- Include specs when possible
+- Use a consistent title format
+- Assign a priority level
+- Use a consistent label format
+- Create Dependencies links
+- Plan so that the tasks can be completed in parallel using sub-agents. Think through the dependencies and how they can be completed in parallel.
+- Prioritize tasks based on their importance and urgency.
+- Break tasks into smaller sub-tasks when possible.
+- Create new tasks as needed. When navigating the codebase if you discover a bug or a feature that needs to be implemented, create a new task for it.
+
+- Use the \`tsq\` command-line interface to create and manage tasks.
 
 Use \`tsq\` for durable local task tracking.
 
@@ -85,7 +100,10 @@ Add \`--json\` to any command for stable automation output:
 `;
 }
 
-export function renderReadmeMarkdown(skillName: string, target: SkillTarget): string {
+export function renderReadmeMarkdown(
+  skillName: string,
+  target: SkillTarget,
+): string {
   return `<!-- ${MANAGED_MARKER} -->
 # ${skillName} Skill
 

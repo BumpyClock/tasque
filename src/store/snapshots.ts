@@ -107,6 +107,7 @@ async function pruneSnapshots(paths: ReturnType<typeof getPaths>): Promise<void>
     if (code === "ENOENT") {
       return;
     }
+    console.warn(`Warning: failed to prune snapshots (${code}): ${(error as Error).message}`);
     return;
   }
 

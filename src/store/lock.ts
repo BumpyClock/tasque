@@ -138,7 +138,7 @@ async function acquireWriteLock(lockFile: string, tasqueDir: string): Promise<Lo
       }
 
       if (Date.now() >= deadline) {
-        throw new TsqError("LOCK_TIMEOUT", "Timed out acquiring write lock", 3, {
+        throw new TsqError("LOCK_TIMEOUT", "Timed out acquiring write lock", 2, {
           lockFile,
           timeout_ms: LOCK_TIMEOUT_MS,
         });
@@ -214,8 +214,12 @@ export async function lockExists(repoRoot: string): Promise<boolean> {
   try {
     await readFile(paths.lockFile, "utf8");
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      return false;
+    }
+    throw new TsqError("LOCK_CHECK_FAILED", `Failed checking lock file: ${code}`, 2, error);
   }
 }
 

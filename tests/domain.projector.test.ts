@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { applyEvent, applyEvents } from "../src/domain/projector";
 import { createEmptyState } from "../src/domain/state";
+import { TsqError } from "../src/errors";
 import type { EventRecord } from "../src/types";
 
 const at = (offset: number): string => `2026-02-17T00:00:0${offset}.000Z`;
@@ -405,5 +406,51 @@ describe("projector duplicate updates", () => {
     expect(duplicated.tasks["tsq-src001"]?.status).toBe("closed");
     expect(duplicated.tasks["tsq-src001"]?.closed_at).toBe(at(5));
     expect(duplicated.deps["tsq-child2"]).toEqual(["tsq-src001"]);
+  });
+});
+
+describe("projector cycle detection on dep.added", () => {
+  test("rejects dep.added that would create a direct cycle", () => {
+    const withTasks = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-cyc001", { title: "A", kind: "task", priority: 1 }, 1),
+      event("task.created", "tsq-cyc002", { title: "B", kind: "task", priority: 1 }, 2),
+      event("dep.added", "tsq-cyc001", { blocker: "tsq-cyc002" }, 3),
+    ]);
+
+    expect(() =>
+      applyEvent(withTasks, event("dep.added", "tsq-cyc002", { blocker: "tsq-cyc001" }, 4)),
+    ).toThrow();
+  });
+
+  test("rejects dep.added that would create a transitive cycle", () => {
+    const withTasks = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-cyc003", { title: "A", kind: "task", priority: 1 }, 1),
+      event("task.created", "tsq-cyc004", { title: "B", kind: "task", priority: 1 }, 2),
+      event("task.created", "tsq-cyc005", { title: "C", kind: "task", priority: 1 }, 3),
+      event("dep.added", "tsq-cyc003", { blocker: "tsq-cyc004" }, 4),
+      event("dep.added", "tsq-cyc004", { blocker: "tsq-cyc005" }, 5),
+    ]);
+
+    try {
+      applyEvent(withTasks, event("dep.added", "tsq-cyc005", { blocker: "tsq-cyc003" }, 6));
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(TsqError);
+      expect((error as TsqError).code).toBe("DEPENDENCY_CYCLE");
+    }
+  });
+
+  test("rejects self-dependency via dep.added", () => {
+    const withTask = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-cyc006", { title: "Self", kind: "task", priority: 1 }, 1),
+    ]);
+
+    try {
+      applyEvent(withTask, event("dep.added", "tsq-cyc006", { blocker: "tsq-cyc006" }, 2));
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(TsqError);
+      expect((error as TsqError).code).toBe("DEPENDENCY_CYCLE");
+    }
   });
 });

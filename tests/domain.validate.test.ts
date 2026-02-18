@@ -63,7 +63,7 @@ describe("assertNoDependencyCycle", () => {
 });
 
 describe("ready semantics", () => {
-  test("considers blocker status and ignores missing blockers", () => {
+  test("considers blocker status and treats missing blockers as blocking", () => {
     const state = makeState(
       [
         makeTask("a", "open"),
@@ -85,7 +85,7 @@ describe("ready semantics", () => {
     expect(isReady(state, "a")).toBe(true);
     expect(isReady(state, "b")).toBe(true);
     expect(isReady(state, "f")).toBe(false);
-    expect(isReady(state, "g")).toBe(true);
+    expect(isReady(state, "g")).toBe(false);
   });
 
   test("lists only ready tasks in created order", () => {

@@ -44,7 +44,7 @@ export const isReady = (state: State, taskId: string): boolean => {
   for (const blockerId of state.deps[taskId] ?? []) {
     const blocker = state.tasks[blockerId];
     if (!blocker) {
-      continue;
+      return false;
     }
     if (!isClosedBlockerStatus(blocker.status)) {
       return false;
@@ -55,23 +55,8 @@ export const isReady = (state: State, taskId: string): boolean => {
 
 export const listReady = (state: State): Task[] => {
   const ready: Task[] = [];
-  const seen = new Set<string>();
 
   for (const id of state.created_order) {
-    const task = state.tasks[id];
-    if (!task) {
-      continue;
-    }
-    seen.add(id);
-    if (isReady(state, id)) {
-      ready.push(task);
-    }
-  }
-
-  for (const id of Object.keys(state.tasks)) {
-    if (seen.has(id)) {
-      continue;
-    }
     const task = state.tasks[id];
     if (!task) {
       continue;

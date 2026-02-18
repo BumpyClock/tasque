@@ -1,88 +1,14 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-
-interface JsonEnvelope {
-  schema_version: number;
-  command: string;
-  ok: boolean;
-  data?: unknown;
-  error?: {
-    code: string;
-    message: string;
-    details?: unknown;
-  };
-}
-
-interface JsonResult {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-  envelope: JsonEnvelope;
-}
-
-const repos: string[] = [];
-const repoRoot = resolve(import.meta.dir, "..");
-const cliEntry = join(repoRoot, "src", "main.ts");
+import { type JsonEnvelope, cleanupRepos, makeRepo as makeRepoBase, okData, runJson as runJsonBase } from "./helpers";
 
 async function makeRepo(): Promise<string> {
-  const repo = await mkdtemp(join(tmpdir(), "tasque-list-filters-e2e-"));
-  repos.push(repo);
-  return repo;
+  return makeRepoBase("tasque-list-filters-e2e-");
 }
 
-afterEach(async () => {
-  await Promise.all(repos.splice(0).map((repo) => rm(repo, { recursive: true, force: true })));
-});
+afterEach(cleanupRepos);
 
-function assertEnvelopeShape(value: unknown): asserts value is JsonEnvelope {
-  expect(value).toBeObject();
-  const envelope = value as Record<string, unknown>;
-  expect(envelope.schema_version).toBe(1);
-  expect(typeof envelope.command).toBe("string");
-  expect(typeof envelope.ok).toBe("boolean");
-  if (envelope.ok === true) {
-    expect("data" in envelope).toBe(true);
-  } else {
-    expect("error" in envelope).toBe(true);
-  }
-}
-
-async function runJson(repoDir: string, args: string[]): Promise<JsonResult> {
-  const proc = Bun.spawn({
-    cmd: ["bun", "run", cliEntry, ...args, "--json"],
-    cwd: repoDir,
-    env: {
-      ...process.env,
-      TSQ_ACTOR: "test-list-filters",
-    },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  const [exitCode, stdout, stderr] = await Promise.all([
-    proc.exited,
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
-
-  const trimmed = stdout.trim();
-  expect(trimmed.length > 0).toBe(true);
-  const parsed = JSON.parse(trimmed) as unknown;
-  assertEnvelopeShape(parsed);
-
-  return {
-    exitCode,
-    stdout,
-    stderr,
-    envelope: parsed,
-  };
-}
-
-function okData<T>(envelope: JsonEnvelope): T {
-  expect(envelope.ok).toBe(true);
-  return envelope.data as T;
+async function runJson(repoDir: string, args: string[]) {
+  return runJsonBase(repoDir, args, "test-list-filters");
 }
 
 function listTaskIds(envelope: JsonEnvelope): string[] {
@@ -90,7 +16,7 @@ function listTaskIds(envelope: JsonEnvelope): string[] {
 }
 
 describe("cli list filters", () => {
-  it("supports --label-any csv/repeat with --id and --no-assignee", async () => {
+  it("supports --label-any csv/repeat with --id and --unassigned", async () => {
     const repo = await makeRepo();
     await runJson(repo, ["init"]);
 
@@ -115,7 +41,7 @@ describe("cli list filters", () => {
       "bug,ui",
       "--label-any",
       "ops",
-      "--no-assignee",
+      "--unassigned",
       "--id",
       `${alpha.id},${beta.id}`,
       "--id",
@@ -196,7 +122,7 @@ describe("cli list filters", () => {
     const repo = await makeRepo();
     await runJson(repo, ["init"]);
 
-    const assigneeConflict = await runJson(repo, ["list", "--assignee", "alice", "--no-assignee"]);
+    const assigneeConflict = await runJson(repo, ["list", "--assignee", "alice", "--unassigned"]);
     expect(assigneeConflict.exitCode).toBe(1);
     expect(assigneeConflict.envelope.ok).toBe(false);
     expect(assigneeConflict.envelope.error?.code).toBe("VALIDATION_ERROR");
@@ -217,20 +143,20 @@ describe("cli list filters", () => {
     expect(invalidIdList.envelope.error?.code).toBe("VALIDATION_ERROR");
   });
 
-  it("returns validation error for --assignee=<value> with --no-assignee", async () => {
+  it("returns validation error for --assignee=<value> with --unassigned", async () => {
     const repo = await makeRepo();
     await runJson(repo, ["init"]);
 
     const assigneeEqualsConflict = await runJson(repo, [
       "list",
       "--assignee=alice",
-      "--no-assignee",
+      "--unassigned",
     ]);
     expect(assigneeEqualsConflict.exitCode).toBe(1);
     expect(assigneeEqualsConflict.envelope.ok).toBe(false);
     expect(assigneeEqualsConflict.envelope.error?.code).toBe("VALIDATION_ERROR");
 
-    const assigneeEmptyConflict = await runJson(repo, ["list", "--assignee=", "--no-assignee"]);
+    const assigneeEmptyConflict = await runJson(repo, ["list", "--assignee=", "--unassigned"]);
     expect(assigneeEmptyConflict.exitCode).toBe(1);
     expect(assigneeEmptyConflict.envelope.ok).toBe(false);
     expect(assigneeEmptyConflict.envelope.error?.code).toBe("VALIDATION_ERROR");

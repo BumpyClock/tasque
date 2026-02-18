@@ -3,7 +3,13 @@ import type { TasqueService } from "../app/service";
 import { TsqError } from "../errors";
 import { okEnvelope } from "../output";
 import type { Task, TaskStatus, TaskTreeNode } from "../types";
-import { renderTaskTree } from "./render";
+import {
+  formatMetaBadge,
+  formatStatus,
+  formatStatusText,
+  renderTaskTree,
+  truncateWithEllipsis,
+} from "./render";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -88,11 +94,11 @@ export async function startWatch(service: TasqueService, options: WatchOptions):
       const frame = await loadFrame(service, options);
       lastFrame = frame;
       outputFrame(frame, options, isTTY && !options.json);
-    } catch {
+    } catch (error) {
       // keep last good frame, show error
       const errFrame: FrameResult = {
         ok: false,
-        error: "unexpected error during refresh",
+        error: `refresh failed: ${error instanceof Error ? error.message : String(error)}`,
       };
       if (lastFrame?.ok) {
         outputFrame(lastFrame, options, isTTY && !options.json);
@@ -293,13 +299,13 @@ function renderFlatTasks(tasks: Task[], width: number): string[] {
 
   for (const task of tasks) {
     const status = formatStatus(task.status);
-    const statusText = formatStatusTextPlain(task.status);
+    const statusText = formatStatusText(task.status);
     const meta = pc.dim(formatMetaBadge(task));
     const id = pc.bold(task.id);
 
     if (density === "narrow") {
       const titleWidth = Math.max(12, width - statusText.length - 1 - task.id.length - 1);
-      lines.push(`${status} ${id} ${truncate(task.title, titleWidth)}`);
+      lines.push(`${status} ${id} ${truncateWithEllipsis(task.title, titleWidth)}`);
       lines.push(`  ${meta}`);
     } else {
       lines.push(`${status}  ${id}  ${task.title}  ${meta}`);
@@ -375,46 +381,3 @@ function resolveDensity(width: number): Density {
   return "narrow";
 }
 
-function formatStatus(status: TaskStatus): string {
-  switch (status) {
-    case "open":
-      return pc.cyan("○ open");
-    case "in_progress":
-      return pc.blue("◐ in_progress");
-    case "blocked":
-      return pc.yellow("● blocked");
-    case "closed":
-      return pc.green("✓ closed");
-    case "canceled":
-      return pc.red("✕ canceled");
-    default:
-      return status;
-  }
-}
-
-function formatStatusTextPlain(status: TaskStatus): string {
-  switch (status) {
-    case "open":
-      return "○ open";
-    case "in_progress":
-      return "◐ in_progress";
-    case "blocked":
-      return "● blocked";
-    case "closed":
-      return "✓ closed";
-    case "canceled":
-      return "✕ canceled";
-    default:
-      return status;
-  }
-}
-
-function formatMetaBadge(task: Task): string {
-  return `[p${task.priority}${task.assignee ? ` @${task.assignee}` : ""}]`;
-}
-
-function truncate(value: string, maxLength: number): string {
-  if (value.length <= maxLength) return value;
-  if (maxLength <= 3) return value.slice(0, maxLength);
-  return `${value.slice(0, maxLength - 3)}...`;
-}

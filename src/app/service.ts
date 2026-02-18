@@ -1,6 +1,5 @@
-import { createHash } from "node:crypto";
-import { mkdir, open, readFile, rename } from "node:fs/promises";
-import { dirname, isAbsolute, join } from "node:path";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { ulid } from "ulid";
 import { buildDepTree } from "../domain/dep-tree";
 import type { DepDirection, DepTreeNode } from "../domain/dep-tree";
@@ -13,12 +12,10 @@ import { assertNoDependencyCycle, isReady, listReady } from "../domain/validate"
 import { TsqError } from "../errors";
 import { applySkillOperation } from "../skills";
 import type { SkillOperationSummary, SkillTarget } from "../skills/types";
-import { writeDefaultConfig } from "../store/config";
-import { appendEvents } from "../store/events";
-import { withWriteLock } from "../store/lock";
-import { getPaths, taskSpecFile, taskSpecRelativePath } from "../store/paths";
 import type {
+  EventPayloadMap,
   EventRecord,
+  EventType,
   Priority,
   RelationType,
   RepairResult,
@@ -28,9 +25,25 @@ import type {
   TaskNote,
   TaskStatus,
   TaskTreeNode,
+  TaskUpdatedPayload,
 } from "../types";
 import { executeRepair } from "./repair";
-import { loadProjectedState, persistProjection } from "./state";
+import {
+  appendEvents,
+  ensureEventsFile,
+  ensureTasqueGitignore,
+  evaluateTaskSpec,
+  loadProjectedState,
+  normalizeOptionalInput,
+  persistProjection,
+  readSpecAttachContent,
+  resolveSpecAttachSource,
+  sha256,
+  withWriteLock,
+  writeDefaultConfig,
+  writeTaskSpecAtomic,
+} from "./storage";
+import type { SpecCheckResult } from "./storage";
 
 export interface InitResult {
   initialized: boolean;
@@ -164,12 +177,14 @@ export interface NoteListInput {
   exactId?: boolean;
 }
 
+/** Input for attaching a markdown spec to a task. */
 export interface SpecAttachInput {
   id: string;
   file?: string;
   source?: string;
   text?: string;
   stdin?: boolean;
+  force?: boolean;
   exactId?: boolean;
 }
 
@@ -200,39 +215,14 @@ export interface SpecAttachResult {
   };
 }
 
-export interface SpecCheckDiagnostic {
-  code:
-    | "SPEC_NOT_ATTACHED"
-    | "SPEC_METADATA_INVALID"
-    | "SPEC_FILE_MISSING"
-    | "SPEC_FINGERPRINT_DRIFT"
-    | "SPEC_REQUIRED_SECTIONS_MISSING";
-  message: string;
-  details?: Record<string, unknown>;
-}
-
-export interface SpecCheckResult {
-  task_id: string;
-  ok: boolean;
-  spec: {
-    attached: boolean;
-    spec_path?: string;
-    expected_fingerprint?: string;
-    actual_fingerprint?: string;
-    bytes?: number;
-    required_sections: string[];
-    present_sections: string[];
-    missing_sections: string[];
-  };
-  diagnostics: SpecCheckDiagnostic[];
-}
+export type { SpecCheckDiagnostic, SpecCheckResult } from "./storage";
 
 export interface SearchInput {
   query: string;
 }
 
+/** Declarative filter applied to task listings. All fields are optional; unset fields match everything. */
 export interface ListFilter {
-  status?: TaskStatus;
   statuses?: TaskStatus[];
   assignee?: string;
   externalRef?: string;
@@ -242,7 +232,7 @@ export interface ListFilter {
   createdAfter?: string;
   updatedAfter?: string;
   closedAfter?: string;
-  noAssignee?: boolean;
+  unassigned?: boolean;
   ids?: string[];
 }
 
@@ -268,33 +258,14 @@ export interface DoctorResult {
 }
 
 const DEFAULT_STALE_STATUSES: TaskStatus[] = ["open", "in_progress", "blocked"];
-const REQUIRED_SPEC_SECTIONS = [
-  {
-    label: "Overview",
-    aliases: ["Overview"],
-  },
-  {
-    label: "Constraints / Non-goals",
-    aliases: ["Constraints / Non-goals", "Constraints", "Non-goals"],
-  },
-  {
-    label: "Interfaces (CLI/API)",
-    aliases: ["Interfaces (CLI/API)", "Interfaces"],
-  },
-  {
-    label: "Data model / schema changes",
-    aliases: ["Data model / schema changes", "Data model", "Schema changes"],
-  },
-  {
-    label: "Acceptance criteria",
-    aliases: ["Acceptance criteria"],
-  },
-  {
-    label: "Test plan",
-    aliases: ["Test plan"],
-  },
-] as const;
 
+/**
+ * Core service orchestrating business logic for task management.
+ *
+ * Usage:
+ *   const svc = new TasqueService(repoRoot, "user", () => new Date().toISOString());
+ *   const task = await svc.create({ title: "Fix bug", kind: "task", priority: 1 });
+ */
 export class TasqueService {
   constructor(
     private readonly repoRoot: string,
@@ -557,7 +528,7 @@ export class TasqueService {
       const { state, allEvents } = await loadProjectedState(this.repoRoot);
       const id = mustResolveExisting(state, input.id, input.exactId);
       const existing = mustTask(state, id);
-      const patch: Record<string, unknown> = {};
+      const patch: TaskUpdatedPayload = {};
 
       if (input.title !== undefined) {
         patch.title = input.title;
@@ -648,6 +619,19 @@ export class TasqueService {
     return withWriteLock(this.repoRoot, async () => {
       const { state, allEvents } = await loadProjectedState(this.repoRoot);
       const id = mustResolveExisting(state, input.id, input.exactId);
+      const existing = mustTask(state, id);
+      const newFingerprint = sha256(sourceContent);
+      const oldFingerprint = normalizeOptionalInput(existing.spec_fingerprint);
+
+      if (oldFingerprint && oldFingerprint !== newFingerprint && !input.force) {
+        throw new TsqError(
+          "SPEC_CONFLICT",
+          `task ${id} already has an attached spec with a different fingerprint`,
+          1,
+          { task_id: id, old_fingerprint: oldFingerprint, new_fingerprint: newFingerprint },
+        );
+      }
+
       const specFile = await writeTaskSpecAtomic(this.repoRoot, id, sourceContent);
       const fingerprint = sha256(specFile.content);
       const attachedAt = this.now();
@@ -857,14 +841,14 @@ export class TasqueService {
         );
       }
 
-      const payload: Record<string, unknown> = {
+      const updatePayload: TaskUpdatedPayload = {
         duplicate_of: canonical,
         status: "closed",
       };
       if (input.reason) {
-        payload.reason = input.reason;
+        updatePayload.reason = input.reason;
       }
-      events.push(makeEvent(this.actor, this.now(), "task.updated", source, payload));
+      events.push(makeEvent(this.actor, this.now(), "task.updated", source, updatePayload));
 
       const nextState = applyEvents(state, events);
       await appendEvents(this.repoRoot, events);
@@ -936,7 +920,7 @@ export class TasqueService {
         if (existing.status === "canceled") {
           throw new TsqError("VALIDATION_ERROR", `cannot close canceled task ${id}`, 1);
         }
-        const payload: Record<string, unknown> = { status: "closed" };
+        const payload: TaskUpdatedPayload = { status: "closed" };
         if (input.reason) {
           payload.reason = input.reason;
         }
@@ -1069,12 +1053,12 @@ export class TasqueService {
   }
 }
 
-function makeEvent(
+function makeEvent<T extends EventType>(
   actor: string,
   ts: string,
-  type: EventRecord["type"],
+  type: T,
   taskId: string,
-  payload: Record<string, unknown>,
+  payload: EventPayloadMap[T],
 ): EventRecord {
   return {
     event_id: ulid(),
@@ -1082,7 +1066,7 @@ function makeEvent(
     actor,
     type,
     task_id: taskId,
-    payload,
+    payload: payload as Record<string, unknown>,
   };
 }
 
@@ -1139,9 +1123,8 @@ function sortStaleTasks(tasks: Task[]): Task[] {
 }
 
 function applyListFilter(tasks: Task[], filter: ListFilter): Task[] {
-  const allowedStatuses = filter.status ? [filter.status] : filter.statuses;
   return tasks.filter((task) => {
-    if (allowedStatuses && !allowedStatuses.includes(task.status)) {
+    if (filter.statuses && !filter.statuses.includes(task.status)) {
       return false;
     }
     if (filter.ids && !filter.ids.includes(task.id)) {
@@ -1153,7 +1136,7 @@ function applyListFilter(tasks: Task[], filter: ListFilter): Task[] {
     if (filter.externalRef && task.external_ref !== filter.externalRef) {
       return false;
     }
-    if (filter.noAssignee && hasAssignee(task.assignee)) {
+    if (filter.unassigned && hasAssignee(task.assignee)) {
       return false;
     }
     if (filter.kind && task.kind !== filter.kind) {
@@ -1232,258 +1215,4 @@ function buildDependentsByBlocker(deps: State["deps"]): Map<string, string[]> {
 
 function sortTaskIds(taskIds: string[]): string[] {
   return [...taskIds].sort((a, b) => a.localeCompare(b));
-}
-
-async function evaluateTaskSpec(
-  repoRoot: string,
-  taskId: string,
-  task: Task,
-): Promise<SpecCheckResult> {
-  const specPath = normalizeOptionalInput(task.spec_path);
-  const expectedFingerprint = normalizeOptionalInput(task.spec_fingerprint);
-  const requiredSections = REQUIRED_SPEC_SECTIONS.map((section) => section.label);
-  const diagnostics: SpecCheckDiagnostic[] = [];
-  let presentSections: string[] = [];
-  let missingSections = [...requiredSections];
-  let actualFingerprint: string | undefined;
-  let bytes: number | undefined;
-  let content: string | undefined;
-
-  if (!specPath && !expectedFingerprint) {
-    diagnostics.push({
-      code: "SPEC_NOT_ATTACHED",
-      message: "task does not have an attached spec",
-    });
-  } else if (!specPath || !expectedFingerprint) {
-    diagnostics.push({
-      code: "SPEC_METADATA_INVALID",
-      message: "task spec metadata is incomplete",
-      details: {
-        has_spec_path: specPath !== undefined,
-        has_spec_fingerprint: expectedFingerprint !== undefined,
-      },
-    });
-  }
-
-  if (specPath) {
-    try {
-      content = await readFile(resolveSpecPath(repoRoot, specPath), "utf8");
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === "ENOENT") {
-        diagnostics.push({
-          code: "SPEC_FILE_MISSING",
-          message: "attached spec file not found",
-          details: {
-            spec_path: specPath,
-          },
-        });
-      } else {
-        throw new TsqError("IO_ERROR", `failed reading attached spec file: ${specPath}`, 2, error);
-      }
-    }
-  }
-
-  if (content !== undefined) {
-    bytes = Buffer.byteLength(content, "utf8");
-    actualFingerprint = sha256(content);
-    if (expectedFingerprint && actualFingerprint !== expectedFingerprint) {
-      diagnostics.push({
-        code: "SPEC_FINGERPRINT_DRIFT",
-        message: "spec fingerprint drift detected",
-        details: {
-          expected_fingerprint: expectedFingerprint,
-          actual_fingerprint: actualFingerprint,
-        },
-      });
-    }
-
-    presentSections = extractMarkdownHeadings(content);
-    const presentNormalized = new Set(
-      presentSections.map((section) => normalizeMarkdownHeading(section)),
-    );
-    missingSections = REQUIRED_SPEC_SECTIONS.filter((required) => {
-      return !required.aliases.some((alias) =>
-        presentNormalized.has(normalizeMarkdownHeading(alias)),
-      );
-    }).map((required) => required.label);
-    if (missingSections.length > 0) {
-      diagnostics.push({
-        code: "SPEC_REQUIRED_SECTIONS_MISSING",
-        message: "spec is missing required markdown sections",
-        details: {
-          missing_sections: missingSections,
-        },
-      });
-    }
-  }
-
-  return {
-    task_id: taskId,
-    ok: diagnostics.length === 0,
-    spec: {
-      attached: Boolean(specPath && expectedFingerprint),
-      spec_path: specPath,
-      expected_fingerprint: expectedFingerprint,
-      actual_fingerprint: actualFingerprint,
-      ...(bytes === undefined ? {} : { bytes }),
-      required_sections: requiredSections,
-      present_sections: presentSections,
-      missing_sections: missingSections,
-    },
-    diagnostics,
-  };
-}
-
-type SpecAttachSource =
-  | { type: "file"; path: string }
-  | { type: "stdin" }
-  | { type: "text"; content: string };
-
-function resolveSpecAttachSource(input: SpecAttachInput): SpecAttachSource {
-  const file = normalizeOptionalInput(input.file);
-  const positional = normalizeOptionalInput(input.source);
-  const hasStdin = input.stdin === true;
-  const hasText = input.text !== undefined;
-
-  const sourcesProvided = [file !== undefined, positional !== undefined, hasStdin, hasText].filter(
-    (value) => value,
-  ).length;
-  if (sourcesProvided !== 1) {
-    throw new TsqError(
-      "VALIDATION_ERROR",
-      "exactly one source is required: --file, --stdin, --text, or positional source path",
-      1,
-    );
-  }
-
-  if (hasText) {
-    return { type: "text", content: input.text ?? "" };
-  }
-  if (hasStdin) {
-    return { type: "stdin" };
-  }
-  return { type: "file", path: file ?? positional ?? "" };
-}
-
-async function readSpecAttachContent(source: SpecAttachSource): Promise<string> {
-  if (source.type === "text") {
-    return source.content;
-  }
-  if (source.type === "stdin") {
-    return readStdinContent();
-  }
-
-  try {
-    return await readFile(source.path, "utf8");
-  } catch (error) {
-    throw new TsqError("IO_ERROR", `failed reading spec source file: ${source.path}`, 2, error);
-  }
-}
-
-async function readStdinContent(): Promise<string> {
-  process.stdin.setEncoding("utf8");
-  let content = "";
-  for await (const chunk of process.stdin) {
-    content += chunk;
-  }
-  return content;
-}
-
-async function writeTaskSpecAtomic(
-  repoRoot: string,
-  taskId: string,
-  content: string,
-): Promise<{ specPath: string; content: string }> {
-  const specFile = taskSpecFile(repoRoot, taskId);
-  const specPath = taskSpecRelativePath(taskId);
-  await mkdir(dirname(specFile), { recursive: true });
-  const temp = `${specFile}.tmp-${process.pid}-${Date.now()}`;
-
-  try {
-    const handle = await open(temp, "w");
-    try {
-      await handle.writeFile(content, "utf8");
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-    await rename(temp, specFile);
-    return {
-      specPath,
-      content: await readFile(specFile, "utf8"),
-    };
-  } catch (error) {
-    throw new TsqError("IO_ERROR", "failed writing attached spec", 2, error);
-  }
-}
-
-function sha256(content: string): string {
-  return createHash("sha256").update(content, "utf8").digest("hex");
-}
-
-function normalizeOptionalInput(value: unknown): string | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function extractMarkdownHeadings(content: string): string[] {
-  const headings: string[] = [];
-  const seen = new Set<string>();
-  for (const match of content.matchAll(/^#{1,6}[ \t]+(.+?)\s*$/gmu)) {
-    const heading = (match[1] ?? "").replace(/[ \t]+#+\s*$/u, "").trim();
-    if (heading.length === 0) {
-      continue;
-    }
-    const key = heading.toLowerCase();
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    headings.push(heading);
-  }
-  return headings;
-}
-
-function normalizeMarkdownHeading(heading: string): string {
-  return heading
-    .trim()
-    .replace(/\s+/gu, " ")
-    .replace(/\s*:\s*$/u, "")
-    .toLowerCase();
-}
-
-function resolveSpecPath(repoRoot: string, specPath: string): string {
-  if (isAbsolute(specPath)) {
-    return specPath;
-  }
-  return join(repoRoot, specPath);
-}
-
-async function ensureTasqueGitignore(repoRoot: string): Promise<void> {
-  const target = join(getPaths(repoRoot).tasqueDir, ".gitignore");
-  const desired = ["tasks.jsonl", "tasks.jsonl.tmp*", ".lock", "snapshots/", "snapshots/*.tmp"];
-  try {
-    await Bun.write(target, `${desired.join("\n")}\n`);
-  } catch (error) {
-    throw new TsqError("IO_ERROR", "failed writing .tasque/.gitignore", 2, error);
-  }
-}
-
-async function ensureEventsFile(repoRoot: string): Promise<void> {
-  const paths = getPaths(repoRoot);
-  await mkdir(paths.tasqueDir, { recursive: true });
-  try {
-    await readFile(paths.eventsFile, "utf8");
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code !== "ENOENT") {
-      throw new TsqError("IO_ERROR", "failed reading events file", 2, error);
-    }
-    const handle = await open(paths.eventsFile, "a");
-    await handle.close();
-  }
 }

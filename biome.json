@@ -14,11 +14,19 @@
     "rules": {
       "recommended": true,
       "suspicious": {
-        "noExplicitAny": "off"
+        "noExplicitAny": "warn"
       }
     }
   },
   "organizeImports": {
     "enabled": true
-  }
+  },
+  "overrides": [
+    {
+      "include": ["**/*.jsonl"],
+      "formatter": {
+        "enabled": false
+      }
+    }
+  ]
 }

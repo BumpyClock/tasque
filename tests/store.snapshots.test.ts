@@ -134,4 +134,34 @@ describe("store snapshots", () => {
     expect(files).toHaveLength(SNAPSHOT_RETAIN_COUNT);
     expect(files).toEqual(expected);
   });
+
+  it("skips snapshot with valid JSON but missing required schema fields and returns warning", async () => {
+    const repo = await makeRepo();
+    const snapshotsDir = join(repo, ".tasque", "snapshots");
+    await mkdir(snapshotsDir, { recursive: true });
+
+    const validOlder = snapshot("2026-02-17T06:00:00.000Z", 100, 100);
+    await writeSnapshot(repo, validOlder);
+
+    const wrongSchemaName = snapshotFilename("2026-02-17T12:00:00.000Z", 200);
+    const wrongSchemaContent = JSON.stringify({ taken_at: "2026-02-17T12:00:00.000Z" });
+    await writeFile(join(snapshotsDir, wrongSchemaName), wrongSchemaContent, "utf8");
+
+    const withWarning = await loadLatestSnapshotWithWarning(repo);
+    expect(withWarning.snapshot).toEqual(validOlder);
+    expect(withWarning.warning).toContain(wrongSchemaName);
+  });
+
+  it("returns null gracefully when snapshot directory is empty", async () => {
+    const repo = await makeRepo();
+    const snapshotsDir = join(repo, ".tasque", "snapshots");
+    await mkdir(snapshotsDir, { recursive: true });
+
+    const loaded = await loadLatestSnapshot(repo);
+    expect(loaded).toBeNull();
+
+    const withWarning = await loadLatestSnapshotWithWarning(repo);
+    expect(withWarning.snapshot).toBeNull();
+    expect(withWarning.warning).toBeUndefined();
+  });
 });

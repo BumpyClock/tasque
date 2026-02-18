@@ -7,17 +7,25 @@ import { appendEvents } from "../store/events";
 import { forceRemoveLock, lockExists, withWriteLock } from "../store/lock";
 import { getPaths } from "../store/paths";
 import { SNAPSHOT_RETAIN_COUNT } from "../store/snapshots";
-import type { EventRecord, RelationType, RepairPlan, RepairResult, State } from "../types";
+import type {
+  EventPayloadMap,
+  EventRecord,
+  EventType,
+  RelationType,
+  RepairPlan,
+  RepairResult,
+  State,
+} from "../types";
 import { loadProjectedState, persistProjection } from "./state";
 
-function makeRepairEvent(
+function makeRepairEvent<T extends EventType>(
   actor: string,
   ts: string,
-  type: EventRecord["type"],
+  type: T,
   taskId: string,
-  payload: Record<string, unknown>,
+  payload: EventPayloadMap[T],
 ): EventRecord {
-  return { event_id: ulid(), ts, actor, type, task_id: taskId, payload };
+  return { event_id: ulid(), ts, actor, type, task_id: taskId, payload: payload as Record<string, unknown> };
 }
 
 function buildRepairPlan(

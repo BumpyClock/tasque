@@ -1,33 +1,8 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-
-interface JsonEnvelope {
-  schema_version: number;
-  command: string;
-  ok: boolean;
-  data?: unknown;
-  error?: {
-    code: string;
-    message: string;
-    details?: unknown;
-  };
-}
-
-interface JsonResult {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-  envelope: JsonEnvelope;
-}
-
-interface CliResult {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-}
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { cleanupRepos, makeRepo as makeRepoBase, okData, runCli as runCliBase, runJson as runJsonBase } from "./helpers";
 
 interface TaskNote {
   event_id: string;
@@ -36,105 +11,18 @@ interface TaskNote {
   text: string;
 }
 
-const repos: string[] = [];
-const repoRoot = resolve(import.meta.dir, "..");
-const cliEntry = join(repoRoot, "src", "main.ts");
-
 async function makeRepo(): Promise<string> {
-  const repo = await mkdtemp(join(tmpdir(), "tasque-rich-content-"));
-  repos.push(repo);
-  return repo;
+  return makeRepoBase("tasque-rich-content-");
 }
 
-afterEach(async () => {
-  await Promise.all(repos.splice(0).map((repo) => rm(repo, { recursive: true, force: true })));
-});
+afterEach(cleanupRepos);
 
-function assertEnvelopeShape(value: unknown): asserts value is JsonEnvelope {
-  expect(value).toBeObject();
-  const envelope = value as Record<string, unknown>;
-  expect(envelope.schema_version).toBe(1);
-  expect(typeof envelope.command).toBe("string");
-  expect(typeof envelope.ok).toBe("boolean");
-  if (envelope.ok === true) {
-    expect("data" in envelope).toBe(true);
-  } else {
-    expect("error" in envelope).toBe(true);
-  }
+async function runJson(repoDir: string, args: string[], actor = "test-rich-content", stdinText?: string) {
+  return runJsonBase(repoDir, args, actor, stdinText);
 }
 
-async function runJson(
-  repoDir: string,
-  args: string[],
-  actor = "test-rich-content",
-  stdinText?: string,
-): Promise<JsonResult> {
-  const proc = Bun.spawn({
-    cmd: ["bun", "run", cliEntry, ...args, "--json"],
-    cwd: repoDir,
-    env: {
-      ...process.env,
-      TSQ_ACTOR: actor,
-    },
-    stdin: stdinText === undefined ? "ignore" : "pipe",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  if (stdinText !== undefined) {
-    const stdin = proc.stdin;
-    expect(stdin).toBeDefined();
-    stdin?.write(stdinText);
-    stdin?.end();
-  }
-
-  const [exitCode, stdout, stderr] = await Promise.all([
-    proc.exited,
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
-
-  const trimmed = stdout.trim();
-  expect(trimmed.length > 0).toBe(true);
-  const parsed = JSON.parse(trimmed) as unknown;
-  assertEnvelopeShape(parsed);
-
-  return {
-    exitCode,
-    stdout,
-    stderr,
-    envelope: parsed,
-  };
-}
-
-async function runCli(repoDir: string, args: string[]): Promise<CliResult> {
-  const proc = Bun.spawn({
-    cmd: ["bun", "run", cliEntry, ...args],
-    cwd: repoDir,
-    env: {
-      ...process.env,
-      TSQ_ACTOR: "test-rich-content",
-    },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  const [exitCode, stdout, stderr] = await Promise.all([
-    proc.exited,
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
-
-  return {
-    exitCode,
-    stdout,
-    stderr,
-  };
-}
-
-function okData<T>(envelope: JsonEnvelope): T {
-  expect(envelope.ok).toBe(true);
-  return envelope.data as T;
+async function runCli(repoDir: string, args: string[]) {
+  return runCliBase(repoDir, args, "test-rich-content");
 }
 
 describe("cli rich content", () => {

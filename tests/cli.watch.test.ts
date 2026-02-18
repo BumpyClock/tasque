@@ -1,18 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-
-interface JsonEnvelope {
-  schema_version: number;
-  command: string;
-  ok: boolean;
-  data?: unknown;
-  error?: {
-    code: string;
-    message: string;
-  };
-}
+import { type JsonEnvelope, cleanupRepos, makeRepo as makeRepoBase, runCli as runCliBase, runJson as runJsonBase } from "./helpers";
 
 interface WatchFrameData {
   frame_ts: string;
@@ -22,46 +9,18 @@ interface WatchFrameData {
   tasks: Array<{ id: string; status: string; priority: number; title: string }>;
 }
 
-const repos: string[] = [];
-const repoRoot = resolve(import.meta.dir, "..");
-const cliEntry = join(repoRoot, "src", "main.ts");
-
 async function makeRepo(): Promise<string> {
-  const repo = await mkdtemp(join(tmpdir(), "tasque-watch-"));
-  repos.push(repo);
-  return repo;
+  return makeRepoBase("tasque-watch-");
 }
 
-afterEach(async () => {
-  await Promise.all(repos.splice(0).map((repo) => rm(repo, { recursive: true, force: true })));
-});
+afterEach(cleanupRepos);
 
-async function runCli(
-  repoDir: string,
-  args: string[],
-): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const proc = Bun.spawn({
-    cmd: ["bun", "run", cliEntry, ...args],
-    cwd: repoDir,
-    env: { ...process.env, TSQ_ACTOR: "watch-test" },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [exitCode, stdout, stderr] = await Promise.all([
-    proc.exited,
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
-  return { exitCode, stdout, stderr };
+async function runCli(repoDir: string, args: string[]) {
+  return runCliBase(repoDir, args, "watch-test");
 }
 
-async function runJson(
-  repoDir: string,
-  args: string[],
-): Promise<{ exitCode: number; envelope: JsonEnvelope }> {
-  const result = await runCli(repoDir, [...args, "--json"]);
-  const envelope = JSON.parse(result.stdout.trim()) as JsonEnvelope;
-  return { exitCode: result.exitCode, envelope };
+async function runJson(repoDir: string, args: string[]) {
+  return runJsonBase(repoDir, args, "watch-test");
 }
 
 async function initRepo(repoDir: string): Promise<void> {

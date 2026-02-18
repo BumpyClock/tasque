@@ -1,14 +1,25 @@
 import { TsqError } from "../errors";
 import type {
+  DepAddedPayload,
+  DepRemovedPayload,
   EventRecord,
+  LinkAddedPayload,
+  LinkRemovedPayload,
   Priority,
   RelationType,
   State,
   Task,
+  TaskClaimedPayload,
+  TaskCreatedPayload,
   TaskKind,
   TaskNote,
+  TaskNotedPayload,
+  TaskSpecAttachedPayload,
   TaskStatus,
+  TaskSupersededPayload,
+  TaskUpdatedPayload,
 } from "../types";
+import { assertNoDependencyCycle } from "./validate";
 
 const RELATION_TYPES: RelationType[] = ["relates_to", "replies_to", "duplicates", "supersedes"];
 const TASK_KINDS: TaskKind[] = ["task", "feature", "epic"];
@@ -19,6 +30,15 @@ const asObject = (value: unknown): Record<string, unknown> => {
     return {};
   }
   return value as Record<string, unknown>;
+};
+
+/**
+ * Extract and cast the event payload to a typed interface.
+ * Runtime validation is still required by each handler; this cast provides
+ * compile-time safety after validation has been performed.
+ */
+const extractPayload = <T>(value: unknown): Partial<T> & Record<string, unknown> => {
+  return asObject(value) as Partial<T> & Record<string, unknown>;
 };
 
 const asString = (value: unknown): string | undefined => {
@@ -148,7 +168,7 @@ const applyTaskCreated = (state: State, event: EventRecord): void => {
   if (state.tasks[event.task_id]) {
     throw new TsqError("TASK_EXISTS", "Task already exists", 1, { task_id: event.task_id });
   }
-  const payload = asObject(event.payload);
+  const payload = extractPayload<TaskCreatedPayload>(event.payload);
   const title = asString(payload.title);
   if (!title || title.length === 0) {
     throw new TsqError("INVALID_EVENT", "task.created requires a title", 1, {
@@ -189,7 +209,7 @@ const applyTaskCreated = (state: State, event: EventRecord): void => {
 
 const applyTaskUpdated = (state: State, event: EventRecord): void => {
   const current = requireTask(state, event.task_id);
-  const payload = asObject(event.payload);
+  const payload = extractPayload<TaskUpdatedPayload>(event.payload);
   const next: Task = {
     ...current,
     notes: [...(current.notes ?? [])],
@@ -276,7 +296,7 @@ const applyTaskUpdated = (state: State, event: EventRecord): void => {
 
 const applyTaskClaimed = (state: State, event: EventRecord): void => {
   const current = requireTask(state, event.task_id);
-  const payload = asObject(event.payload);
+  const payload = extractPayload<TaskClaimedPayload>(event.payload);
   const assignee = asString(payload.assignee) ?? event.actor;
   const nextStatus = current.status === "open" ? "in_progress" : current.status;
   state.tasks[event.task_id] = {
@@ -289,7 +309,7 @@ const applyTaskClaimed = (state: State, event: EventRecord): void => {
 
 const applyTaskNoted = (state: State, event: EventRecord): void => {
   const current = requireTask(state, event.task_id);
-  const payload = asObject(event.payload);
+  const payload = extractPayload<TaskNotedPayload>(event.payload);
   const text = asString(payload.text);
   if (!text || text.length === 0) {
     throw new TsqError("INVALID_EVENT", "task.noted requires text", 1, {
@@ -311,7 +331,7 @@ const applyTaskNoted = (state: State, event: EventRecord): void => {
 
 const applyTaskSpecAttached = (state: State, event: EventRecord): void => {
   const current = requireTask(state, event.task_id);
-  const payload = asObject(event.payload);
+  const payload = extractPayload<TaskSpecAttachedPayload>(event.payload);
   const specPath = asString(payload.spec_path);
   const specFingerprint = asString(payload.spec_fingerprint);
   const specAttachedAt = asString(payload.spec_attached_at) ?? event.ts;
@@ -338,7 +358,7 @@ const applyTaskSpecAttached = (state: State, event: EventRecord): void => {
 
 const applyTaskSuperseded = (state: State, event: EventRecord): void => {
   const source = requireTask(state, event.task_id);
-  const payload = asObject(event.payload);
+  const payload = extractPayload<TaskSupersededPayload>(event.payload);
   const replacement =
     asString(payload.with) ?? asString(payload.new_id) ?? asString(payload.target);
   if (!replacement) {
@@ -359,13 +379,14 @@ const applyTaskSuperseded = (state: State, event: EventRecord): void => {
 };
 
 const applyDepAdded = (state: State, event: EventRecord): void => {
-  const payload = asObject(event.payload);
+  const payload = extractPayload<DepAddedPayload>(event.payload);
   const blocker = asString(payload.blocker);
   if (!blocker) {
     throw new TsqError("INVALID_EVENT", "dep.added requires blocker", 1, {
       event_id: event.event_id,
     });
   }
+  assertNoDependencyCycle(state, event.task_id, blocker);
   const deps = state.deps[event.task_id] ?? [];
   if (!deps.includes(blocker)) {
     state.deps[event.task_id] = [...deps, blocker];
@@ -373,7 +394,7 @@ const applyDepAdded = (state: State, event: EventRecord): void => {
 };
 
 const applyDepRemoved = (state: State, event: EventRecord): void => {
-  const payload = asObject(event.payload);
+  const payload = extractPayload<DepRemovedPayload>(event.payload);
   const blocker = asString(payload.blocker);
   if (!blocker) {
     throw new TsqError("INVALID_EVENT", "dep.removed requires blocker", 1, {
@@ -389,7 +410,7 @@ const relationTarget = (payload: Record<string, unknown>): string | undefined =>
 };
 
 const applyLinkAdded = (state: State, event: EventRecord): void => {
-  const payload = asObject(event.payload);
+  const payload = extractPayload<LinkAddedPayload>(event.payload);
   const type = asRelationType(payload.type);
   const target = relationTarget(payload);
   if (!type || !target) {
@@ -409,7 +430,7 @@ const applyLinkAdded = (state: State, event: EventRecord): void => {
 };
 
 const applyLinkRemoved = (state: State, event: EventRecord): void => {
-  const payload = asObject(event.payload);
+  const payload = extractPayload<LinkRemovedPayload>(event.payload);
   const type = asRelationType(payload.type);
   const target = relationTarget(payload);
   if (!type || !target) {

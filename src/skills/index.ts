@@ -222,7 +222,7 @@ async function isManagedSkill(skillDirectory: string): Promise<boolean> {
     fileContainsManagedMarker(join(skillDirectory, "SKILL.md")),
     fileContainsManagedMarker(join(skillDirectory, "README.md")),
   ]);
-  return skillFileManaged || readmeFileManaged;
+  return skillFileManaged && readmeFileManaged;
 }
 
 async function fileContainsManagedMarker(filePath: string): Promise<boolean> {

@@ -17,7 +17,7 @@
 ## Pitfalls
 - `resolveTaskId` throws `TASK_NOT_FOUND`, not `NOT_FOUND`.
 - Negated search queries (`-field:value`) need a `--` separator before them due to commander treating leading `-` as option flags.
-- Commander option conflict detection (e.g. `--assignee` vs `--no-assignee`) must use option events, not just value checks, to handle both `--flag value` and `--flag=value` forms consistently.
+- Commander option conflict detection (e.g. `--assignee` vs `--unassigned`) must use option events, not just value checks, to handle both `--flag value` and `--flag=value` forms consistently.
 
 ## Build & Release
 - `bun run build` compiles a single binary; `bun run release` emits a platform artifact + `SHA256SUMS.txt` in `dist/releases/`.

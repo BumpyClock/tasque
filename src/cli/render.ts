@@ -200,7 +200,7 @@ export function printRepairResult(result: RepairResult): void {
   }
 }
 
-function formatMetaBadge(task: Task): string {
+export function formatMetaBadge(task: Task): string {
   return `[p${task.priority}${task.assignee ? ` @${task.assignee}` : ""}]`;
 }
 
@@ -248,7 +248,7 @@ function computeTitleWidth(
   return Math.max(12, width - fixedLength);
 }
 
-function truncateWithEllipsis(value: string, maxLength: number): string {
+export function truncateWithEllipsis(value: string, maxLength: number): string {
   if (value.length <= maxLength) {
     return value;
   }
@@ -258,7 +258,7 @@ function truncateWithEllipsis(value: string, maxLength: number): string {
   return `${value.slice(0, maxLength - 3)}...`;
 }
 
-function formatStatusText(status: TaskStatus): string {
+export function formatStatusText(status: TaskStatus): string {
   switch (status) {
     case "open":
       return "○ open";
@@ -275,7 +275,7 @@ function formatStatusText(status: TaskStatus): string {
   }
 }
 
-function formatStatus(status: TaskStatus): string {
+export function formatStatus(status: TaskStatus): string {
   switch (status) {
     case "open":
       return pc.cyan("○ open");

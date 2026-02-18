@@ -31,9 +31,7 @@ interface WatchFrameData {
   tasks: Task[];
 }
 
-type FrameResult =
-  | { ok: true; data: WatchFrameData }
-  | { ok: false; error: string };
+type FrameResult = { ok: true; data: WatchFrameData } | { ok: false; error: string };
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -48,10 +46,7 @@ const STATUS_ORDER: Record<TaskStatus, number> = {
 
 // ── Public API ─────────────────────────────────────────────────────────────
 
-export async function startWatch(
-  service: TasqueService,
-  options: WatchOptions,
-): Promise<void> {
+export async function startWatch(service: TasqueService, options: WatchOptions): Promise<void> {
   validateOptions(options);
 
   if (options.once) {
@@ -147,10 +142,7 @@ export async function startWatch(
 
 // ── Frame loading ──────────────────────────────────────────────────────────
 
-async function loadFrame(
-  service: TasqueService,
-  options: WatchOptions,
-): Promise<FrameResult> {
+async function loadFrame(service: TasqueService, options: WatchOptions): Promise<FrameResult> {
   try {
     const tasks = await service.list({
       statuses: options.statuses,
@@ -274,7 +266,7 @@ function renderHeader(data: WatchFrameData, paused: boolean, width: number): str
   const density = resolveDensity(width);
 
   if (density === "narrow") {
-    const shortTs = ts.slice(11, 19) + "Z";
+    const shortTs = `${ts.slice(11, 19)}Z`;
     return `${pc.bold("[tsq watch]")} ${pc.dim(`refreshed=${shortTs} interval=${data.interval_s}s`)}${pauseTag}`;
   }
 
@@ -385,23 +377,35 @@ function resolveDensity(width: number): Density {
 
 function formatStatus(status: TaskStatus): string {
   switch (status) {
-    case "open": return pc.cyan("○ open");
-    case "in_progress": return pc.blue("◐ in_progress");
-    case "blocked": return pc.yellow("● blocked");
-    case "closed": return pc.green("✓ closed");
-    case "canceled": return pc.red("✕ canceled");
-    default: return status;
+    case "open":
+      return pc.cyan("○ open");
+    case "in_progress":
+      return pc.blue("◐ in_progress");
+    case "blocked":
+      return pc.yellow("● blocked");
+    case "closed":
+      return pc.green("✓ closed");
+    case "canceled":
+      return pc.red("✕ canceled");
+    default:
+      return status;
   }
 }
 
 function formatStatusTextPlain(status: TaskStatus): string {
   switch (status) {
-    case "open": return "○ open";
-    case "in_progress": return "◐ in_progress";
-    case "blocked": return "● blocked";
-    case "closed": return "✓ closed";
-    case "canceled": return "✕ canceled";
-    default: return status;
+    case "open":
+      return "○ open";
+    case "in_progress":
+      return "◐ in_progress";
+    case "blocked":
+      return "● blocked";
+    case "closed":
+      return "✓ closed";
+    case "canceled":
+      return "✕ canceled";
+    default:
+      return status;
   }
 }
 

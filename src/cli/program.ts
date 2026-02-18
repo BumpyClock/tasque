@@ -741,17 +741,19 @@ export function buildProgram(deps: RuntimeDeps): Command {
 
   program
     .command("watch")
-    .option("--interval <seconds>", "refresh interval in seconds (1-60)", "2")
-    .option("--status <status>", "filter by status (repeatable, comma-separated)", "open,in_progress")
+    .option("--interval <seconds>", "refresh interval in seconds (1-60)", "30")
+    .option(
+      "--status <status>",
+      "filter by status (repeatable, comma-separated)",
+      "open,in_progress",
+    )
     .option("--assignee <assignee>", "filter by assignee")
     .option("--tree", "show parent-child hierarchy")
     .option("--once", "single frame render, then exit")
     .description("Live view of active tasks")
     .action(async function action(options: WatchCommandOptions) {
       const globalOpts = this.optsWithGlobals<GlobalOpts>();
-      const statuses = options.status
-        .split(",")
-        .map((s: string) => normalizeStatus(s.trim()));
+      const statuses = options.status.split(",").map((s: string) => normalizeStatus(s.trim()));
       await startWatch(deps.service, {
         interval: parsePositiveInt(options.interval, "interval", 1, 60),
         statuses,

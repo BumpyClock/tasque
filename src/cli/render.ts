@@ -50,11 +50,17 @@ export function printTask(task: Task): void {
   if (task.assignee) {
     console.log(`assignee=${task.assignee}`);
   }
+  if (task.external_ref) {
+    console.log(`external_ref=${task.external_ref}`);
+  }
   if (task.parent_id) {
     console.log(`parent=${task.parent_id}`);
   }
   if (task.superseded_by) {
     console.log(`superseded_by=${task.superseded_by}`);
+  }
+  if (task.duplicate_of) {
+    console.log(`duplicate_of=${task.duplicate_of}`);
   }
   if (task.description) {
     console.log(`description=${task.description}`);

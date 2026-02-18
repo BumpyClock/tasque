@@ -23,11 +23,12 @@ Use \`tsq\` for durable local task tracking.
 
 ## Create and inspect
 
-- \`tsq create "Title" --kind task|feature|epic -p 0..3\`
+- \`tsq create "Title" --kind task|feature|epic -p 0..3 [--external-ref <ref>]\`
 - \`tsq show <id>\`
-- \`tsq list [--status S] [--assignee A] [--kind K] [--label L] [--tree [--full]]\`
+- \`tsq list [--status S] [--assignee A] [--external-ref R] [--kind K] [--label L] [--tree [--full]]\`
 - \`tsq search "status:open label:bug some title text"\`
 - \`tsq doctor\`
+- \`tsq watch [--once] [--interval N] [--status ...] [--assignee A] [--tree]\`
 
 ## Close and reopen
 
@@ -60,12 +61,14 @@ Use \`tsq\` for durable local task tracking.
 - \`tsq dep tree <id> [--direction up|down|both] [--depth N]\` — dependency graph
 - \`tsq link add <src> <dst> --type relates_to|replies_to|duplicates|supersedes\`
 - \`tsq link remove <src> <dst> --type relates_to|replies_to|duplicates|supersedes\`
+- \`tsq duplicate <id> --of <canonical-id> [--reason <text>]\` to canonicalize duplicates without dependency rewiring
+- \`tsq duplicates [--limit <n>]\` for dry-run duplicate candidate scaffolding
 - \`tsq supersede <old-id> --with <new-id> [--reason <text>]\`
 
 ## Search
 
 - \`tsq search "<query>"\` — structured query with implicit AND
-- Fields: \`id\`, \`title\`, \`status\`, \`kind\`, \`priority\`, \`assignee\`, \`parent\`, \`label\`, \`ready\`
+- Fields: \`id\`, \`title\`, \`status\`, \`kind\`, \`priority\`, \`assignee\`, \`external_ref\`, \`parent\`, \`label\`, \`ready\`
 - Negation: \`-status:closed\` (use \`--\` separator: \`tsq search -- -status:closed\`)
 - Bare words match title substring
 

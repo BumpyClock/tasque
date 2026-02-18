@@ -6,4 +6,5 @@ dist/
 .tasque/state.json
 .tasque/.lock
 .tasque/snapshots/
+.tasque/specs/
 .ai_agents/

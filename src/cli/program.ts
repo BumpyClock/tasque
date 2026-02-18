@@ -43,9 +43,15 @@ interface InitCommandOptions {
 
 interface ListCommandOptions {
   status?: string;
-  assignee?: string;
+  assignee?: string | boolean;
+  externalRef?: string;
   kind?: string;
   label?: string;
+  labelAny?: string[];
+  createdAfter?: string;
+  updatedAfter?: string;
+  closedAfter?: string;
+  id?: string[];
   tree?: boolean;
   full?: boolean;
 }
@@ -61,12 +67,15 @@ interface CreateCommandOptions {
   priority?: string;
   parent?: string;
   description?: string;
+  externalRef?: string;
 }
 
 interface UpdateCommandOptions {
   title?: string;
   description?: string;
   clearDescription?: boolean;
+  externalRef?: string;
+  clearExternalRef?: boolean;
   status?: string;
   priority?: string;
   claim?: boolean;
@@ -170,6 +179,7 @@ export function buildProgram(deps: RuntimeDeps): Command {
     .option("-p, --priority <priority>", "priority 0..3", "2")
     .option("--parent <id>", "parent task ID")
     .option("--description <text>", "task description")
+    .option("--external-ref <ref>", "external reference (ticket/URL/id)")
     .description("Create task")
     .action(async function action(title: string, options: CreateCommandOptions) {
       await runAction(
@@ -183,6 +193,7 @@ export function buildProgram(deps: RuntimeDeps): Command {
             priority,
             parent: options.parent,
             description: asOptionalString(options.description),
+            externalRef: asOptionalString(options.externalRef),
             exactId: opts.exactId,
           });
         },
@@ -219,42 +230,75 @@ export function buildProgram(deps: RuntimeDeps): Command {
       });
     });
 
+  const listFlagState = {
+    assignee: false,
+    noAssignee: false,
+  };
+
   program
     .command("list")
     .option("--status <status>", "filter by status")
     .option("--assignee <assignee>", "filter by assignee")
+    .option("--external-ref <ref>", "filter by external reference")
     .option("--kind <kind>", "filter by kind")
     .option("--label <label>", "filter by label")
+    .option(
+      "--label-any <label>",
+      "filter by any label (repeatable, comma-separated)",
+      collectCsvOption("label-any"),
+      [],
+    )
+    .option("--created-after <iso>", "filter by created_at after timestamp")
+    .option("--updated-after <iso>", "filter by updated_at after timestamp")
+    .option("--closed-after <iso>", "filter by closed_at after timestamp")
+    .option("--no-assignee", "filter tasks without assignee")
+    .option(
+      "--id <id>",
+      "filter by task id (repeatable, comma-separated)",
+      collectCsvOption("id"),
+      [],
+    )
     .option("--tree", "render parent/child hierarchy")
     .option("--full", "with --tree, include closed/blocked/canceled items")
     .description("List tasks")
+    .on("option:assignee", () => {
+      listFlagState.assignee = true;
+    })
+    .on("option:no-assignee", () => {
+      listFlagState.noAssignee = true;
+    })
     .action(async function action(options: ListCommandOptions) {
-      const filter = parseListFilter(options);
-      if (options.tree) {
+      try {
+        const filter = parseListFilter(options, listFlagState.noAssignee, listFlagState.assignee);
+        if (options.tree) {
+          await runAction(
+            this,
+            async () => deps.service.listTree(applyTreeDefaults(filter, options)),
+            {
+              jsonData: (tree) => ({ tree }),
+              human: (tree) => printTaskTree(tree),
+            },
+          );
+          return;
+        }
+
         await runAction(
           this,
-          async () => deps.service.listTree(applyTreeDefaults(filter, options)),
+          async () => {
+            if (options.full) {
+              throw new TsqError("VALIDATION_ERROR", "--full requires --tree", 1);
+            }
+            return deps.service.list(filter);
+          },
           {
-            jsonData: (tree) => ({ tree }),
-            human: (tree) => printTaskTree(tree),
+            jsonData: (tasks) => ({ tasks }),
+            human: (tasks) => printTaskList(tasks),
           },
         );
-        return;
+      } finally {
+        listFlagState.assignee = false;
+        listFlagState.noAssignee = false;
       }
-
-      await runAction(
-        this,
-        async () => {
-          if (options.full) {
-            throw new TsqError("VALIDATION_ERROR", "--full requires --tree", 1);
-          }
-          return deps.service.list(filter);
-        },
-        {
-          jsonData: (tasks) => ({ tasks }),
-          human: (tasks) => printTaskList(tasks),
-        },
-      );
     });
 
   program
@@ -340,6 +384,8 @@ export function buildProgram(deps: RuntimeDeps): Command {
     .option("--title <title>", "new title")
     .option("--description <text>", "set task description")
     .option("--clear-description", "clear task description")
+    .option("--external-ref <ref>", "set external reference")
+    .option("--clear-external-ref", "clear external reference")
     .option("--status <status>", "status value")
     .option("--priority <priority>", "priority 0..3")
     .option("--claim", "claim this task")
@@ -354,10 +400,19 @@ export function buildProgram(deps: RuntimeDeps): Command {
           const requireSpec = Boolean(options.requireSpec);
           const hasDescription = asOptionalString(options.description) !== undefined;
           const clearDescription = Boolean(options.clearDescription);
+          const hasExternalRef = asOptionalString(options.externalRef) !== undefined;
+          const clearExternalRef = Boolean(options.clearExternalRef);
           if (hasDescription && clearDescription) {
             throw new TsqError(
               "VALIDATION_ERROR",
               "cannot combine --description with --clear-description",
+              1,
+            );
+          }
+          if (hasExternalRef && clearExternalRef) {
+            throw new TsqError(
+              "VALIDATION_ERROR",
+              "cannot combine --external-ref with --clear-external-ref",
               1,
             );
           }
@@ -370,11 +425,13 @@ export function buildProgram(deps: RuntimeDeps): Command {
               options.status ||
               options.priority ||
               hasDescription ||
-              clearDescription
+              clearDescription ||
+              hasExternalRef ||
+              clearExternalRef
             ) {
               throw new TsqError(
                 "VALIDATION_ERROR",
-                "cannot combine --claim with --title/--description/--clear-description/--status/--priority",
+                "cannot combine --claim with --title/--description/--clear-description/--external-ref/--clear-external-ref/--status/--priority",
                 1,
               );
             }
@@ -390,6 +447,8 @@ export function buildProgram(deps: RuntimeDeps): Command {
             title: asOptionalString(options.title),
             description: asOptionalString(options.description),
             clearDescription,
+            externalRef: asOptionalString(options.externalRef),
+            clearExternalRef,
             status: options.status ? normalizeStatus(String(options.status)) : undefined,
             priority: options.priority ? parsePriority(String(options.priority)) : undefined,
             exactId: opts.exactId,
@@ -575,6 +634,57 @@ export function buildProgram(deps: RuntimeDeps): Command {
     });
 
   program
+    .command("duplicate")
+    .argument("<id>", "duplicate task id")
+    .requiredOption("--of <canonical-id>", "canonical task id")
+    .option("--reason <text>", "duplicate reason")
+    .description("Mark a task as duplicate of canonical task")
+    .action(async function action(id: string, options: { of: string; reason?: string }) {
+      await runAction(
+        this,
+        async (opts) =>
+          deps.service.duplicate({
+            source: id,
+            canonical: options.of,
+            reason: options.reason,
+            exactId: opts.exactId,
+          }),
+        {
+          jsonData: (task) => ({ task }),
+          human: (task) => printTask(task),
+        },
+      );
+    });
+
+  program
+    .command("duplicates")
+    .option("--limit <n>", "max duplicate groups", "20")
+    .description("Dry-run duplicate detector scaffold")
+    .action(async function action(options: { limit?: string }) {
+      await runAction(
+        this,
+        async () =>
+          deps.service.duplicateCandidates(
+            parsePositiveInt(options.limit ?? "20", "limit", 1, 200),
+          ),
+        {
+          jsonData: (data) => data,
+          human: (data) => {
+            if (data.groups.length === 0) {
+              console.log("no duplicate candidates");
+              return;
+            }
+            console.log(`scanned=${data.scanned} groups=${data.groups.length}`);
+            for (const group of data.groups) {
+              const ids = group.tasks.map((task) => task.id).join(",");
+              console.log(`${group.key}: ${ids}`);
+            }
+          },
+        },
+      );
+    });
+
+  program
     .command("supersede")
     .argument("<old-id>", "source task id")
     .requiredOption("--with <new-id>", "replacement task id")
@@ -741,7 +851,7 @@ export function buildProgram(deps: RuntimeDeps): Command {
 
   program
     .command("watch")
-    .option("--interval <seconds>", "refresh interval in seconds (1-60)", "30")
+    .option("--interval <seconds>", "refresh interval in seconds (1-60)", "2")
     .option(
       "--status <status>",
       "filter by status (repeatable, comma-separated)",
@@ -915,19 +1025,50 @@ function asOptionalString(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function parseListFilter(options: ListCommandOptions): ListFilter {
+function parseListFilter(
+  options: ListCommandOptions,
+  noAssigneeFlag = false,
+  hasAssigneeFlag = false,
+): ListFilter {
   const filter: ListFilter = {};
   if (options.status) {
     filter.status = normalizeStatus(options.status);
   }
-  if (options.assignee) {
-    filter.assignee = options.assignee;
+  if (noAssigneeFlag && hasAssigneeFlag) {
+    throw new TsqError("VALIDATION_ERROR", "cannot combine --assignee with --no-assignee", 1);
+  }
+  const assignee = asOptionalString(options.assignee);
+  if (assignee) {
+    filter.assignee = assignee;
+  }
+  const externalRef = asOptionalString(options.externalRef);
+  if (externalRef) {
+    filter.externalRef = externalRef;
   }
   if (options.kind) {
     filter.kind = parseKind(options.kind);
   }
-  if (options.label) {
-    filter.label = options.label;
+  const label = asOptionalString(options.label);
+  if (label) {
+    filter.label = label;
+  }
+  if ((options.labelAny?.length ?? 0) > 0) {
+    filter.labelAny = uniqueSorted(options.labelAny ?? []);
+  }
+  if (options.createdAfter) {
+    filter.createdAfter = parseIsoTimestamp(options.createdAfter, "created-after");
+  }
+  if (options.updatedAfter) {
+    filter.updatedAfter = parseIsoTimestamp(options.updatedAfter, "updated-after");
+  }
+  if (options.closedAfter) {
+    filter.closedAfter = parseIsoTimestamp(options.closedAfter, "closed-after");
+  }
+  if (noAssigneeFlag) {
+    filter.noAssignee = true;
+  }
+  if ((options.id?.length ?? 0) > 0) {
+    filter.ids = uniqueSorted(options.id ?? []);
   }
   return filter;
 }
@@ -948,4 +1089,46 @@ function resolveRootCommandName(command: Command): string {
     cursor = cursor.parent;
   }
   return cursor.name();
+}
+
+function collectCsvOption(field: string) {
+  return (raw: string, previous: string[]): string[] => {
+    const next = parseCsvValue(raw, field);
+    return uniqueSorted([...(previous ?? []), ...next]);
+  };
+}
+
+function parseCsvValue(raw: string, field: string): string[] {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    throw new TsqError("VALIDATION_ERROR", `--${field} must not be empty`, 1);
+  }
+  const values = trimmed.split(",").map((entry) => entry.trim());
+  if (values.some((entry) => entry.length === 0)) {
+    throw new TsqError("VALIDATION_ERROR", `--${field} values must not be empty`, 1);
+  }
+  return values;
+}
+
+function parseIsoTimestamp(raw: string, field: string): string {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    throw new TsqError("VALIDATION_ERROR", `--${field} must be a valid ISO timestamp`, 1);
+  }
+  if (!isIsoTimestamp(trimmed)) {
+    throw new TsqError("VALIDATION_ERROR", `--${field} must be a valid ISO timestamp`, 1);
+  }
+  const value = Date.parse(trimmed);
+  if (Number.isNaN(value)) {
+    throw new TsqError("VALIDATION_ERROR", `--${field} must be a valid ISO timestamp`, 1);
+  }
+  return new Date(value).toISOString();
+}
+
+function isIsoTimestamp(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/u.test(value);
+}
+
+function uniqueSorted(values: string[]): string[] {
+  return [...new Set(values)].sort((a, b) => a.localeCompare(b));
 }

@@ -55,6 +55,7 @@ export interface CreateInput {
   kind: TaskKind;
   priority: Priority;
   description?: string;
+  externalRef?: string;
   parent?: string;
   exactId?: boolean;
 }
@@ -64,6 +65,8 @@ export interface UpdateInput {
   title?: string;
   description?: string;
   clearDescription?: boolean;
+  externalRef?: string;
+  clearExternalRef?: boolean;
   status?: TaskStatus;
   priority?: Priority;
   exactId?: boolean;
@@ -96,6 +99,13 @@ export interface SupersedeInput {
   exactId?: boolean;
 }
 
+export interface DuplicateInput {
+  source: string;
+  canonical: string;
+  reason?: string;
+  exactId?: boolean;
+}
+
 export interface CloseInput {
   ids: string[];
   reason?: string;
@@ -120,6 +130,14 @@ export interface HistoryResult {
   events: EventRecord[];
   count: number;
   truncated: boolean;
+}
+
+export interface DuplicateCandidatesResult {
+  scanned: number;
+  groups: Array<{
+    key: string;
+    tasks: Task[];
+  }>;
 }
 
 export interface LabelInput {
@@ -217,8 +235,15 @@ export interface ListFilter {
   status?: TaskStatus;
   statuses?: TaskStatus[];
   assignee?: string;
+  externalRef?: string;
   kind?: TaskKind;
   label?: string;
+  labelAny?: string[];
+  createdAfter?: string;
+  updatedAfter?: string;
+  closedAfter?: string;
+  noAssignee?: boolean;
+  ids?: string[];
 }
 
 export interface StaleInput {
@@ -335,6 +360,7 @@ export class TasqueService {
         id,
         title: input.title,
         description: input.description,
+        external_ref: input.externalRef,
         kind: input.kind,
         priority: input.priority,
         status: "open",
@@ -519,6 +545,13 @@ export class TasqueService {
         1,
       );
     }
+    if (input.externalRef !== undefined && input.clearExternalRef) {
+      throw new TsqError(
+        "VALIDATION_ERROR",
+        "cannot combine --external-ref with --clear-external-ref",
+        1,
+      );
+    }
 
     return withWriteLock(this.repoRoot, async () => {
       const { state, allEvents } = await loadProjectedState(this.repoRoot);
@@ -543,6 +576,12 @@ export class TasqueService {
       }
       if (input.clearDescription) {
         patch.clear_description = true;
+      }
+      if (input.externalRef !== undefined) {
+        patch.external_ref = input.externalRef;
+      }
+      if (input.clearExternalRef) {
+        patch.clear_external_ref = true;
       }
 
       if (Object.keys(patch).length === 0) {
@@ -776,6 +815,106 @@ export class TasqueService {
     });
   }
 
+  async duplicate(input: DuplicateInput): Promise<Task> {
+    return withWriteLock(this.repoRoot, async () => {
+      const { state, allEvents } = await loadProjectedState(this.repoRoot);
+      const source = mustResolveExisting(state, input.source, input.exactId);
+      const canonical = mustResolveExisting(state, input.canonical, input.exactId);
+      if (source === canonical) {
+        throw new TsqError("VALIDATION_ERROR", "cannot mark task as duplicate of itself", 1);
+      }
+
+      const sourceTask = mustTask(state, source);
+      const canonicalTask = mustTask(state, canonical);
+      if (sourceTask.status === "canceled") {
+        throw new TsqError("INVALID_STATUS", `cannot duplicate canceled task ${source}`, 1);
+      }
+      if (canonicalTask.status === "canceled") {
+        throw new TsqError("INVALID_STATUS", `cannot use canceled canonical task ${canonical}`, 1);
+      }
+      if (sourceTask.duplicate_of && sourceTask.duplicate_of !== canonical) {
+        throw new TsqError(
+          "VALIDATION_ERROR",
+          `task ${source} is already marked as duplicate of ${sourceTask.duplicate_of}`,
+          1,
+        );
+      }
+      if (createsDuplicateCycle(state, source, canonical)) {
+        throw new TsqError(
+          "DUPLICATE_CYCLE",
+          `duplicate cycle detected: ${source} -> ${canonical}`,
+          1,
+        );
+      }
+
+      const events: EventRecord[] = [];
+      if (!hasDuplicateLink(state, source, canonical)) {
+        events.push(
+          makeEvent(this.actor, this.now(), "link.added", source, {
+            type: "duplicates",
+            target: canonical,
+          }),
+        );
+      }
+
+      const payload: Record<string, unknown> = {
+        duplicate_of: canonical,
+        status: "closed",
+      };
+      if (input.reason) {
+        payload.reason = input.reason;
+      }
+      events.push(makeEvent(this.actor, this.now(), "task.updated", source, payload));
+
+      const nextState = applyEvents(state, events);
+      await appendEvents(this.repoRoot, events);
+      await persistProjection(this.repoRoot, nextState, allEvents.length + events.length);
+      return mustTask(nextState, source);
+    });
+  }
+
+  async duplicateCandidates(limit = 20): Promise<DuplicateCandidatesResult> {
+    if (!Number.isInteger(limit) || limit <= 0 || limit > 200) {
+      throw new TsqError("VALIDATION_ERROR", "limit must be an integer between 1 and 200", 1);
+    }
+
+    const { state } = await loadProjectedState(this.repoRoot);
+    const candidates = Object.values(state.tasks).filter((task) => {
+      if (task.status === "closed" || task.status === "canceled") {
+        return false;
+      }
+      return !task.duplicate_of;
+    });
+
+    const groups = new Map<string, Task[]>();
+    for (const task of candidates) {
+      const key = normalizeDuplicateTitle(task.title);
+      if (key.length < 4) {
+        continue;
+      }
+      const grouped = groups.get(key);
+      if (grouped) {
+        grouped.push(task);
+      } else {
+        groups.set(key, [task]);
+      }
+    }
+
+    const grouped = [...groups.entries()]
+      .filter(([, tasks]) => tasks.length > 1)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(0, limit)
+      .map(([key, tasks]) => ({
+        key,
+        tasks: sortTasks(tasks),
+      }));
+
+    return {
+      scanned: candidates.length,
+      groups: grouped,
+    };
+  }
+
   async repair(opts: {
     fix: boolean;
     forceUnlock: boolean;
@@ -1005,7 +1144,16 @@ function applyListFilter(tasks: Task[], filter: ListFilter): Task[] {
     if (allowedStatuses && !allowedStatuses.includes(task.status)) {
       return false;
     }
+    if (filter.ids && !filter.ids.includes(task.id)) {
+      return false;
+    }
     if (filter.assignee && task.assignee !== filter.assignee) {
+      return false;
+    }
+    if (filter.externalRef && task.external_ref !== filter.externalRef) {
+      return false;
+    }
+    if (filter.noAssignee && hasAssignee(task.assignee)) {
       return false;
     }
     if (filter.kind && task.kind !== filter.kind) {
@@ -1014,8 +1162,57 @@ function applyListFilter(tasks: Task[], filter: ListFilter): Task[] {
     if (filter.label && !task.labels.includes(filter.label)) {
       return false;
     }
+    if (filter.labelAny && !filter.labelAny.some((label) => task.labels.includes(label))) {
+      return false;
+    }
+    if (filter.createdAfter && task.created_at <= filter.createdAfter) {
+      return false;
+    }
+    if (filter.updatedAfter && task.updated_at <= filter.updatedAfter) {
+      return false;
+    }
+    if (filter.closedAfter) {
+      if (!task.closed_at) {
+        return false;
+      }
+      if (task.closed_at <= filter.closedAfter) {
+        return false;
+      }
+    }
     return true;
   });
+}
+
+function hasAssignee(value: string | undefined): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function hasDuplicateLink(state: State, source: string, canonical: string): boolean {
+  return (state.links[source]?.duplicates ?? []).includes(canonical);
+}
+
+function createsDuplicateCycle(state: State, source: string, canonical: string): boolean {
+  const visited = new Set<string>();
+  let cursor: string | undefined = canonical;
+  while (cursor) {
+    if (cursor === source) {
+      return true;
+    }
+    if (visited.has(cursor)) {
+      return false;
+    }
+    visited.add(cursor);
+    cursor = state.tasks[cursor]?.duplicate_of;
+  }
+  return false;
+}
+
+function normalizeDuplicateTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function buildDependentsByBlocker(deps: State["deps"]): Map<string, string[]> {

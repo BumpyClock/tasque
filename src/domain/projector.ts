@@ -170,6 +170,7 @@ const applyTaskCreated = (state: State, event: EventRecord): void => {
     status,
     priority,
     assignee: asString(payload.assignee),
+    external_ref: asString(payload.external_ref),
     parent_id: parentId,
     superseded_by: asString(payload.superseded_by),
     duplicate_of: asString(payload.duplicate_of),
@@ -219,8 +220,19 @@ const applyTaskUpdated = (state: State, event: EventRecord): void => {
   if (labels) {
     next.labels = labels;
   }
+  const duplicateOf = asString(payload.duplicate_of);
+  if (duplicateOf !== undefined) {
+    if (duplicateOf === event.task_id) {
+      throw new TsqError("INVALID_EVENT", "task.updated duplicate_of cannot reference itself", 1, {
+        event_id: event.event_id,
+      });
+    }
+    next.duplicate_of = duplicateOf;
+  }
   const description = asString(payload.description);
   const clearDescription = asBoolean(payload.clear_description);
+  const externalRef = asString(payload.external_ref);
+  const clearExternalRef = asBoolean(payload.clear_external_ref);
   if (description !== undefined && clearDescription) {
     throw new TsqError(
       "INVALID_EVENT",
@@ -236,6 +248,22 @@ const applyTaskUpdated = (state: State, event: EventRecord): void => {
   }
   if (clearDescription === true) {
     next.description = undefined;
+  }
+  if (externalRef !== undefined && clearExternalRef) {
+    throw new TsqError(
+      "INVALID_EVENT",
+      "task.updated cannot combine external_ref with clear_external_ref",
+      1,
+      {
+        event_id: event.event_id,
+      },
+    );
+  }
+  if (externalRef !== undefined) {
+    next.external_ref = externalRef;
+  }
+  if (clearExternalRef === true) {
+    next.external_ref = undefined;
   }
 
   if (next.status === "closed") {

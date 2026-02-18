@@ -25,6 +25,7 @@ export interface Task {
   status: TaskStatus;
   priority: Priority;
   assignee?: string;
+  external_ref?: string;
   parent_id?: string;
   superseded_by?: string;
   duplicate_of?: string;

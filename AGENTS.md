@@ -15,6 +15,7 @@ Durable across restarts and context compaction.
 - task/feature/epic create/read/update
 - blocker dependencies
 - relation links
+- duplicate workflow (`duplicate`, `duplicates` dry-run scaffold)
 - ready detection
 - atomic claim
 - optional claim spec gate (`--require-spec`)
@@ -104,11 +105,13 @@ Relation types:
 - `tsq init`
 - `tsq init --install-skill|--uninstall-skill [--skill-targets ...]`
 - `tsq create "Title" [--kind ...] [-p ...] [--parent <id>]`
+- `tsq create "Title" [--kind ...] [-p ...] [--parent <id>] [--external-ref <ref>]`
 - `tsq show <id>`
-- `tsq list [--status ...] [--assignee ...] [--kind ...] [--tree]`
+- `tsq list [--status ...] [--assignee ...] [--external-ref <ref>] [--kind ...] [--tree]`
 - `tsq ready`
+- `tsq watch [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--tree]`
 - `tsq doctor`
-- `tsq update <id> [--title ...] [--status ...] [--priority ...]`
+- `tsq update <id> [--title ...] [--status ...] [--priority ...] [--external-ref <ref>] [--clear-external-ref]`
 - `tsq update <id> --claim [--assignee <a>] [--require-spec]`
 - `tsq spec attach <id> [source] [--file <path> | --stdin | --text <markdown>]`
 - `tsq spec check <id>`
@@ -116,6 +119,8 @@ Relation types:
 - `tsq dep remove <child> <blocker>`
 - `tsq link add <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
 - `tsq link remove <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
+- `tsq duplicate <id> --of <canonical-id> [--reason <text>]`
+- `tsq duplicates [--limit <n>]`
 - `tsq supersede <old-id> --with <new-id> [--reason <text>]`
 
 Global options:
@@ -160,20 +165,6 @@ Error:
 - atomic cache writes (`tasks.jsonl.tmp-*` -> rename)
 - startup recovery ignores one malformed trailing JSONL line with warning
 - deterministic rebuild from snapshot + event tail
-
-## Locked V1 Decisions
-1. Bun + TypeScript.
-2. Root IDs fixed 6-char hash suffix with collision retry.
-3. Child IDs append-only (`parent.n`), no gap reuse.
-4. `relates_to` is bidirectional.
-5. Keep generic `link add/remove` and canonical `supersede`.
-6. `supersede` closes source and sets `superseded_by`; no dependency rewiring.
-7. Claim policy strict CAS (no force-claim).
-8. Canonical status is `closed`; alias `done`.
-9. JSON envelope includes `schema_version: 1`.
-10. Event IDs are ULID.
-11. Reject dependency cycles; reject link self-edge.
-12. Actor resolution: `TSQ_ACTOR` -> git `user.name` -> OS user -> `unknown`.
 
 ## Repo Conventions
 - commit `.tasque/events.jsonl` and `.tasque/config.json`

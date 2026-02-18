@@ -111,7 +111,7 @@ describe("tsq watch", () => {
 
     const data = envelope.data as WatchFrameData;
     expect(data.frame_ts).toBeTruthy();
-    expect(data.interval_s).toBe(30);
+    expect(data.interval_s).toBe(2);
     expect(data.filters.status).toEqual(["open", "in_progress"]);
     expect(data.summary.total).toBe(1);
     expect(data.summary.open).toBe(1);

@@ -63,13 +63,14 @@ Global options:
 Commands:
 
 - `tsq init`
-- `tsq create "<title>" [--kind task|feature|epic] [-p|--priority 0..3] [--parent <id>] [--description <text>]`
+- `tsq create "<title>" [--kind task|feature|epic] [-p|--priority 0..3] [--parent <id>] [--description <text>] [--external-ref <ref>]`
 - `tsq show <id>`
-- `tsq list [--status <open|in_progress|blocked|closed|canceled|done>] [--assignee <name>] [--kind <task|feature|epic>] [--tree] [--full]`
+- `tsq list [--status <open|in_progress|blocked|closed|canceled|done>] [--assignee <name>] [--external-ref <ref>] [--kind <task|feature|epic>] [--label <label>] [--label-any <csv-or-repeat>] [--created-after <iso>] [--updated-after <iso>] [--closed-after <iso>] [--no-assignee] [--id <csv-or-repeat>] [--tree] [--full]`
 - `tsq ready`
+- `tsq watch [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--tree]`
 - `tsq stale [--days <n>] [--status <open|in_progress|blocked|closed|canceled|done>] [--assignee <name>]`
 - `tsq doctor`
-- `tsq update <id> [--title <text>] [--status <...>] [--priority <0..3>] [--description <text>] [--clear-description]`
+- `tsq update <id> [--title <text>] [--status <...>] [--priority <0..3>] [--description <text>] [--clear-description] [--external-ref <ref>] [--clear-external-ref]`
 - `tsq update <id> --claim [--assignee <name>] [--require-spec]`
 - `tsq note add <id> <text>`
 - `tsq note list <id>`
@@ -79,6 +80,8 @@ Commands:
 - `tsq dep remove <child> <blocker>`
 - `tsq link add <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
 - `tsq link remove <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
+- `tsq duplicate <id> --of <canonical-id> [--reason <text>]`
+- `tsq duplicates [--limit <n>]` (dry-run scaffold)
 - `tsq supersede <old-id> --with <new-id> [--reason <text>]`
 
 Tree mode notes:
@@ -148,11 +151,15 @@ Error shape:
 - Status alias: `done` accepted by CLI, normalized to `closed`.
 - Claim: strict CAS; only unassigned tasks can be claimed.
 - Claim `--require-spec`: blocks claim unless `tsq spec check <id>` would return `ok: true`.
+- External refs: `external_ref` is optional task metadata; list filtering is exact-match (`--external-ref`) and search supports `external_ref:<value>`.
+- Watch: defaults to `open,in_progress` with `--interval 2` seconds; `--once` emits a single frame for scripting.
 - Ready: task status in `open|in_progress` and no open blockers.
 - Stale: returns tasks where `updated_at <= now - days` (default statuses: `open|in_progress|blocked`).
 - Open blocker: blocker exists and status is not `closed|canceled`.
 - Dependency add: self-edge/cycle rejected.
 - Relation add/remove: self-edge rejected; `relates_to` maintained bidirectionally.
+- Duplicate workflow: `duplicate` sets `duplicate_of`, adds `duplicates` link metadata, closes source, and does not rewire dependencies.
+- Duplicates scaffold: `duplicates` reports normalized-title candidate groups without mutating state.
 - Supersede: source task closed + `superseded_by` set; replacement task unchanged; dependencies not rewired.
 - Spec check: returns diagnostics and checks canonical spec fingerprint drift plus required sections (`Overview`, `Constraints / Non-goals`, `Interfaces (CLI/API)`, `Data model / schema changes`, `Acceptance criteria`, `Test plan`).
 

@@ -385,3 +385,25 @@ describe("projector supersede", () => {
     expect(superseded.deps["tsq-child1"]).toEqual(["tsq-old001"]);
   });
 });
+
+describe("projector duplicate updates", () => {
+  test("task.updated can set duplicate_of while preserving dependencies", () => {
+    const initial = createEmptyState();
+    const withTasks = applyEvents(initial, [
+      event("task.created", "tsq-src001", { title: "Source", kind: "task", priority: 1 }, 1),
+      event("task.created", "tsq-can001", { title: "Canonical", kind: "task", priority: 1 }, 2),
+      event("task.created", "tsq-child2", { title: "Child", kind: "task", priority: 1 }, 3),
+      event("dep.added", "tsq-child2", { blocker: "tsq-src001" }, 4),
+    ]);
+
+    const duplicated = applyEvent(
+      withTasks,
+      event("task.updated", "tsq-src001", { duplicate_of: "tsq-can001", status: "closed" }, 5),
+    );
+
+    expect(duplicated.tasks["tsq-src001"]?.duplicate_of).toBe("tsq-can001");
+    expect(duplicated.tasks["tsq-src001"]?.status).toBe("closed");
+    expect(duplicated.tasks["tsq-src001"]?.closed_at).toBe(at(5));
+    expect(duplicated.deps["tsq-child2"]).toEqual(["tsq-src001"]);
+  });
+});

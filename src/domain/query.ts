@@ -34,6 +34,7 @@ const SUPPORTED_FIELDS = new Set([
   "kind",
   "priority",
   "assignee",
+  "external_ref",
   "parent",
   "label",
   "ready",
@@ -48,7 +49,7 @@ const SUPPORTED_FIELDS = new Set([
  *   - `-field:value`         — negation
  *   - `bare words`           — match title/description/notes text (field = "text")
  *
- * Supported fields: id, text, title, description, notes, status, kind, priority, assignee, parent, label, ready.
+ * Supported fields: id, text, title, description, notes, status, kind, priority, assignee, external_ref, parent, label, ready.
  * Unknown fields are treated as text matches.
  *
  * Consecutive bare words are combined into a single text term.
@@ -129,6 +130,8 @@ function matchTerm(task: Task, term: QueryTerm, state: State): boolean {
       return String(task.priority) === term.value;
     case "assignee":
       return task.assignee === term.value;
+    case "external_ref":
+      return task.external_ref === term.value;
     case "parent":
       return task.parent_id === term.value;
     case "label":

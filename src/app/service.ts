@@ -24,6 +24,7 @@ import type {
   State,
   Task,
   TaskKind,
+  TaskNote,
   TaskStatus,
   TaskTreeNode,
 } from "../types";
@@ -52,6 +53,7 @@ export interface CreateInput {
   title: string;
   kind: TaskKind;
   priority: Priority;
+  description?: string;
   parent?: string;
   exactId?: boolean;
 }
@@ -59,6 +61,8 @@ export interface CreateInput {
 export interface UpdateInput {
   id: string;
   title?: string;
+  description?: string;
+  clearDescription?: boolean;
   status?: TaskStatus;
   priority?: Priority;
   exactId?: boolean;
@@ -127,6 +131,28 @@ export interface DepTreeInput {
   direction?: DepDirection;
   depth?: number;
   exactId?: boolean;
+}
+
+export interface NoteAddInput {
+  id: string;
+  text: string;
+  exactId?: boolean;
+}
+
+export interface NoteListInput {
+  id: string;
+  exactId?: boolean;
+}
+
+export interface NoteAddResult {
+  task_id: string;
+  note: TaskNote;
+  notes_count: number;
+}
+
+export interface NoteListResult {
+  task_id: string;
+  notes: TaskNote[];
 }
 
 export interface SearchInput {
@@ -213,6 +239,7 @@ export class TasqueService {
       const event = makeEvent(this.actor, ts, "task.created", id, {
         id,
         title: input.title,
+        description: input.description,
         kind: input.kind,
         priority: input.priority,
         status: "open",
@@ -358,6 +385,14 @@ export class TasqueService {
   }
 
   async update(input: UpdateInput): Promise<Task> {
+    if (input.description !== undefined && input.clearDescription) {
+      throw new TsqError(
+        "VALIDATION_ERROR",
+        "cannot combine --description with --clear-description",
+        1,
+      );
+    }
+
     return withWriteLock(this.repoRoot, async () => {
       const { state, allEvents } = await loadProjectedState(this.repoRoot);
       const id = mustResolveExisting(state, input.id, input.exactId);
@@ -376,6 +411,12 @@ export class TasqueService {
           patch.closed_at = this.now();
         }
       }
+      if (input.description !== undefined) {
+        patch.description = input.description;
+      }
+      if (input.clearDescription) {
+        patch.clear_description = true;
+      }
 
       if (Object.keys(patch).length === 0) {
         throw new TsqError("VALIDATION_ERROR", "no update fields provided", 1);
@@ -391,6 +432,44 @@ export class TasqueService {
       await persistProjection(this.repoRoot, nextState, allEvents.length + 1);
       return mustTask(nextState, id);
     });
+  }
+
+  async noteAdd(input: NoteAddInput): Promise<NoteAddResult> {
+    const text = input.text.trim();
+    if (text.length === 0) {
+      throw new TsqError("VALIDATION_ERROR", "note text must not be empty", 1);
+    }
+
+    return withWriteLock(this.repoRoot, async () => {
+      const { state, allEvents } = await loadProjectedState(this.repoRoot);
+      const id = mustResolveExisting(state, input.id, input.exactId);
+      const event = makeEvent(this.actor, this.now(), "task.noted", id, {
+        text,
+      });
+      const nextState = applyEvents(state, [event]);
+      await appendEvents(this.repoRoot, [event]);
+      await persistProjection(this.repoRoot, nextState, allEvents.length + 1);
+      const task = mustTask(nextState, id);
+      const note = (task.notes ?? []).at(-1);
+      if (!note) {
+        throw new TsqError("INTERNAL_ERROR", "task note was not persisted", 2);
+      }
+      return {
+        task_id: id,
+        note,
+        notes_count: task.notes.length,
+      };
+    });
+  }
+
+  async noteList(input: NoteListInput): Promise<NoteListResult> {
+    const { state } = await loadProjectedState(this.repoRoot);
+    const id = mustResolveExisting(state, input.id, input.exactId);
+    const task = mustTask(state, id);
+    return {
+      task_id: id,
+      notes: [...(task.notes ?? [])],
+    };
   }
 
   async claim(input: ClaimInput): Promise<Task> {

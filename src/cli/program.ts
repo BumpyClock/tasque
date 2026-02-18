@@ -13,6 +13,8 @@ import {
   printRepairResult,
   printTask,
   printTaskList,
+  printTaskNote,
+  printTaskNotes,
   printTaskTree,
 } from "./render";
 
@@ -45,6 +47,23 @@ interface ListCommandOptions {
   label?: string;
   tree?: boolean;
   full?: boolean;
+}
+
+interface CreateCommandOptions {
+  kind?: string;
+  priority?: string;
+  parent?: string;
+  description?: string;
+}
+
+interface UpdateCommandOptions {
+  title?: string;
+  description?: string;
+  clearDescription?: boolean;
+  status?: string;
+  priority?: string;
+  claim?: boolean;
+  assignee?: string;
 }
 
 const TREE_DEFAULT_STATUSES: TaskStatus[] = ["open", "in_progress"];
@@ -128,8 +147,9 @@ export function buildProgram(deps: RuntimeDeps): Command {
     .option("--kind <kind>", "task kind: task|feature|epic", "task")
     .option("-p, --priority <priority>", "priority 0..3", "2")
     .option("--parent <id>", "parent task ID")
+    .option("--description <text>", "task description")
     .description("Create task")
-    .action(async function action(title: string, options: Record<string, string>) {
+    .action(async function action(title: string, options: CreateCommandOptions) {
       await runAction(
         this,
         async (opts) => {
@@ -140,6 +160,7 @@ export function buildProgram(deps: RuntimeDeps): Command {
             kind,
             priority,
             parent: options.parent,
+            description: asOptionalString(options.description),
             exactId: opts.exactId,
           });
         },
@@ -273,24 +294,38 @@ export function buildProgram(deps: RuntimeDeps): Command {
     .command("update")
     .argument("<id>", "task id")
     .option("--title <title>", "new title")
+    .option("--description <text>", "set task description")
+    .option("--clear-description", "clear task description")
     .option("--status <status>", "status value")
     .option("--priority <priority>", "priority 0..3")
     .option("--claim", "claim this task")
     .option("--assignee <assignee>", "assignee for claim")
     .description("Update task")
-    .action(async function action(
-      id: string,
-      options: Record<string, string | boolean | undefined>,
-    ) {
+    .action(async function action(id: string, options: UpdateCommandOptions) {
       await runAction(
         this,
         async (opts) => {
           const claim = Boolean(options.claim);
+          const hasDescription = asOptionalString(options.description) !== undefined;
+          const clearDescription = Boolean(options.clearDescription);
+          if (hasDescription && clearDescription) {
+            throw new TsqError(
+              "VALIDATION_ERROR",
+              "cannot combine --description with --clear-description",
+              1,
+            );
+          }
           if (claim) {
-            if (options.title || options.status || options.priority) {
+            if (
+              options.title ||
+              options.status ||
+              options.priority ||
+              hasDescription ||
+              clearDescription
+            ) {
               throw new TsqError(
                 "VALIDATION_ERROR",
-                "cannot combine --claim with --title/--status/--priority",
+                "cannot combine --claim with --title/--description/--clear-description/--status/--priority",
                 1,
               );
             }
@@ -303,6 +338,8 @@ export function buildProgram(deps: RuntimeDeps): Command {
           return deps.service.update({
             id,
             title: asOptionalString(options.title),
+            description: asOptionalString(options.description),
+            clearDescription,
             status: options.status ? normalizeStatus(String(options.status)) : undefined,
             priority: options.priority ? parsePriority(String(options.priority)) : undefined,
             exactId: opts.exactId,
@@ -313,6 +350,34 @@ export function buildProgram(deps: RuntimeDeps): Command {
           human: (task) => printTask(task),
         },
       );
+    });
+
+  const note = program.command("note").description("Task notes");
+  note
+    .command("add")
+    .argument("<id>", "task id")
+    .argument("<text>", "note text")
+    .description("Append note to task")
+    .action(async function action(id: string, text: string) {
+      await runAction(
+        this,
+        async (opts) => deps.service.noteAdd({ id, text, exactId: opts.exactId }),
+        {
+          jsonData: (data) => data,
+          human: (data) => printTaskNote(data.task_id, data.note),
+        },
+      );
+    });
+
+  note
+    .command("list")
+    .argument("<id>", "task id")
+    .description("List task notes")
+    .action(async function action(id: string) {
+      await runAction(this, async (opts) => deps.service.noteList({ id, exactId: opts.exactId }), {
+        jsonData: (data) => data,
+        human: (data) => printTaskNotes(data.task_id, data.notes),
+      });
     });
 
   const dep = program.command("dep").description("Dependency operations");

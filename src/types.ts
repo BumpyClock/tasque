@@ -5,10 +5,19 @@ export type TaskStatus = "open" | "in_progress" | "blocked" | "closed" | "cancel
 export type RelationType = "relates_to" | "replies_to" | "duplicates" | "supersedes";
 export type Priority = 0 | 1 | 2 | 3;
 
+export interface TaskNote {
+  event_id: string;
+  ts: string;
+  actor: string;
+  text: string;
+}
+
 export interface Task {
   id: string;
   kind: TaskKind;
   title: string;
+  description?: string;
+  notes: TaskNote[];
   status: TaskStatus;
   priority: Priority;
   assignee?: string;
@@ -37,6 +46,7 @@ export interface EventRecord {
     | "task.created"
     | "task.updated"
     | "task.claimed"
+    | "task.noted"
     | "task.superseded"
     | "dep.added"
     | "dep.removed"

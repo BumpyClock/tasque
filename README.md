@@ -62,13 +62,15 @@ Global options:
 Commands:
 
 - `tsq init`
-- `tsq create "<title>" [--kind task|feature|epic] [-p|--priority 0..3] [--parent <id>]`
+- `tsq create "<title>" [--kind task|feature|epic] [-p|--priority 0..3] [--parent <id>] [--description <text>]`
 - `tsq show <id>`
 - `tsq list [--status <open|in_progress|blocked|closed|canceled|done>] [--assignee <name>] [--kind <task|feature|epic>] [--tree] [--full]`
 - `tsq ready`
 - `tsq doctor`
-- `tsq update <id> [--title <text>] [--status <...>] [--priority <0..3>]`
+- `tsq update <id> [--title <text>] [--status <...>] [--priority <0..3>] [--description <text>] [--clear-description]`
 - `tsq update <id> --claim [--assignee <name>]`
+- `tsq note add <id> <text>`
+- `tsq note list <id>`
 - `tsq dep add <child> <blocker>`
 - `tsq dep remove <child> <blocker>`
 - `tsq link add <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`

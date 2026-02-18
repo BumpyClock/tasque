@@ -316,6 +316,62 @@ describe("cli search", () => {
     expect(ids.includes(otherTask.id)).toBe(false);
   });
 
+  it("search matches description via fielded query", async () => {
+    const repo = await makeRepo();
+    await runJson(repo, ["init"]);
+
+    const describedTask = okData<{ task: { id: string } }>(
+      (
+        await runJson(repo, [
+          "create",
+          "Description target",
+          "--description",
+          "Investigate OAuth callback mismatch",
+        ])
+      ).envelope,
+    ).task;
+    const otherTask = okData<{ task: { id: string } }>(
+      (await runJson(repo, ["create", "Unrelated"])).envelope,
+    ).task;
+
+    const result = await runJson(repo, ["search", "description:oauth"]);
+    expect(result.exitCode).toBe(0);
+    const data = okData<{ tasks: Array<{ id: string }> }>(result.envelope);
+    const ids = data.tasks.map((task) => task.id);
+    expect(ids.includes(describedTask.id)).toBe(true);
+    expect(ids.includes(otherTask.id)).toBe(false);
+  });
+
+  it("search matches notes via fielded and bare text query", async () => {
+    const repo = await makeRepo();
+    await runJson(repo, ["init"]);
+
+    const notedTask = okData<{ task: { id: string } }>(
+      (await runJson(repo, ["create", "Note target"])).envelope,
+    ).task;
+    const otherTask = okData<{ task: { id: string } }>(
+      (await runJson(repo, ["create", "No note target"])).envelope,
+    ).task;
+
+    await runJson(repo, ["note", "add", notedTask.id, "Timeout while syncing release tasks"]);
+
+    const notesFieldResult = await runJson(repo, ["search", "notes:timeout"]);
+    expect(notesFieldResult.exitCode).toBe(0);
+    const fieldIds = okData<{ tasks: Array<{ id: string }> }>(notesFieldResult.envelope).tasks.map(
+      (task) => task.id,
+    );
+    expect(fieldIds.includes(notedTask.id)).toBe(true);
+    expect(fieldIds.includes(otherTask.id)).toBe(false);
+
+    const bareResult = await runJson(repo, ["search", "timeout"]);
+    expect(bareResult.exitCode).toBe(0);
+    const bareIds = okData<{ tasks: Array<{ id: string }> }>(bareResult.envelope).tasks.map(
+      (task) => task.id,
+    );
+    expect(bareIds.includes(notedTask.id)).toBe(true);
+    expect(bareIds.includes(otherTask.id)).toBe(false);
+  });
+
   it("search returns empty list when no tasks match", async () => {
     const repo = await makeRepo();
     await runJson(repo, ["init"]);

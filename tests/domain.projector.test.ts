@@ -236,6 +236,67 @@ describe("projector claim transitions", () => {
   });
 });
 
+describe("projector rich content", () => {
+  test("task.created stores description and initializes notes", () => {
+    const state = applyEvent(
+      createEmptyState(),
+      event(
+        "task.created",
+        "tsq-rich01",
+        { title: "Rich", kind: "task", priority: 1, description: "Initial context" },
+        1,
+      ),
+    );
+
+    expect(state.tasks["tsq-rich01"]?.description).toBe("Initial context");
+    expect(state.tasks["tsq-rich01"]?.notes).toEqual([]);
+  });
+
+  test("task.updated can set and clear description", () => {
+    const withTask = applyEvent(
+      createEmptyState(),
+      event(
+        "task.created",
+        "tsq-rich02",
+        { title: "Update description", kind: "task", priority: 1 },
+        1,
+      ),
+    );
+    const withDescription = applyEvent(
+      withTask,
+      event("task.updated", "tsq-rich02", { description: "Details" }, 2),
+    );
+    const cleared = applyEvent(
+      withDescription,
+      event("task.updated", "tsq-rich02", { clear_description: true }, 3),
+    );
+
+    expect(withDescription.tasks["tsq-rich02"]?.description).toBe("Details");
+    expect(cleared.tasks["tsq-rich02"]?.description).toBeUndefined();
+  });
+
+  test("task.noted appends deterministic note metadata", () => {
+    const withTask = applyEvent(
+      createEmptyState(),
+      event("task.created", "tsq-rich03", { title: "Noted", kind: "task", priority: 1 }, 1),
+    );
+    const noted = applyEvent(
+      withTask,
+      event("task.noted", "tsq-rich03", { text: "First note" }, 2),
+    );
+
+    expect(noted.tasks["tsq-rich03"]?.notes).toEqual([
+      {
+        event_id: "01ARZ3NDEKTSV4RRFFQ69G5FA2",
+        ts: at(2),
+        actor: "test",
+        text: "First note",
+      },
+    ]);
+    expect(noted.tasks["tsq-rich03"]?.updated_at).toBe(at(2));
+  });
+});
+
 describe("projector supersede", () => {
   test("closes source task and sets superseded_by while leaving target unchanged", () => {
     const initial = createEmptyState();

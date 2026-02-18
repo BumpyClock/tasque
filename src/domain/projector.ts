@@ -6,6 +6,7 @@ import type {
   State,
   Task,
   TaskKind,
+  TaskNote,
   TaskStatus,
 } from "../types";
 
@@ -40,6 +41,10 @@ const asPriority = (value: unknown): Priority | undefined => {
     return undefined;
   }
   return value as Priority;
+};
+
+const asBoolean = (value: unknown): boolean | undefined => {
+  return typeof value === "boolean" ? value : undefined;
 };
 
 const asTaskKind = (value: unknown): TaskKind | undefined => {
@@ -159,6 +164,8 @@ const applyTaskCreated = (state: State, event: EventRecord): void => {
   const task: Task = {
     id: event.task_id,
     title,
+    description: asString(payload.description),
+    notes: [],
     kind,
     status,
     priority,
@@ -184,6 +191,7 @@ const applyTaskUpdated = (state: State, event: EventRecord): void => {
   const payload = asObject(event.payload);
   const next: Task = {
     ...current,
+    notes: [...(current.notes ?? [])],
     updated_at: event.ts,
   };
 
@@ -211,6 +219,24 @@ const applyTaskUpdated = (state: State, event: EventRecord): void => {
   if (labels) {
     next.labels = labels;
   }
+  const description = asString(payload.description);
+  const clearDescription = asBoolean(payload.clear_description);
+  if (description !== undefined && clearDescription) {
+    throw new TsqError(
+      "INVALID_EVENT",
+      "task.updated cannot combine description with clear_description",
+      1,
+      {
+        event_id: event.event_id,
+      },
+    );
+  }
+  if (description !== undefined) {
+    next.description = description;
+  }
+  if (clearDescription === true) {
+    next.description = undefined;
+  }
 
   if (next.status === "closed") {
     next.closed_at = next.closed_at ?? event.ts;
@@ -229,6 +255,28 @@ const applyTaskClaimed = (state: State, event: EventRecord): void => {
     ...current,
     assignee,
     status: nextStatus,
+    updated_at: event.ts,
+  };
+};
+
+const applyTaskNoted = (state: State, event: EventRecord): void => {
+  const current = requireTask(state, event.task_id);
+  const payload = asObject(event.payload);
+  const text = asString(payload.text);
+  if (!text || text.length === 0) {
+    throw new TsqError("INVALID_EVENT", "task.noted requires text", 1, {
+      event_id: event.event_id,
+    });
+  }
+  const note: TaskNote = {
+    event_id: event.event_id,
+    ts: event.ts,
+    actor: event.actor,
+    text,
+  };
+  state.tasks[event.task_id] = {
+    ...current,
+    notes: [...(current.notes ?? []), note],
     updated_at: event.ts,
   };
 };
@@ -330,6 +378,9 @@ const applyEventMut = (state: State, event: EventRecord): void => {
       break;
     case "task.claimed":
       applyTaskClaimed(state, event);
+      break;
+    case "task.noted":
+      applyTaskNoted(state, event);
       break;
     case "task.superseded":
       applyTaskSuperseded(state, event);

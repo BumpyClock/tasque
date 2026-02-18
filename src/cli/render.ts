@@ -1,7 +1,7 @@
 import pc from "picocolors";
 import type { HistoryResult } from "../app/service";
 import type { DepTreeNode } from "../domain/dep-tree";
-import type { RepairResult, Task, TaskStatus, TaskTreeNode } from "../types";
+import type { RepairResult, Task, TaskNote, TaskStatus, TaskTreeNode } from "../types";
 
 type TreeDensity = "wide" | "medium" | "narrow";
 
@@ -56,6 +56,11 @@ export function printTask(task: Task): void {
   if (task.superseded_by) {
     console.log(`superseded_by=${task.superseded_by}`);
   }
+  if (task.description) {
+    console.log(`description=${task.description}`);
+  }
+  const noteCount = (task.notes ?? []).length;
+  console.log(`notes=${noteCount}`);
 }
 
 export function printTaskTree(nodes: TaskTreeNode[]): void {
@@ -320,6 +325,24 @@ export function printLabelList(labels: Array<{ label: string; count: number }>):
   }
   for (const entry of labels) {
     console.log(`${entry.label} (${entry.count})`);
+  }
+}
+
+export function printTaskNote(taskId: string, note: TaskNote): void {
+  console.log(`${pc.bold(taskId)} note added`);
+  console.log(`${note.ts} by=${note.actor} [${note.event_id}]`);
+  console.log(note.text);
+}
+
+export function printTaskNotes(taskId: string, notes: TaskNote[]): void {
+  if (notes.length === 0) {
+    console.log(pc.dim(`${taskId}: no notes`));
+    return;
+  }
+  console.log(`${pc.bold(taskId)} notes=${notes.length}`);
+  for (const note of notes) {
+    console.log(`${note.ts} by=${note.actor} [${note.event_id}]`);
+    console.log(note.text);
   }
 }
 

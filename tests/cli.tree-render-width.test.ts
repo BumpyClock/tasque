@@ -8,6 +8,7 @@ function makeNode(title: string): TaskTreeNode {
       id: "tsq-root1",
       kind: "feature",
       title,
+      notes: [],
       status: "open",
       priority: 2,
       assignee: "ada",

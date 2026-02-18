@@ -8,6 +8,7 @@ const makeTask = (id: string): Task => ({
   id,
   kind: "task",
   title: id,
+  notes: [],
   status: "open",
   priority: 1,
   labels: [],

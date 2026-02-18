@@ -19,6 +19,15 @@ bun run src/main.ts ready --json
 
 `package.json` also exposes `tsq` as bin entry. In local dev, `bun run src/main.ts ...` is the simplest path.
 
+## Version
+
+```bash
+tsq -V
+tsq --version
+```
+
+Both print the current version from `package.json`.
+
 ## Build And Release
 
 ```bash
@@ -35,6 +44,41 @@ bun run release
   - `SHA256SUMS.txt` (contains checksums for all artifacts above)
 - release notes baseline uses latest git tag timestamp; with no tag, all closed tasks are considered.
 - set `TSQ_BIN` to override which installed `tsq` executable release hooks call.
+
+## CI
+
+Pull requests and pushes to `main` run the `check` job via GitHub Actions (`.github/workflows/ci.yml`).
+
+The job executes `bun run doctor`, which runs:
+
+1. `typecheck` — TypeScript strict checks
+2. `fmt` — Biome formatting
+3. `lint` — Biome linting
+4. `build` — compile binary
+5. `test` — full test suite
+
+All steps must pass before merging.
+
+## Releasing
+
+Releases are automated via [release-please](https://github.com/googleapis/release-please).
+
+### How it works
+
+1. Merge PRs with [Conventional Commits](https://www.conventionalcommits.org/) messages.
+2. `release-please` opens a version-bump PR updating `package.json` and `CHANGELOG.md`.
+3. Merge the release PR — a GitHub Release is created automatically.
+4. The release workflow builds platform binaries (Linux, macOS, Windows) and uploads them with checksums.
+
+### Rollback
+
+If a release is broken:
+
+1. **Delete the GitHub Release** — removes download links immediately.
+2. **Delete the tag** — `git push --delete origin v<version>`.
+3. **Revert the commit** — `git revert <sha>` on `main`.
+4. **Merge revert** — release-please will handle the next version bump.
+5. **Verify** — confirm the bad version is no longer available.
 
 ## Storage Layout
 

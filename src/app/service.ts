@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdir, open, readFile, rename } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { ulid } from "ulid";
 import { buildDepTree } from "../domain/dep-tree";
 import type { DepDirection, DepTreeNode } from "../domain/dep-tree";
@@ -72,6 +72,7 @@ export interface UpdateInput {
 export interface ClaimInput {
   id: string;
   assignee?: string;
+  requireSpec?: boolean;
   exactId?: boolean;
 }
 
@@ -154,6 +155,11 @@ export interface SpecAttachInput {
   exactId?: boolean;
 }
 
+export interface SpecCheckInput {
+  id: string;
+  exactId?: boolean;
+}
+
 export interface NoteAddResult {
   task_id: string;
   note: TaskNote;
@@ -174,6 +180,33 @@ export interface SpecAttachResult {
     spec_attached_by: string;
     bytes: number;
   };
+}
+
+export interface SpecCheckDiagnostic {
+  code:
+    | "SPEC_NOT_ATTACHED"
+    | "SPEC_METADATA_INVALID"
+    | "SPEC_FILE_MISSING"
+    | "SPEC_FINGERPRINT_DRIFT"
+    | "SPEC_REQUIRED_SECTIONS_MISSING";
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+export interface SpecCheckResult {
+  task_id: string;
+  ok: boolean;
+  spec: {
+    attached: boolean;
+    spec_path?: string;
+    expected_fingerprint?: string;
+    actual_fingerprint?: string;
+    bytes?: number;
+    required_sections: string[];
+    present_sections: string[];
+    missing_sections: string[];
+  };
+  diagnostics: SpecCheckDiagnostic[];
 }
 
 export interface SearchInput {
@@ -210,6 +243,32 @@ export interface DoctorResult {
 }
 
 const DEFAULT_STALE_STATUSES: TaskStatus[] = ["open", "in_progress", "blocked"];
+const REQUIRED_SPEC_SECTIONS = [
+  {
+    label: "Overview",
+    aliases: ["Overview"],
+  },
+  {
+    label: "Constraints / Non-goals",
+    aliases: ["Constraints / Non-goals", "Constraints", "Non-goals"],
+  },
+  {
+    label: "Interfaces (CLI/API)",
+    aliases: ["Interfaces (CLI/API)", "Interfaces"],
+  },
+  {
+    label: "Data model / schema changes",
+    aliases: ["Data model / schema changes", "Data model", "Schema changes"],
+  },
+  {
+    label: "Acceptance criteria",
+    aliases: ["Acceptance criteria"],
+  },
+  {
+    label: "Test plan",
+    aliases: ["Test plan"],
+  },
+] as const;
 
 export class TasqueService {
   constructor(
@@ -578,6 +637,13 @@ export class TasqueService {
     });
   }
 
+  async specCheck(input: SpecCheckInput): Promise<SpecCheckResult> {
+    const { state } = await loadProjectedState(this.repoRoot);
+    const id = mustResolveExisting(state, input.id, input.exactId);
+    const task = mustTask(state, id);
+    return evaluateTaskSpec(this.repoRoot, id, task);
+  }
+
   async claim(input: ClaimInput): Promise<Task> {
     return withWriteLock(this.repoRoot, async () => {
       const { state, allEvents } = await loadProjectedState(this.repoRoot);
@@ -593,6 +659,20 @@ export class TasqueService {
       }
       if (existing.assignee) {
         throw new TsqError("CLAIM_CONFLICT", `task already assigned to ${existing.assignee}`, 1);
+      }
+      if (input.requireSpec) {
+        const specCheck = await evaluateTaskSpec(this.repoRoot, id, existing);
+        if (!specCheck.ok) {
+          throw new TsqError(
+            "SPEC_VALIDATION_FAILED",
+            "cannot claim task because required spec check failed",
+            1,
+            {
+              task_id: id,
+              diagnostics: specCheck.diagnostics,
+            },
+          );
+        }
       }
       const assignee = input.assignee ?? this.actor;
       const event = makeEvent(this.actor, this.now(), "task.claimed", id, {
@@ -957,6 +1037,107 @@ function sortTaskIds(taskIds: string[]): string[] {
   return [...taskIds].sort((a, b) => a.localeCompare(b));
 }
 
+async function evaluateTaskSpec(
+  repoRoot: string,
+  taskId: string,
+  task: Task,
+): Promise<SpecCheckResult> {
+  const specPath = normalizeOptionalInput(task.spec_path);
+  const expectedFingerprint = normalizeOptionalInput(task.spec_fingerprint);
+  const requiredSections = REQUIRED_SPEC_SECTIONS.map((section) => section.label);
+  const diagnostics: SpecCheckDiagnostic[] = [];
+  let presentSections: string[] = [];
+  let missingSections = [...requiredSections];
+  let actualFingerprint: string | undefined;
+  let bytes: number | undefined;
+  let content: string | undefined;
+
+  if (!specPath && !expectedFingerprint) {
+    diagnostics.push({
+      code: "SPEC_NOT_ATTACHED",
+      message: "task does not have an attached spec",
+    });
+  } else if (!specPath || !expectedFingerprint) {
+    diagnostics.push({
+      code: "SPEC_METADATA_INVALID",
+      message: "task spec metadata is incomplete",
+      details: {
+        has_spec_path: specPath !== undefined,
+        has_spec_fingerprint: expectedFingerprint !== undefined,
+      },
+    });
+  }
+
+  if (specPath) {
+    try {
+      content = await readFile(resolveSpecPath(repoRoot, specPath), "utf8");
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") {
+        diagnostics.push({
+          code: "SPEC_FILE_MISSING",
+          message: "attached spec file not found",
+          details: {
+            spec_path: specPath,
+          },
+        });
+      } else {
+        throw new TsqError("IO_ERROR", `failed reading attached spec file: ${specPath}`, 2, error);
+      }
+    }
+  }
+
+  if (content !== undefined) {
+    bytes = Buffer.byteLength(content, "utf8");
+    actualFingerprint = sha256(content);
+    if (expectedFingerprint && actualFingerprint !== expectedFingerprint) {
+      diagnostics.push({
+        code: "SPEC_FINGERPRINT_DRIFT",
+        message: "spec fingerprint drift detected",
+        details: {
+          expected_fingerprint: expectedFingerprint,
+          actual_fingerprint: actualFingerprint,
+        },
+      });
+    }
+
+    presentSections = extractMarkdownHeadings(content);
+    const presentNormalized = new Set(
+      presentSections.map((section) => normalizeMarkdownHeading(section)),
+    );
+    missingSections = REQUIRED_SPEC_SECTIONS.filter((required) => {
+      return !required.aliases.some((alias) =>
+        presentNormalized.has(normalizeMarkdownHeading(alias)),
+      );
+    }).map((required) => required.label);
+    if (missingSections.length > 0) {
+      diagnostics.push({
+        code: "SPEC_REQUIRED_SECTIONS_MISSING",
+        message: "spec is missing required markdown sections",
+        details: {
+          missing_sections: missingSections,
+        },
+      });
+    }
+  }
+
+  return {
+    task_id: taskId,
+    ok: diagnostics.length === 0,
+    spec: {
+      attached: Boolean(specPath && expectedFingerprint),
+      spec_path: specPath,
+      expected_fingerprint: expectedFingerprint,
+      actual_fingerprint: actualFingerprint,
+      ...(bytes === undefined ? {} : { bytes }),
+      required_sections: requiredSections,
+      present_sections: presentSections,
+      missing_sections: missingSections,
+    },
+    diagnostics,
+  };
+}
+
 type SpecAttachSource =
   | { type: "file"; path: string }
   | { type: "stdin" }
@@ -1050,6 +1231,39 @@ function normalizeOptionalInput(value: unknown): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function extractMarkdownHeadings(content: string): string[] {
+  const headings: string[] = [];
+  const seen = new Set<string>();
+  for (const match of content.matchAll(/^#{1,6}[ \t]+(.+?)\s*$/gmu)) {
+    const heading = (match[1] ?? "").replace(/[ \t]+#+\s*$/u, "").trim();
+    if (heading.length === 0) {
+      continue;
+    }
+    const key = heading.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    headings.push(heading);
+  }
+  return headings;
+}
+
+function normalizeMarkdownHeading(heading: string): string {
+  return heading
+    .trim()
+    .replace(/\s+/gu, " ")
+    .replace(/\s*:\s*$/u, "")
+    .toLowerCase();
+}
+
+function resolveSpecPath(repoRoot: string, specPath: string): string {
+  if (isAbsolute(specPath)) {
+    return specPath;
+  }
+  return join(repoRoot, specPath);
 }
 
 async function ensureTasqueGitignore(repoRoot: string): Promise<void> {

@@ -39,9 +39,52 @@ interface SpecAttachData {
   };
 }
 
+interface SpecCheckData {
+  task_id: string;
+  ok: boolean;
+  spec: {
+    attached: boolean;
+    spec_path?: string;
+    expected_fingerprint?: string;
+    actual_fingerprint?: string;
+    bytes?: number;
+    required_sections: string[];
+    present_sections: string[];
+    missing_sections: string[];
+  };
+  diagnostics: Array<{
+    code: string;
+    message: string;
+    details?: unknown;
+  }>;
+}
+
 const repos: string[] = [];
 const repoRoot = resolve(import.meta.dir, "..");
 const cliEntry = join(repoRoot, "src", "main.ts");
+const VALID_SPEC_MARKDOWN = `# Feature Spec
+
+## Overview
+Deliver durable workflow checks for task specs.
+
+## Constraints / Non-goals
+- Local-only validation + claim gating.
+- No daemon/sync changes.
+
+## Interfaces (CLI/API)
+- \`tsq spec attach <id> ...\`
+- \`tsq spec check <id>\`
+- \`tsq update <id> --claim --require-spec\`
+
+## Data model / schema changes
+- task metadata stores spec path and fingerprint.
+
+## Acceptance criteria
+- drift and missing sections are detected.
+
+## Test plan
+- Add CLI tests for success, drift, and missing sections.
+`;
 
 async function makeRepo(): Promise<string> {
   const repo = await mkdtemp(join(tmpdir(), "tasque-spec-e2e-"));
@@ -237,5 +280,81 @@ describe("cli spec attach", () => {
     const data = okData<SpecAttachData>(result.envelope);
     expectSpecMetadata(data, taskId, "test-spec");
     expect(data.spec.spec_path).toBe(`.tasque/specs/${taskId}/spec.md`);
+  });
+});
+
+describe("cli spec check", () => {
+  it("returns success for a valid canonical spec", async () => {
+    const repo = await makeRepo();
+    await runJson(repo, ["init"]);
+    const taskId = await createTask(repo, "Spec check success task");
+    await runJson(repo, ["spec", "attach", taskId, "--text", VALID_SPEC_MARKDOWN]);
+
+    const checked = await runJson(repo, ["spec", "check", taskId]);
+
+    expect(checked.exitCode).toBe(0);
+    expect(checked.envelope.ok).toBe(true);
+    expect(checked.envelope.command).toBe("tsq spec check");
+    const data = okData<SpecCheckData>(checked.envelope);
+    expect(data.task_id).toBe(taskId);
+    expect(data.ok).toBe(true);
+    expect(data.spec.spec_path).toBe(`.tasque/specs/${taskId}/spec.md`);
+    expect(data.spec.attached).toBe(true);
+    expect(data.spec.missing_sections.length).toBe(0);
+    expect(data.diagnostics.length).toBe(0);
+    if (data.spec.expected_fingerprint && data.spec.actual_fingerprint) {
+      expect(data.spec.expected_fingerprint).toBe(data.spec.actual_fingerprint);
+    }
+  });
+
+  it("detects fingerprint drift after canonical spec mutation", async () => {
+    const repo = await makeRepo();
+    await runJson(repo, ["init"]);
+    const taskId = await createTask(repo, "Spec check drift task");
+    await runJson(repo, ["spec", "attach", taskId, "--text", VALID_SPEC_MARKDOWN]);
+    await writeFile(
+      join(repo, ".tasque", "specs", taskId, "spec.md"),
+      `${VALID_SPEC_MARKDOWN}\n<!-- drift -->\n`,
+      "utf8",
+    );
+
+    const checked = await runJson(repo, ["spec", "check", taskId]);
+
+    expect(checked.exitCode).toBe(0);
+    expect(checked.envelope.command).toBe("tsq spec check");
+    const data = okData<SpecCheckData>(checked.envelope);
+    expect(data.task_id).toBe(taskId);
+    expect(data.ok).toBe(false);
+    const diagnosticCodes = data.diagnostics.map((diagnostic) => diagnostic.code);
+    expect(diagnosticCodes).toContain("SPEC_FINGERPRINT_DRIFT");
+    expect(data.spec.expected_fingerprint).toBeDefined();
+    expect(data.spec.actual_fingerprint).toBeDefined();
+    expect(data.spec.expected_fingerprint).not.toBe(data.spec.actual_fingerprint);
+  });
+
+  it("detects missing required sections", async () => {
+    const repo = await makeRepo();
+    await runJson(repo, ["init"]);
+    const taskId = await createTask(repo, "Spec check missing section task");
+    const incompleteSpec = `# Thin Spec
+
+## Overview
+Only overview exists here.
+`;
+    await runJson(repo, ["spec", "attach", taskId, "--text", incompleteSpec]);
+
+    const checked = await runJson(repo, ["spec", "check", taskId]);
+
+    expect(checked.exitCode).toBe(0);
+    expect(checked.envelope.command).toBe("tsq spec check");
+    const data = okData<SpecCheckData>(checked.envelope);
+    expect(data.task_id).toBe(taskId);
+    expect(data.ok).toBe(false);
+    const diagnosticCodes = data.diagnostics.map((diagnostic) => diagnostic.code);
+    expect(diagnosticCodes).toContain("SPEC_REQUIRED_SECTIONS_MISSING");
+    expect(data.spec.missing_sections.length).toBeGreaterThan(0);
+    expect(data.spec.missing_sections).toEqual(
+      expect.arrayContaining(["Constraints / Non-goals", "Acceptance criteria"]),
+    );
   });
 });

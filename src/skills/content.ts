@@ -43,6 +43,8 @@ Use \`tsq\` for durable local task tracking.
 - \`tsq spec attach <id> --text "<markdown>"\` for short inline specs
 - \`tsq spec attach <id> --file <path>\` to ingest an existing markdown file
 - \`tsq spec attach <id> --stdin\` to ingest piped markdown content
+- \`tsq spec check <id>\` to validate fingerprint + required sections diagnostics
+- \`tsq update <id> --claim --require-spec\` to enforce a passing spec check before claiming
 - Never manually write \`.tasque/specs/<id>/spec.md\`; always use \`tsq spec attach\` so canonical path + metadata stay consistent
 
 ## Labels

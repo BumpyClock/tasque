@@ -17,6 +17,8 @@ Durable across restarts and context compaction.
 - relation links
 - ready detection
 - atomic claim
+- optional claim spec gate (`--require-spec`)
+- spec attach/check workflow
 - supersede workflow
 - append-only audit trail
 - stable machine output (`--json`)
@@ -56,6 +58,7 @@ Event types:
 - `task.created`
 - `task.updated`
 - `task.claimed`
+- `task.spec_attached`
 - `task.superseded`
 - `dep.added`
 - `dep.removed`
@@ -106,7 +109,9 @@ Relation types:
 - `tsq ready`
 - `tsq doctor`
 - `tsq update <id> [--title ...] [--status ...] [--priority ...]`
-- `tsq update <id> --claim [--assignee <a>]`
+- `tsq update <id> --claim [--assignee <a>] [--require-spec]`
+- `tsq spec attach <id> [source] [--file <path> | --stdin | --text <markdown>]`
+- `tsq spec check <id>`
 - `tsq dep add <child> <blocker>`
 - `tsq dep remove <child> <blocker>`
 - `tsq link add <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`

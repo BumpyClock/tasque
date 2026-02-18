@@ -17,6 +17,7 @@ import {
   printTaskNotes,
   printTaskTree,
 } from "./render";
+import { startWatch } from "./watch";
 
 interface GlobalOpts {
   json?: boolean;
@@ -70,12 +71,21 @@ interface UpdateCommandOptions {
   priority?: string;
   claim?: boolean;
   assignee?: string;
+  requireSpec?: boolean;
 }
 
 interface SpecAttachCommandOptions {
   file?: string;
   stdin?: boolean;
   text?: string;
+}
+
+interface WatchCommandOptions {
+  interval: string;
+  status: string;
+  assignee?: string;
+  tree?: boolean;
+  once?: boolean;
 }
 
 const TREE_DEFAULT_STATUSES: TaskStatus[] = ["open", "in_progress"];
@@ -334,12 +344,14 @@ export function buildProgram(deps: RuntimeDeps): Command {
     .option("--priority <priority>", "priority 0..3")
     .option("--claim", "claim this task")
     .option("--assignee <assignee>", "assignee for claim")
+    .option("--require-spec", "with --claim, require attached spec to pass validation")
     .description("Update task")
     .action(async function action(id: string, options: UpdateCommandOptions) {
       await runAction(
         this,
         async (opts) => {
           const claim = Boolean(options.claim);
+          const requireSpec = Boolean(options.requireSpec);
           const hasDescription = asOptionalString(options.description) !== undefined;
           const clearDescription = Boolean(options.clearDescription);
           if (hasDescription && clearDescription) {
@@ -348,6 +360,9 @@ export function buildProgram(deps: RuntimeDeps): Command {
               "cannot combine --description with --clear-description",
               1,
             );
+          }
+          if (!claim && requireSpec) {
+            throw new TsqError("VALIDATION_ERROR", "--require-spec requires --claim", 1);
           }
           if (claim) {
             if (
@@ -366,6 +381,7 @@ export function buildProgram(deps: RuntimeDeps): Command {
             return deps.service.claim({
               id,
               assignee: asOptionalString(options.assignee),
+              requireSpec,
               exactId: opts.exactId,
             });
           }
@@ -448,6 +464,34 @@ export function buildProgram(deps: RuntimeDeps): Command {
           },
         },
       );
+    });
+  spec
+    .command("check")
+    .argument("<id>", "task id")
+    .description("Validate attached markdown spec")
+    .action(async function action(id: string) {
+      await runAction(this, async (opts) => deps.service.specCheck({ id, exactId: opts.exactId }), {
+        jsonData: (data) => data,
+        human: (data) => {
+          console.log(`task=${data.task_id}`);
+          console.log(`spec_ok=${data.ok}`);
+          if (data.spec.spec_path) {
+            console.log(`spec=${data.spec.spec_path}`);
+          }
+          if (data.spec.expected_fingerprint) {
+            console.log(`spec_sha256_expected=${data.spec.expected_fingerprint}`);
+          }
+          if (data.spec.actual_fingerprint) {
+            console.log(`spec_sha256_actual=${data.spec.actual_fingerprint}`);
+          }
+          if (data.spec.missing_sections.length > 0) {
+            console.log(`missing_sections=${data.spec.missing_sections.join(",")}`);
+          }
+          for (const diagnostic of data.diagnostics) {
+            console.log(`diagnostic=${diagnostic.code}:${diagnostic.message}`);
+          }
+        },
+      });
     });
 
   const dep = program.command("dep").description("Dependency operations");
@@ -695,6 +739,29 @@ export function buildProgram(deps: RuntimeDeps): Command {
       });
     });
 
+  program
+    .command("watch")
+    .option("--interval <seconds>", "refresh interval in seconds (1-60)", "2")
+    .option("--status <status>", "filter by status (repeatable, comma-separated)", "open,in_progress")
+    .option("--assignee <assignee>", "filter by assignee")
+    .option("--tree", "show parent-child hierarchy")
+    .option("--once", "single frame render, then exit")
+    .description("Live view of active tasks")
+    .action(async function action(options: WatchCommandOptions) {
+      const globalOpts = this.optsWithGlobals<GlobalOpts>();
+      const statuses = options.status
+        .split(",")
+        .map((s: string) => normalizeStatus(s.trim()));
+      await startWatch(deps.service, {
+        interval: parsePositiveInt(options.interval, "interval", 1, 60),
+        statuses,
+        assignee: asOptionalString(options.assignee),
+        tree: Boolean(options.tree),
+        once: Boolean(options.once),
+        json: Boolean(globalOpts.json),
+      });
+    });
+
   return program;
 }
 
@@ -818,6 +885,14 @@ function parseNonNegativeInt(raw: string, field: string): number {
   const value = Number.parseInt(trimmed, 10);
   if (value < 0) {
     throw new TsqError("VALIDATION_ERROR", `${field} must be an integer >= 0`, 1);
+  }
+  return value;
+}
+
+function parsePositiveInt(raw: string, field: string, min: number, max: number): number {
+  const value = parseNonNegativeInt(raw, field);
+  if (value < min || value > max) {
+    throw new TsqError("VALIDATION_ERROR", `${field} must be between ${min} and ${max}`, 1);
   }
   return value;
 }

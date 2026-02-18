@@ -70,10 +70,11 @@ Commands:
 - `tsq stale [--days <n>] [--status <open|in_progress|blocked|closed|canceled|done>] [--assignee <name>]`
 - `tsq doctor`
 - `tsq update <id> [--title <text>] [--status <...>] [--priority <0..3>] [--description <text>] [--clear-description]`
-- `tsq update <id> --claim [--assignee <name>]`
+- `tsq update <id> --claim [--assignee <name>] [--require-spec]`
 - `tsq note add <id> <text>`
 - `tsq note list <id>`
 - `tsq spec attach <id> [source] [--file <path> | --stdin | --text <markdown>]`
+- `tsq spec check <id>`
 - `tsq dep add <child> <blocker>`
 - `tsq dep remove <child> <blocker>`
 - `tsq link add <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
@@ -146,12 +147,14 @@ Error shape:
 - ID resolution: exact match first; else unique prefix; ambiguous prefix errors; `--exact-id` enforces full match.
 - Status alias: `done` accepted by CLI, normalized to `closed`.
 - Claim: strict CAS; only unassigned tasks can be claimed.
+- Claim `--require-spec`: blocks claim unless `tsq spec check <id>` would return `ok: true`.
 - Ready: task status in `open|in_progress` and no open blockers.
 - Stale: returns tasks where `updated_at <= now - days` (default statuses: `open|in_progress|blocked`).
 - Open blocker: blocker exists and status is not `closed|canceled`.
 - Dependency add: self-edge/cycle rejected.
 - Relation add/remove: self-edge rejected; `relates_to` maintained bidirectionally.
 - Supersede: source task closed + `superseded_by` set; replacement task unchanged; dependencies not rewired.
+- Spec check: returns diagnostics and checks canonical spec fingerprint drift plus required sections (`Overview`, `Constraints / Non-goals`, `Interfaces (CLI/API)`, `Data model / schema changes`, `Acceptance criteria`, `Test plan`).
 
 ## Locking + Durability Notes
 

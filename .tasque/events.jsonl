@@ -351,3 +351,10 @@
 {"event_id":"01KHQ726CENT7CPYAHY12WV568","ts":"2026-02-18T01:50:31.821Z","actor":"BumpyClock","type":"task.updated","task_id":"tsq-41267b.2","payload":{"status":"closed","reason":"stale feature shipped"}}
 {"event_id":"01KHQ726MH1QFHJR8BD200G190","ts":"2026-02-18T01:50:32.081Z","actor":"BumpyClock","type":"task.updated","task_id":"tsq-41267b.2.2","payload":{"status":"closed","reason":"implemented stale command with tests/docs"}}
 {"event_id":"01KHQ726MHE8BN8S35G8KP7DTG","ts":"2026-02-18T01:50:32.081Z","actor":"BumpyClock","type":"task.updated","task_id":"tsq-41267b.2.3","payload":{"status":"closed","reason":"implemented stale command with tests/docs"}}
+{"event_id":"01KHQ7BF5DVWAKVZPFPXSHG705","ts":"2026-02-18T01:55:35.725Z","actor":"BumpyClock","type":"task.claimed","task_id":"tsq-41267b.7.5","payload":{"assignee":"SG"}}
+{"event_id":"01KHQ7BFAZ2XR3JWRTAZZ5GJSQ","ts":"2026-02-18T01:55:35.903Z","actor":"BumpyClock","type":"task.claimed","task_id":"tsq-41267b.7.6","payload":{"assignee":"SG"}}
+{"event_id":"01KHQ7BFG6R7V5DQ8NMQXGM3R9","ts":"2026-02-18T01:55:36.070Z","actor":"BumpyClock","type":"task.claimed","task_id":"tsq-41267b.7.7","payload":{"assignee":"SG"}}
+{"event_id":"01KHQ8J7A83XDBEPZ6Z0PKZN2F","ts":"2026-02-18T02:16:45.640Z","actor":"BumpyClock","type":"task.updated","task_id":"tsq-41267b.7.5","payload":{"status":"closed","reason":"implemented spec check + claim gate + tests/docs"}}
+{"event_id":"01KHQ8J7A8X90BFHYH4YM1Q5JY","ts":"2026-02-18T02:16:45.640Z","actor":"BumpyClock","type":"task.updated","task_id":"tsq-41267b.7.6","payload":{"status":"closed","reason":"implemented spec check + claim gate + tests/docs"}}
+{"event_id":"01KHQ8J7A8C3CPW6MX7M2SVNQ3","ts":"2026-02-18T02:16:45.640Z","actor":"BumpyClock","type":"task.updated","task_id":"tsq-41267b.7.7","payload":{"status":"closed","reason":"implemented spec check + claim gate + tests/docs"}}
+{"event_id":"01KHQ8J7FC6SSCV2P8QPGQ0X73","ts":"2026-02-18T02:16:45.804Z","actor":"BumpyClock","type":"task.updated","task_id":"tsq-41267b.7","payload":{"status":"closed","reason":"spec durability workflow delivered"}}

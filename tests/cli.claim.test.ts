@@ -25,6 +25,28 @@ interface JsonResult {
 const repos: string[] = [];
 const repoRoot = resolve(import.meta.dir, "..");
 const cliEntry = join(repoRoot, "src", "main.ts");
+const VALID_SPEC_MARKDOWN = `# Feature Spec
+
+## Overview
+Implement guarded claim flow.
+
+## Constraints / Non-goals
+- Local-only validation.
+- No multi-machine workflow.
+
+## Interfaces (CLI/API)
+- \`tsq spec check <id>\`
+- \`tsq update <id> --claim --require-spec\`
+
+## Data model / schema changes
+- task spec metadata fields are used for validation.
+
+## Acceptance criteria
+- claims can enforce valid/current specs.
+
+## Test plan
+- Exercise missing, drifted, and valid spec claim paths.
+`;
 
 async function makeRepo(): Promise<string> {
   const repo = await mkdtemp(join(tmpdir(), "tasque-claim-"));
@@ -91,6 +113,10 @@ async function initAndCreate(repo: string, title = "Claim test task"): Promise<s
     (await runJson(repo, ["create", title])).envelope,
   );
   return created.task.id;
+}
+
+async function attachValidSpec(repo: string, taskId: string): Promise<void> {
+  await runJson(repo, ["spec", "attach", taskId, "--text", VALID_SPEC_MARKDOWN]);
 }
 
 describe("cli claim transitions", () => {
@@ -252,6 +278,85 @@ describe("cli claim transitions", () => {
     expect(result.exitCode).toBe(1);
     expect(result.envelope.ok).toBe(false);
     expect(result.envelope.error?.code).toBe("VALIDATION_ERROR");
+  });
+
+  // ── Claim gate: --require-spec ───────────────────────────────────────
+
+  it("claim with --require-spec rejects tasks without an attached spec", async () => {
+    const repo = await makeRepo();
+    const taskId = await initAndCreate(repo);
+
+    const claimed = await runJson(repo, ["update", taskId, "--claim", "--require-spec"]);
+    expect(claimed.exitCode).toBeGreaterThan(0);
+    expect(claimed.envelope.ok).toBe(false);
+    expect(claimed.envelope.error?.code).toBe("SPEC_VALIDATION_FAILED");
+    const details = claimed.envelope.error?.details as
+      | { diagnostics?: Array<{ code?: string }> }
+      | undefined;
+    const codes = (details?.diagnostics ?? []).map((diagnostic) => diagnostic.code);
+    expect(codes).toContain("SPEC_NOT_ATTACHED");
+  });
+
+  it("claim with --require-spec rejects drifted specs", async () => {
+    const repo = await makeRepo();
+    const taskId = await initAndCreate(repo);
+    await attachValidSpec(repo, taskId);
+    await Bun.write(
+      join(repo, ".tasque", "specs", taskId, "spec.md"),
+      `${VALID_SPEC_MARKDOWN}\n<!-- drift -->\n`,
+    );
+
+    const claimed = await runJson(repo, ["update", taskId, "--claim", "--require-spec"]);
+    expect(claimed.exitCode).toBeGreaterThan(0);
+    expect(claimed.envelope.ok).toBe(false);
+    expect(claimed.envelope.error?.code).toBe("SPEC_VALIDATION_FAILED");
+    const details = claimed.envelope.error?.details as
+      | { diagnostics?: Array<{ code?: string }> }
+      | undefined;
+    const codes = (details?.diagnostics ?? []).map((diagnostic) => diagnostic.code);
+    expect(codes).toContain("SPEC_FINGERPRINT_DRIFT");
+  });
+
+  it("claim with --require-spec rejects specs missing required sections", async () => {
+    const repo = await makeRepo();
+    const taskId = await initAndCreate(repo);
+    await runJson(repo, [
+      "spec",
+      "attach",
+      taskId,
+      "--text",
+      "# Thin Spec\n\n## Overview\nOnly overview\n",
+    ]);
+
+    const claimed = await runJson(repo, ["update", taskId, "--claim", "--require-spec"]);
+    expect(claimed.exitCode).toBeGreaterThan(0);
+    expect(claimed.envelope.ok).toBe(false);
+    expect(claimed.envelope.error?.code).toBe("SPEC_VALIDATION_FAILED");
+    const details = claimed.envelope.error?.details as
+      | { diagnostics?: Array<{ code?: string }> }
+      | undefined;
+    const codes = (details?.diagnostics ?? []).map((diagnostic) => diagnostic.code);
+    expect(codes).toContain("SPEC_REQUIRED_SECTIONS_MISSING");
+  });
+
+  it("claim with --require-spec succeeds when the spec is present and valid", async () => {
+    const repo = await makeRepo();
+    const taskId = await initAndCreate(repo);
+    await attachValidSpec(repo, taskId);
+
+    const claimed = await runJson(
+      repo,
+      ["update", taskId, "--claim", "--require-spec", "--assignee", "spec-owner"],
+      "claim-with-spec",
+    );
+
+    expect(claimed.exitCode).toBe(0);
+    expect(claimed.envelope.ok).toBe(true);
+    const shown = okData<{ task: { status: string; assignee?: string } }>(
+      (await runJson(repo, ["show", taskId])).envelope,
+    );
+    expect(shown.task.status).toBe("in_progress");
+    expect(shown.task.assignee).toBe("spec-owner");
   });
 
   // ── Task state integrity after claim ─────────────────────────────────

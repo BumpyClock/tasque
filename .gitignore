@@ -7,3 +7,4 @@ dist/
 .tasque/snapshots/
 .tasque/specs/
 .ai_agents/
+.worktrees/

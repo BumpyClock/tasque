@@ -57,6 +57,9 @@ export function printTask(task: Task): void {
   if (task.external_ref) {
     console.log(`external_ref=${task.external_ref}`);
   }
+  if (task.discovered_from) {
+    console.log(`discovered_from=${task.discovered_from}`);
+  }
   if (task.parent_id) {
     console.log(`parent=${task.parent_id}`);
   }
@@ -182,7 +185,7 @@ export function printRepairResult(result: RepairResult): void {
     `orphaned_deps=${result.plan.orphaned_deps.length}${result.applied ? " (removed)" : ""}`,
   );
   for (const dep of result.plan.orphaned_deps) {
-    console.log(`  ${dep.child} -> ${dep.blocker} (dep)`);
+    console.log(`  ${dep.child} -> ${dep.blocker} (${dep.dep_type})`);
   }
 
   console.log(
@@ -241,10 +244,18 @@ export function formatMetaBadge(task: Task): string {
 
 function formatFlow(node: TaskTreeNode): string | undefined {
   const flow: string[] = [];
-  if (node.blockers.length > 0) {
+  if ((node.blocker_edges?.length ?? 0) > 0) {
+    flow.push(
+      `blocks-on: ${node.blocker_edges?.map((edge) => `${edge.id}:${edge.dep_type}`).join(",")}`,
+    );
+  } else if (node.blockers.length > 0) {
     flow.push(`blocks-on: ${node.blockers.join(",")}`);
   }
-  if (node.dependents.length > 0) {
+  if ((node.dependent_edges?.length ?? 0) > 0) {
+    flow.push(
+      `unblocks: ${node.dependent_edges?.map((edge) => `${edge.id}:${edge.dep_type}`).join(",")}`,
+    );
+  } else if (node.dependents.length > 0) {
     flow.push(`unblocks: ${node.dependents.join(",")}`);
   }
   if (flow.length === 0) {
@@ -386,7 +397,7 @@ export function printOrphansResult(result: OrphansResult): void {
   if (result.orphaned_deps.length > 0) {
     console.log(`orphaned_deps=${result.orphaned_deps.length}`);
     for (const dep of result.orphaned_deps) {
-      console.log(`  ${dep.child} -> ${dep.blocker}`);
+      console.log(`  ${dep.child} -> ${dep.blocker} (${dep.dep_type})`);
     }
   }
   if (result.orphaned_links.length > 0) {
@@ -405,8 +416,9 @@ export function printDepTreeResult(root: DepTreeNode): void {
 function printDepNode(node: DepTreeNode, prefix: string, isLast: boolean, isRoot: boolean): void {
   const connector = isRoot ? "" : isLast ? "└── " : "├── ";
   const dirTag = node.direction !== "both" ? pc.dim(` [${node.direction}]`) : "";
+  const typeTag = node.dep_type ? pc.dim(` (${node.dep_type})`) : "";
   console.log(
-    `${prefix}${connector}${formatStatus(node.task.status)} ${pc.bold(node.task.id)} ${node.task.title}${dirTag}`,
+    `${prefix}${connector}${formatStatus(node.task.status)} ${pc.bold(node.task.id)} ${node.task.title}${dirTag}${typeTag}`,
   );
 
   const childPrefix = isRoot ? prefix : `${prefix}${isLast ? "    " : "│   "}`;

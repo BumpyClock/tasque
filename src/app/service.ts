@@ -165,12 +165,16 @@ export class TasqueService {
       }
 
       const description = input.bodyFile !== undefined ? input.bodyFile : input.description;
+      const discoveredFrom = input.discoveredFrom
+        ? mustResolveExisting(state, input.discoveredFrom, input.exactId)
+        : undefined;
       const ts = this.now();
       const event = makeEvent(this.actor, ts, "task.created", id, {
         id,
         title: input.title,
         description,
         external_ref: input.externalRef,
+        discovered_from: discoveredFrom,
         kind: input.kind,
         priority: input.priority,
         status: "open",
@@ -228,6 +232,13 @@ export class TasqueService {
         1,
       );
     }
+    if (input.discoveredFrom !== undefined && input.clearDiscoveredFrom) {
+      throw new TsqError(
+        "VALIDATION_ERROR",
+        "cannot combine --discovered-from with --clear-discovered-from",
+        1,
+      );
+    }
 
     return withWriteLock(this.repoRoot, async () => {
       const { state, allEvents } = await loadProjectedState(this.repoRoot);
@@ -255,6 +266,12 @@ export class TasqueService {
       }
       if (input.planning_state !== undefined) {
         patch.planning_state = input.planning_state;
+      }
+      if (input.discoveredFrom !== undefined) {
+        patch.discovered_from = mustResolveExisting(state, input.discoveredFrom, input.exactId);
+      }
+      if (input.clearDiscoveredFrom) {
+        patch.clear_discovered_from = true;
       }
 
       const hasFieldPatch = Object.keys(patch).length > 0;

@@ -188,6 +188,26 @@ describe("store events", () => {
     expect(err.exitCode).toBe(2);
   });
 
+  it("rejects dep events with invalid dep_type value", async () => {
+    const repo = await makeRepo();
+    const paths = getPaths(repo);
+    await mkdir(paths.tasqueDir, { recursive: true });
+    const invalid = JSON.stringify({
+      event_id: "01BADDEP",
+      ts: "2026-02-17T00:00:00.000Z",
+      actor: "test",
+      type: "dep.added",
+      task_id: "tsq-abc123",
+      payload: { blocker: "tsq-other1", dep_type: "invalid_type" },
+    });
+    await writeFile(paths.eventsFile, `${invalid}\n`, "utf8");
+
+    const err = await readEvents(repo).catch((e) => e);
+    expect(err).toBeInstanceOf(TsqError);
+    expect(err.code).toBe("EVENTS_CORRUPT");
+    expect(err.exitCode).toBe(2);
+  });
+
   it("throws EVENTS_CORRUPT for corrupt middle line that is valid JSON but missing required fields", async () => {
     const repo = await makeRepo();
     const paths = getPaths(repo);

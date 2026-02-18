@@ -140,4 +140,30 @@ describe("parseQuery", () => {
       });
     });
   });
+
+  describe("dependency query fields", () => {
+    it("parses dep_type_in and dep_type_out fielded terms", () => {
+      const result = parseQuery("dep_type_in:blocks dep_type_out:starts_after");
+      expect(result.terms).toHaveLength(2);
+      expect(result.terms[0]).toEqual({
+        field: "dep_type_in",
+        value: "blocks",
+        negated: false,
+      });
+      expect(result.terms[1]).toEqual({
+        field: "dep_type_out",
+        value: "starts_after",
+        negated: false,
+      });
+    });
+
+    it("rejects ambiguous dep_type field without direction", () => {
+      expect(() => parseQuery("dep_type:blocks")).toThrow();
+    });
+
+    it("rejects invalid dependency type values for dep_type_in/out", () => {
+      expect(() => parseQuery("dep_type_in:unknown")).toThrow();
+      expect(() => parseQuery("dep_type_out:unknown")).toThrow();
+    });
+  });
 });

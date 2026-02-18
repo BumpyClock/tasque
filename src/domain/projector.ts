@@ -2,6 +2,7 @@ import { TsqError } from "../errors";
 import type {
   DepAddedPayload,
   DepRemovedPayload,
+  DependencyType,
   EventRecord,
   LinkAddedPayload,
   LinkRemovedPayload,
@@ -21,6 +22,7 @@ import type {
   TaskSupersededPayload,
   TaskUpdatedPayload,
 } from "../types";
+import { edgeKey, normalizeDependencyEdges, normalizeDependencyType } from "./deps";
 import { assertNoDependencyCycle } from "./validate";
 
 const RELATION_TYPES: RelationType[] = ["relates_to", "replies_to", "duplicates", "supersedes"];
@@ -34,6 +36,7 @@ const TASK_STATUSES: TaskStatus[] = [
   "deferred",
 ];
 const PLANNING_STATES: PlanningState[] = ["needs_planning", "planned"];
+const DEFAULT_DEP_TYPE: DependencyType = "blocks";
 
 const asObject = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -114,7 +117,9 @@ const eventIdentifier = (event: EventRecord): string => {
 
 const cloneState = (state: State): State => ({
   tasks: { ...state.tasks },
-  deps: Object.fromEntries(Object.entries(state.deps).map(([id, deps]) => [id, [...deps]])),
+  deps: Object.fromEntries(
+    Object.entries(state.deps).map(([id, deps]) => [id, normalizeDependencyEdges(deps as unknown)]),
+  ),
   links: Object.fromEntries(
     Object.entries(state.links).map(([id, rels]) => [
       id,
@@ -209,6 +214,15 @@ const applyTaskCreated = (state: State, event: EventRecord): void => {
   const labels = asStringArray(payload.labels) ?? [];
   const parentId = asString(payload.parent_id);
   const planningState = asPlanningState(payload.planning_state) ?? "needs_planning";
+  const discoveredFrom = asString(payload.discovered_from);
+  if (discoveredFrom !== undefined) {
+    if (discoveredFrom === event.task_id) {
+      throw new TsqError("INVALID_EVENT", "task.created discovered_from cannot reference self", 1, {
+        event_id: event.id ?? event.event_id,
+      });
+    }
+    requireTask(state, discoveredFrom);
+  }
   const task: Task = {
     id: event.task_id,
     title,
@@ -219,6 +233,7 @@ const applyTaskCreated = (state: State, event: EventRecord): void => {
     priority,
     assignee: asString(payload.assignee),
     external_ref: asString(payload.external_ref),
+    discovered_from: discoveredFrom,
     parent_id: parentId,
     superseded_by: asString(payload.superseded_by),
     duplicate_of: asString(payload.duplicate_of),
@@ -318,6 +333,30 @@ const applyTaskUpdated = (state: State, event: EventRecord): void => {
   const planningState = asPlanningState(payload.planning_state);
   if (planningState !== undefined) {
     next.planning_state = planningState;
+  }
+  const discoveredFrom = asString(payload.discovered_from);
+  const clearDiscoveredFrom = asBoolean(payload.clear_discovered_from);
+  if (discoveredFrom !== undefined && clearDiscoveredFrom) {
+    throw new TsqError(
+      "INVALID_EVENT",
+      "task.updated cannot combine discovered_from with clear_discovered_from",
+      1,
+      {
+        event_id: event.id ?? event.event_id,
+      },
+    );
+  }
+  if (discoveredFrom !== undefined) {
+    if (discoveredFrom === event.task_id) {
+      throw new TsqError("INVALID_EVENT", "task.updated discovered_from cannot reference self", 1, {
+        event_id: event.id ?? event.event_id,
+      });
+    }
+    requireTask(state, discoveredFrom);
+    next.discovered_from = discoveredFrom;
+  }
+  if (clearDiscoveredFrom === true) {
+    next.discovered_from = undefined;
   }
 
   state.tasks[event.task_id] = next;
@@ -448,12 +487,16 @@ const applyDepAdded = (state: State, event: EventRecord): void => {
       event_id: event.id ?? event.event_id,
     });
   }
+  const depType = normalizeDependencyType(payload.dep_type) ?? DEFAULT_DEP_TYPE;
   requireTask(state, event.task_id);
   requireTask(state, blocker);
-  assertNoDependencyCycle(state, event.task_id, blocker);
-  const deps = state.deps[event.task_id] ?? [];
-  if (!deps.includes(blocker)) {
-    state.deps[event.task_id] = [...deps, blocker];
+  if (depType === "blocks") {
+    assertNoDependencyCycle(state, event.task_id, blocker);
+  }
+  const deps = normalizeDependencyEdges(state.deps[event.task_id] as unknown);
+  const depIndex = new Set(deps.map((edge) => edgeKey(edge.blocker, edge.dep_type)));
+  if (!depIndex.has(edgeKey(blocker, depType))) {
+    state.deps[event.task_id] = [...deps, { blocker, dep_type: depType }];
   }
 };
 
@@ -465,8 +508,11 @@ const applyDepRemoved = (state: State, event: EventRecord): void => {
       event_id: event.id ?? event.event_id,
     });
   }
-  const deps = state.deps[event.task_id] ?? [];
-  state.deps[event.task_id] = deps.filter((candidate) => candidate !== blocker);
+  const depType = normalizeDependencyType(payload.dep_type) ?? DEFAULT_DEP_TYPE;
+  const deps = normalizeDependencyEdges(state.deps[event.task_id] as unknown);
+  state.deps[event.task_id] = deps.filter(
+    (candidate) => !(candidate.blocker === blocker && candidate.dep_type === depType),
+  );
 };
 
 const relationTarget = (payload: Record<string, unknown>): string | undefined => {

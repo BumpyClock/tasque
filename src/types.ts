@@ -3,6 +3,7 @@ export const SCHEMA_VERSION = 1;
 export type TaskKind = "task" | "feature" | "epic";
 export type TaskStatus = "open" | "in_progress" | "blocked" | "closed" | "canceled" | "deferred";
 export type PlanningState = "needs_planning" | "planned";
+export type DependencyType = "blocks" | "starts_after";
 export type RelationType = "relates_to" | "replies_to" | "duplicates" | "supersedes";
 export type Priority = 0 | 1 | 2 | 3;
 
@@ -27,6 +28,7 @@ export interface Task {
   priority: Priority;
   assignee?: string;
   external_ref?: string;
+  discovered_from?: string;
   parent_id?: string;
   superseded_by?: string;
   duplicate_of?: string;
@@ -38,10 +40,22 @@ export interface Task {
   closed_at?: string;
 }
 
+export interface DependencyEdge {
+  blocker: string;
+  dep_type: DependencyType;
+}
+
+export interface DependencyRef {
+  id: string;
+  dep_type: DependencyType;
+}
+
 export interface TaskTreeNode {
   task: Task;
   blockers: string[];
   dependents: string[];
+  blocker_edges?: DependencyRef[];
+  dependent_edges?: DependencyRef[];
   children: TaskTreeNode[];
 }
 
@@ -85,6 +99,7 @@ export interface TaskCreatedPayload {
   assignee?: string;
   labels?: string[];
   external_ref?: string;
+  discovered_from?: string;
   description?: string;
   planning_state?: PlanningState;
 }
@@ -95,9 +110,11 @@ export interface TaskUpdatedPayload {
   assignee?: string;
   labels?: string[];
   external_ref?: string;
+  discovered_from?: string;
   description?: string;
   clear_description?: boolean;
   clear_external_ref?: boolean;
+  clear_discovered_from?: boolean;
   kind?: TaskKind;
   duplicate_of?: string;
   planning_state?: PlanningState;
@@ -132,10 +149,12 @@ export interface TaskSupersededPayload {
 
 export interface DepAddedPayload {
   blocker: string;
+  dep_type?: DependencyType;
 }
 
 export interface DepRemovedPayload {
   blocker: string;
+  dep_type?: DependencyType;
 }
 
 export interface LinkAddedPayload {
@@ -190,7 +209,7 @@ export type EventPayloadMap = {
 
 export interface State {
   tasks: Record<string, Task>;
-  deps: Record<string, string[]>;
+  deps: Record<string, DependencyEdge[]>;
   links: Record<string, Partial<Record<RelationType, string[]>>>;
   child_counters: Record<string, number>;
   created_order: string[];
@@ -229,7 +248,7 @@ export interface EnvelopeErr {
 export type Envelope<T> = EnvelopeOk<T> | EnvelopeErr;
 
 export interface RepairPlan {
-  orphaned_deps: Array<{ child: string; blocker: string }>;
+  orphaned_deps: Array<{ child: string; blocker: string; dep_type: DependencyType }>;
   orphaned_links: Array<{ src: string; dst: string; type: RelationType }>;
   stale_temps: string[];
   stale_lock: boolean;

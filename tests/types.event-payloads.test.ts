@@ -252,7 +252,7 @@ describe("typed payload projector integration", () => {
       event("dep.added", "tsq-child1", payload as unknown as Record<string, unknown>, 3),
     );
 
-    expect(linked.deps["tsq-child1"]).toEqual(["tsq-block1"]);
+    expect(linked.deps["tsq-child1"]).toEqual([{ blocker: "tsq-block1", dep_type: "blocks" }]);
   });
 
   test("link.added with typed payload creates relation", () => {

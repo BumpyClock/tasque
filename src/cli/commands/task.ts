@@ -34,6 +34,7 @@ export function registerTaskCommands(
     .option("--parent <id>", "parent task ID")
     .option("--description <text>", "task description")
     .option("--external-ref <ref>", "external reference (ticket/URL/id)")
+    .option("--discovered-from <id>", "provenance source task ID (non-blocking metadata)")
     .option("--planning <state>", "planning state: needs_planning|planned")
     .option("--needs-planning", "shorthand for --planning needs_planning")
     .option("--id <id>", "explicit task ID (tsq-<8 crockford base32>)")
@@ -88,6 +89,7 @@ export function registerTaskCommands(
             parent: options.parent,
             description: asOptionalString(options.description),
             externalRef: asOptionalString(options.externalRef),
+            discoveredFrom: asOptionalString(options.discoveredFrom),
             exactId: opts.exactId,
             planning_state,
             explicitId: options.id ? validateExplicitId(options.id) : undefined,
@@ -110,10 +112,20 @@ export function registerTaskCommands(
         jsonData: (data) => data,
         human: (data) => {
           printTask(data.task);
-          if (data.blockers.length > 0) {
+          if ((data.blocker_edges?.length ?? 0) > 0) {
+            const blockers = data.blocker_edges.map(
+              (edge: { id: string; dep_type: string }) => `${edge.id}(${edge.dep_type})`,
+            );
+            console.log(`blockers=${blockers.join(",")}`);
+          } else if (data.blockers.length > 0) {
             console.log(`blockers=${data.blockers.join(",")}`);
           }
-          if (data.dependents.length > 0) {
+          if ((data.dependent_edges?.length ?? 0) > 0) {
+            const dependents = data.dependent_edges.map(
+              (edge: { id: string; dep_type: string }) => `${edge.id}(${edge.dep_type})`,
+            );
+            console.log(`dependents=${dependents.join(",")}`);
+          } else if (data.dependents.length > 0) {
             console.log(`dependents=${data.dependents.join(",")}`);
           }
           console.log(`ready=${data.ready}`);
@@ -137,6 +149,7 @@ export function registerTaskCommands(
     .option("--status <status>", "filter by status")
     .option("--assignee <assignee>", "filter by assignee")
     .option("--external-ref <ref>", "filter by external reference")
+    .option("--discovered-from <id>", "filter by discovered-from task ID")
     .option("--kind <kind>", "filter by kind")
     .option("--label <label>", "filter by label")
     .option(
@@ -158,6 +171,8 @@ export function registerTaskCommands(
     .option("--tree", "render parent/child hierarchy")
     .option("--full", "with --tree, include closed/blocked/canceled items")
     .option("--planning <state>", "filter by planning state: needs_planning|planned")
+    .option("--dep-type <type>", "filter by dependency type: blocks|starts_after")
+    .option("--dep-direction <dir>", "when --dep-type is set: in|out|any")
     .description("List tasks")
     .on("option:assignee", () => {
       listFlagState.assignee = true;
@@ -248,7 +263,9 @@ export function registerTaskCommands(
     .option("--description <text>", "set task description")
     .option("--clear-description", "clear task description")
     .option("--external-ref <ref>", "set external reference")
+    .option("--discovered-from <id>", "set discovered-from task ID")
     .option("--clear-external-ref", "clear external reference")
+    .option("--clear-discovered-from", "clear discovered-from metadata")
     .option("--status <status>", "status value")
     .option("--priority <priority>", "priority 0..3")
     .option("--claim", "claim this task")
@@ -265,7 +282,9 @@ export function registerTaskCommands(
           const hasDescription = asOptionalString(options.description) !== undefined;
           const clearDescription = Boolean(options.clearDescription);
           const hasExternalRef = asOptionalString(options.externalRef) !== undefined;
+          const hasDiscoveredFrom = asOptionalString(options.discoveredFrom) !== undefined;
           const clearExternalRef = Boolean(options.clearExternalRef);
+          const clearDiscoveredFrom = Boolean(options.clearDiscoveredFrom);
           if (hasDescription && clearDescription) {
             throw new TsqError(
               "VALIDATION_ERROR",
@@ -280,6 +299,13 @@ export function registerTaskCommands(
               1,
             );
           }
+          if (hasDiscoveredFrom && clearDiscoveredFrom) {
+            throw new TsqError(
+              "VALIDATION_ERROR",
+              "cannot combine --discovered-from with --clear-discovered-from",
+              1,
+            );
+          }
           if (!claim && requireSpec) {
             throw new TsqError("VALIDATION_ERROR", "--require-spec requires --claim", 1);
           }
@@ -291,11 +317,13 @@ export function registerTaskCommands(
               hasDescription ||
               clearDescription ||
               hasExternalRef ||
-              clearExternalRef
+              clearExternalRef ||
+              hasDiscoveredFrom ||
+              clearDiscoveredFrom
             ) {
               throw new TsqError(
                 "VALIDATION_ERROR",
-                "cannot combine --claim with --title/--description/--clear-description/--external-ref/--clear-external-ref/--status/--priority",
+                "cannot combine --claim with --title/--description/--clear-description/--external-ref/--clear-external-ref/--discovered-from/--clear-discovered-from/--status/--priority",
                 1,
               );
             }
@@ -312,6 +340,8 @@ export function registerTaskCommands(
             description: asOptionalString(options.description),
             clearDescription,
             externalRef: asOptionalString(options.externalRef),
+            discoveredFrom: asOptionalString(options.discoveredFrom),
+            clearDiscoveredFrom,
             clearExternalRef,
             status: options.status ? normalizeStatus(String(options.status)) : undefined,
             priority: options.priority ? parsePriority(String(options.priority)) : undefined,

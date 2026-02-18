@@ -1,6 +1,7 @@
 import type { DepDirection } from "../domain/dep-tree";
 import type { SkillOperationSummary, SkillTarget } from "../skills/types";
 import type {
+  DependencyType,
   EventRecord,
   PlanningState,
   Priority,
@@ -35,6 +36,7 @@ export interface CreateInput {
   priority: Priority;
   description?: string;
   externalRef?: string;
+  discoveredFrom?: string;
   parent?: string;
   exactId?: boolean;
   planning_state?: PlanningState;
@@ -48,6 +50,8 @@ export interface UpdateInput {
   description?: string;
   clearDescription?: boolean;
   externalRef?: string;
+  discoveredFrom?: string;
+  clearDiscoveredFrom?: boolean;
   clearExternalRef?: boolean;
   status?: TaskStatus;
   priority?: Priority;
@@ -72,6 +76,7 @@ export interface LinkInput {
 export interface DepInput {
   child: string;
   blocker: string;
+  depType?: DependencyType;
   exactId?: boolean;
 }
 
@@ -197,6 +202,7 @@ export interface ListFilter {
   statuses?: TaskStatus[];
   assignee?: string;
   externalRef?: string;
+  discoveredFrom?: string;
   kind?: TaskKind;
   label?: string;
   labelAny?: string[];
@@ -206,6 +212,8 @@ export interface ListFilter {
   unassigned?: boolean;
   ids?: string[];
   planning_state?: PlanningState;
+  depType?: DependencyType;
+  depDirection?: "in" | "out" | "any";
 }
 
 export interface ReadyInput {
@@ -261,7 +269,7 @@ export interface DoctorResult {
 }
 
 export interface OrphansResult {
-  orphaned_deps: Array<{ child: string; blocker: string }>;
+  orphaned_deps: Array<{ child: string; blocker: string; dep_type: DependencyType }>;
   orphaned_links: Array<{ src: string; dst: string; type: string }>;
   total: number;
 }

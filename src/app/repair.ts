@@ -1,5 +1,6 @@
 import { readdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
+import { normalizeDependencyEdges } from "../domain/deps";
 import { makeEvent } from "../domain/events";
 import { applyEvents } from "../domain/projector";
 import { TsqError } from "../errors";
@@ -12,16 +13,20 @@ import { loadProjectedState, persistProjection } from "./state";
 
 /** Scan state for orphaned deps and links (no filesystem access). */
 export function scanOrphanedGraph(state: State): {
-  orphaned_deps: Array<{ child: string; blocker: string }>;
+  orphaned_deps: Array<{ child: string; blocker: string; dep_type: "blocks" | "starts_after" }>;
   orphaned_links: Array<{ src: string; dst: string; type: RelationType }>;
 } {
-  const orphaned_deps: Array<{ child: string; blocker: string }> = [];
+  const orphaned_deps: Array<{
+    child: string;
+    blocker: string;
+    dep_type: "blocks" | "starts_after";
+  }> = [];
   const orphaned_links: Array<{ src: string; dst: string; type: RelationType }> = [];
 
   for (const [child, blockers] of Object.entries(state.deps)) {
-    for (const blocker of blockers) {
-      if (!state.tasks[child] || !state.tasks[blocker]) {
-        orphaned_deps.push({ child, blocker });
+    for (const edge of normalizeDependencyEdges(blockers as unknown)) {
+      if (!state.tasks[child] || !state.tasks[edge.blocker]) {
+        orphaned_deps.push({ child, blocker: edge.blocker, dep_type: edge.dep_type });
       }
     }
   }
@@ -125,7 +130,12 @@ export async function executeRepair(
     const paths = getPaths(repoRoot);
 
     for (const dep of plan.orphaned_deps) {
-      events.push(makeEvent(actor, now(), "dep.removed", dep.child, { blocker: dep.blocker }));
+      events.push(
+        makeEvent(actor, now(), "dep.removed", dep.child, {
+          blocker: dep.blocker,
+          dep_type: dep.dep_type,
+        }),
+      );
     }
 
     for (const link of plan.orphaned_links) {

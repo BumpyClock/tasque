@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { assertNoDependencyCycle, isReady, listReady } from "../src/domain/validate";
 import { TsqError } from "../src/errors";
-import type { State, Task, TaskStatus } from "../src/types";
+import type { DependencyEdge, State, Task, TaskStatus } from "../src/types";
 
 const makeTask = (id: string, status: TaskStatus = "open"): Task => ({
   id,
@@ -16,7 +16,10 @@ const makeTask = (id: string, status: TaskStatus = "open"): Task => ({
   updated_at: "2026-02-17T00:00:00.000Z",
 });
 
-const makeState = (tasks: Task[], deps: Record<string, string[]> = {}): State => {
+const makeState = (
+  tasks: Task[],
+  deps: Record<string, Array<string | DependencyEdge>> = {},
+): State => {
   const byId: Record<string, Task> = {};
   const order: string[] = [];
   for (const task of tasks) {
@@ -25,7 +28,14 @@ const makeState = (tasks: Task[], deps: Record<string, string[]> = {}): State =>
   }
   return {
     tasks: byId,
-    deps,
+    deps: Object.fromEntries(
+      Object.entries(deps).map(([child, edges]) => [
+        child,
+        edges.map((edge) =>
+          typeof edge === "string" ? { blocker: edge, dep_type: "blocks" as const } : edge,
+        ),
+      ]),
+    ),
     links: {},
     child_counters: {},
     created_order: order,
@@ -99,5 +109,13 @@ describe("ready semantics", () => {
     const ready = listReady(state);
 
     expect(ready.map((task) => task.id)).toEqual(["first"]);
+  });
+
+  test("starts_after dependencies do not block readiness", () => {
+    const state = makeState([makeTask("a", "open"), makeTask("b", "open")], {
+      a: [{ blocker: "b", dep_type: "starts_after" }],
+    });
+
+    expect(isReady(state, "a")).toBe(true);
   });
 });

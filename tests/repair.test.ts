@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { type JsonResult, assertEnvelopeShape, cliCmd, okData } from "./helpers";
 
 interface RepairPlan {
-  orphaned_deps: Array<{ child: string; blocker: string }>;
+  orphaned_deps: Array<{ child: string; blocker: string; dep_type: "blocks" | "starts_after" }>;
   orphaned_links: Array<{ src: string; dst: string; type: string }>;
   stale_temps: string[];
   stale_lock: boolean;
@@ -68,9 +68,9 @@ async function injectOrphanDep(repoDir: string, child: string, blocker: string):
   const stateFile = join(repoDir, ".tasque", "state.json");
   const raw = await readFile(stateFile, "utf8");
   const state = JSON.parse(raw);
-  const deps: string[] = state.deps[child] ?? [];
-  if (!deps.includes(blocker)) {
-    deps.push(blocker);
+  const deps: Array<{ blocker: string; dep_type: string }> = state.deps[child] ?? [];
+  if (!deps.some((dep) => dep.blocker === blocker && dep.dep_type === "blocks")) {
+    deps.push({ blocker, dep_type: "blocks" });
   }
   state.deps[child] = deps;
   await writeFile(stateFile, JSON.stringify(state, null, 2), "utf8");
@@ -129,6 +129,7 @@ describe("tsq repair", () => {
     expect(result.exitCode).toBe(0);
     const data = okData<RepairResult>(result.envelope);
     expect(data.plan.orphaned_deps.length >= 1).toBe(true);
+    expect(data.plan.orphaned_deps.some((dep) => dep.dep_type === "blocks")).toBe(true);
     expect(data.applied).toBe(false);
   });
 

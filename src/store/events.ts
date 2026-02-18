@@ -28,6 +28,7 @@ const PAYLOAD_REQUIRED_FIELDS: Record<EventType, Array<{ field: string; type: st
 };
 
 const VALID_EVENT_TYPES = new Set<string>(Object.keys(PAYLOAD_REQUIRED_FIELDS));
+const VALID_DEP_TYPES = new Set(["blocks", "starts_after"]);
 
 const RAW_EVENT_SCHEMA = z
   .object({
@@ -93,6 +94,24 @@ function validateEventPayload(raw: Record<string, unknown>, lineNumber: number):
           id: raw.id ?? raw.event_id,
           field,
           expected_type: expectedType,
+        },
+      );
+    }
+  }
+
+  if (
+    (eventType === "dep.added" || eventType === "dep.removed") &&
+    payloadObj.dep_type !== undefined
+  ) {
+    if (typeof payloadObj.dep_type !== "string" || !VALID_DEP_TYPES.has(payloadObj.dep_type)) {
+      throw new TsqError(
+        "EVENTS_CORRUPT",
+        `Invalid event at line ${lineNumber}: ${eventType} payload field "dep_type" must be blocks|starts_after`,
+        2,
+        {
+          line: lineNumber,
+          id: raw.id ?? raw.event_id,
+          field: "dep_type",
         },
       );
     }

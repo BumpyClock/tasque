@@ -73,6 +73,9 @@ export function applyListFilter(tasks: Task[], filter: ListFilter): Task[] {
     if (filter.externalRef && task.external_ref !== filter.externalRef) {
       return false;
     }
+    if (filter.discoveredFrom && task.discovered_from !== filter.discoveredFrom) {
+      return false;
+    }
     if (filter.unassigned && hasAssignee(task.assignee)) {
       return false;
     }

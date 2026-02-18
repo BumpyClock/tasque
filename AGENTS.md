@@ -13,7 +13,7 @@ Durable across restarts and context compaction.
 
 ## Scope (Current)
 - task/feature/epic create/read/update
-- blocker dependencies
+- typed dependencies (`blocks`, `starts_after`)
 - relation links
 - duplicate workflow (`duplicate`, `duplicates` dry-run scaffold)
 - merge workflow (`merge` with `--force` and `--dry-run`)
@@ -97,12 +97,13 @@ Task fields:
 - `superseded_by` (optional)
 - `duplicate_of` (optional)
 - `replies_to` (optional)
+- `discovered_from` (optional provenance metadata)
 - `labels[]`
 - `created_at`, `updated_at`, `closed_at`
 
 Dependencies:
-- edge: `child -> blocker`
-- semantics: blocker open unless `closed|canceled`
+- edge: `child -> blocker` with `dep_type` (`blocks|starts_after`)
+- semantics: only `blocks` participates in ready/cycle checks; `starts_after` is non-blocking ordering metadata
 
 Relation types:
 - `relates_to` (bidirectional)
@@ -113,21 +114,21 @@ Relation types:
 ## CLI Contract
 - `tsq init`
 - `tsq init --install-skill|--uninstall-skill [--skill-targets ...]`
-- `tsq create "Title" [--kind ...] [-p ...] [--parent <id>] [--external-ref <ref>] [--planning <needs_planning|planned>] [--needs-planning] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
+- `tsq create "Title" [--kind ...] [-p ...] [--parent <id>] [--external-ref <ref>] [--discovered-from <id>] [--planning <needs_planning|planned>] [--needs-planning] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
 - `tsq show <id>`
-- `tsq list [--status ...] [--assignee ...] [--external-ref <ref>] [--kind ...] [--planning <needs_planning|planned>] [--tree]`
+- `tsq list [--status ...] [--assignee ...] [--external-ref <ref>] [--discovered-from <id>] [--kind ...] [--planning <needs_planning|planned>] [--dep-type <blocks|starts_after>] [--dep-direction <in|out|any>] [--tree]`
 - `tsq ready [--lane <planning|coding>]`
 - `tsq watch [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--tree]`
 - `tsq stale [--days <n>] [--status <status>] [--assignee <name>] [--limit <n>]`
 - `tsq doctor`
-- `tsq update <id> [--title ...] [--status ...] [--priority ...] [--external-ref <ref>] [--clear-external-ref] [--planning <needs_planning|planned>]`
+- `tsq update <id> [--title ...] [--status ...] [--priority ...] [--external-ref <ref>] [--clear-external-ref] [--discovered-from <id>] [--clear-discovered-from] [--planning <needs_planning|planned>]`
 - `tsq update <id> --claim [--assignee <a>] [--require-spec]`
 - `tsq orphans`
 - `tsq spec attach <id> [source] [--file <path> | --stdin | --text <markdown>]`
 - `tsq spec check <id>`
-- `tsq dep add <child> <blocker>`
+- `tsq dep add <child> <blocker> [--type <blocks|starts_after>]`
 - `tsq dep tree <id> [--direction <up|down|both>] [--depth <n>]`
-- `tsq dep remove <child> <blocker>`
+- `tsq dep remove <child> <blocker> [--type <blocks|starts_after>]`
 - `tsq link add <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
 - `tsq link remove <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
 - `tsq duplicate <id> --of <canonical-id> [--reason <text>]`

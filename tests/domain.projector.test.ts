@@ -373,7 +373,7 @@ describe("projector supersede", () => {
     expect(superseded.tasks["tsq-old001"]?.superseded_by).toBe("tsq-new001");
     expect(superseded.tasks["tsq-old001"]?.closed_at).toBe(at(5));
     expect(superseded.tasks["tsq-new001"]?.status).toBe("open");
-    expect(superseded.deps["tsq-child1"]).toEqual(["tsq-old001"]);
+    expect(superseded.deps["tsq-child1"]).toEqual([{ blocker: "tsq-old001", dep_type: "blocks" }]);
   });
 });
 
@@ -399,7 +399,7 @@ describe("projector duplicate updates", () => {
     expect(duplicated.tasks["tsq-src001"]?.duplicate_of).toBe("tsq-can001");
     expect(duplicated.tasks["tsq-src001"]?.status).toBe("closed");
     expect(duplicated.tasks["tsq-src001"]?.closed_at).toBe(at(6));
-    expect(duplicated.deps["tsq-child2"]).toEqual(["tsq-src001"]);
+    expect(duplicated.deps["tsq-child2"]).toEqual([{ blocker: "tsq-src001", dep_type: "blocks" }]);
   });
 });
 
@@ -489,7 +489,7 @@ describe("projector dep/link target validation", () => {
       event("dep.added", "tsq-dep003", { blocker: "tsq-dep004" }, 3),
     );
 
-    expect(result.deps["tsq-dep003"]).toEqual(["tsq-dep004"]);
+    expect(result.deps["tsq-dep003"]).toEqual([{ blocker: "tsq-dep004", dep_type: "blocks" }]);
   });
 
   test("link.added rejects missing source task", () => {
@@ -553,7 +553,7 @@ describe("projector dep/link target validation", () => {
 
     const result = applyEvents(createEmptyState(), events);
 
-    expect(result.deps["tsq-hist02"]).toEqual(["tsq-hist01"]);
+    expect(result.deps["tsq-hist02"]).toEqual([{ blocker: "tsq-hist01", dep_type: "blocks" }]);
     expect(result.links["tsq-hist01"]?.relates_to).toEqual(["tsq-hist03"]);
     expect(result.links["tsq-hist02"]?.duplicates).toEqual(["tsq-hist03"]);
   });
@@ -849,5 +849,72 @@ describe("projector link target canonical field only", () => {
       expect(error).toBeInstanceOf(TsqError);
       expect((error as TsqError).code).toBe("INVALID_EVENT");
     }
+  });
+});
+
+describe("projector discovered_from and typed deps", () => {
+  test("task.created and task.updated persist discovered_from", () => {
+    const withTasks = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-src001", { title: "Source", kind: "task", priority: 1 }, 1),
+      event(
+        "task.created",
+        "tsq-dst001",
+        { title: "Derived", kind: "task", priority: 1, discovered_from: "tsq-src001" },
+        2,
+      ),
+    ]);
+    expect(withTasks.tasks["tsq-dst001"]?.discovered_from).toBe("tsq-src001");
+
+    const updated = applyEvent(
+      withTasks,
+      event("task.updated", "tsq-dst001", { clear_discovered_from: true }, 3),
+    );
+    expect(updated.tasks["tsq-dst001"]?.discovered_from).toBeUndefined();
+  });
+
+  test("task.updated discovered_from requires existing target", () => {
+    const withTask = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-task01", { title: "Task", kind: "task", priority: 1 }, 1),
+    ]);
+    try {
+      applyEvent(
+        withTask,
+        event("task.updated", "tsq-task01", { discovered_from: "tsq-missing" }, 2),
+      );
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(TsqError);
+      expect((error as TsqError).code).toBe("TASK_NOT_FOUND");
+    }
+  });
+
+  test("dep.added with starts_after does not enforce cycle checks", () => {
+    const withTasks = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-depa", { title: "A", kind: "task", priority: 1 }, 1),
+      event("task.created", "tsq-depb", { title: "B", kind: "task", priority: 1 }, 2),
+      event("dep.added", "tsq-depa", { blocker: "tsq-depb", dep_type: "starts_after" }, 3),
+    ]);
+    const cycled = applyEvent(
+      withTasks,
+      event("dep.added", "tsq-depb", { blocker: "tsq-depa", dep_type: "starts_after" }, 4),
+    );
+    expect(cycled.deps["tsq-depb"]).toEqual([{ blocker: "tsq-depa", dep_type: "starts_after" }]);
+  });
+
+  test("dep.removed removes only matching dependency type", () => {
+    const withTasks = applyEvents(createEmptyState(), [
+      event("task.created", "tsq-depc", { title: "C", kind: "task", priority: 1 }, 1),
+      event("task.created", "tsq-depd", { title: "D", kind: "task", priority: 1 }, 2),
+      event("dep.added", "tsq-depc", { blocker: "tsq-depd", dep_type: "starts_after" }, 3),
+      event("dep.added", "tsq-depc", { blocker: "tsq-depd", dep_type: "blocks" }, 4),
+    ]);
+
+    const removedBlocks = applyEvent(
+      withTasks,
+      event("dep.removed", "tsq-depc", { blocker: "tsq-depd", dep_type: "blocks" }, 5),
+    );
+    expect(removedBlocks.deps["tsq-depc"]).toEqual([
+      { blocker: "tsq-depd", dep_type: "starts_after" },
+    ]);
   });
 });

@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import type { RunAction, RuntimeDeps } from "../action";
-import { parseDepDirection, parsePositiveInt } from "../parsers";
+import { parseDepDirection, parseDependencyType, parsePositiveInt } from "../parsers";
 import { printDepTreeResult } from "../render";
 
 export function registerDepCommands(
@@ -14,14 +14,17 @@ export function registerDepCommands(
     .command("add")
     .argument("<child>", "child task")
     .argument("<blocker>", "blocker task")
+    .option("--type <type>", "dependency type: blocks|starts_after", "blocks")
     .description("Add dependency")
-    .action(async function action(child: string, blocker: string) {
+    .action(async function action(child: string, blocker: string, options: { type?: string }) {
+      const depType = parseDependencyType(options.type ?? "blocks");
       await runAction(
         this,
-        async (opts) => deps.service.depAdd({ child, blocker, exactId: opts.exactId }),
+        async (opts) => deps.service.depAdd({ child, blocker, depType, exactId: opts.exactId }),
         {
           jsonData: (data) => data,
-          human: (data) => console.log(`added dep ${data.child} -> ${data.blocker}`),
+          human: (data) =>
+            console.log(`added dep ${data.child} -> ${data.blocker} (${data.dep_type})`),
         },
       );
     });
@@ -30,14 +33,17 @@ export function registerDepCommands(
     .command("remove")
     .argument("<child>", "child task")
     .argument("<blocker>", "blocker task")
+    .option("--type <type>", "dependency type: blocks|starts_after", "blocks")
     .description("Remove dependency")
-    .action(async function action(child: string, blocker: string) {
+    .action(async function action(child: string, blocker: string, options: { type?: string }) {
+      const depType = parseDependencyType(options.type ?? "blocks");
       await runAction(
         this,
-        async (opts) => deps.service.depRemove({ child, blocker, exactId: opts.exactId }),
+        async (opts) => deps.service.depRemove({ child, blocker, depType, exactId: opts.exactId }),
         {
           jsonData: (data) => data,
-          human: (data) => console.log(`removed dep ${data.child} -> ${data.blocker}`),
+          human: (data) =>
+            console.log(`removed dep ${data.child} -> ${data.blocker} (${data.dep_type})`),
         },
       );
     });

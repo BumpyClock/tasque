@@ -1,5 +1,6 @@
 import { TsqError } from "../errors";
-import type { State, Task, TaskStatus } from "../types";
+import type { DependencyType, State, Task, TaskStatus } from "../types";
+import { normalizeDependencyEdges } from "./deps";
 
 export type PlanningLane = "planning" | "coding";
 
@@ -9,6 +10,13 @@ const isOpenReadyStatus = (status: TaskStatus): status is "open" | "in_progress"
   OPEN_READY_STATUSES.has(status as "open" | "in_progress");
 const isClosedBlockerStatus = (status: TaskStatus): status is "closed" | "canceled" =>
   CLOSED_BLOCKER_STATUSES.has(status as "closed" | "canceled");
+const BLOCKS_DEP_TYPE: DependencyType = "blocks";
+
+function blockingDepIds(state: State, taskId: string): string[] {
+  return normalizeDependencyEdges(state.deps[taskId] as unknown)
+    .filter((edge) => edge.dep_type === BLOCKS_DEP_TYPE)
+    .map((edge) => edge.blocker);
+}
 
 export const assertNoDependencyCycle = (state: State, child: string, blocker: string): void => {
   if (child === blocker) {
@@ -26,7 +34,7 @@ export const assertNoDependencyCycle = (state: State, child: string, blocker: st
       throw new TsqError("DEPENDENCY_CYCLE", "Dependency cycle detected", 1, { child, blocker });
     }
     visited.add(current);
-    for (const next of state.deps[current] ?? []) {
+    for (const next of blockingDepIds(state, current)) {
       if (!visited.has(next)) {
         stack.push(next);
       }
@@ -43,7 +51,7 @@ export const isReady = (state: State, taskId: string): boolean => {
     return false;
   }
 
-  for (const blockerId of state.deps[taskId] ?? []) {
+  for (const blockerId of blockingDepIds(state, taskId)) {
     const blocker = state.tasks[blockerId];
     if (!blocker) {
       return false;

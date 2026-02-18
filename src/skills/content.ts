@@ -41,9 +41,9 @@ Use \`tsq\` for durable local task tracking.
 
 ## Create and inspect
 
-- \`tsq create "Title" --kind task|feature|epic -p 0..3 [--external-ref <ref>] [--planning needs_planning|planned] [--needs-planning] [--id <tsq-xxxxxxxx>] [--body-file <path|->]\`
+- \`tsq create "Title" --kind task|feature|epic -p 0..3 [--external-ref <ref>] [--discovered-from <id>] [--planning needs_planning|planned] [--needs-planning] [--id <tsq-xxxxxxxx>] [--body-file <path|->]\`
 - \`tsq show <id>\`
-- \`tsq list [--status S] [--assignee A] [--external-ref R] [--kind K] [--label L] [--planning needs_planning|planned] [--tree [--full]]\`
+- \`tsq list [--status S] [--assignee A] [--external-ref R] [--discovered-from <id>] [--kind K] [--label L] [--planning needs_planning|planned] [--dep-type blocks|starts_after] [--dep-direction in|out|any] [--tree [--full]]\`
 - \`tsq ready [--lane planning|coding]\`
 - \`tsq orphans\` (read-only graph orphan report)
 - \`tsq search "status:open label:bug some title text"\`
@@ -76,8 +76,9 @@ Use \`tsq\` for durable local task tracking.
 
 ## Dependencies and relations
 
-- \`tsq dep add <child> <blocker>\` means child waits on blocker
-- \`tsq dep remove <child> <blocker>\`
+- \`tsq dep add <child> <blocker> [--type blocks|starts_after]\`
+- \`tsq dep remove <child> <blocker> [--type blocks|starts_after]\`
+- \`blocks\` edges gate readiness/cycle checks; \`starts_after\` is non-blocking ordering metadata
 - \`tsq dep tree <id> [--direction up|down|both] [--depth N]\` — dependency graph
 - \`tsq link add <src> <dst> --type relates_to|replies_to|duplicates|supersedes\`
 - \`tsq link remove <src> <dst> --type relates_to|replies_to|duplicates|supersedes\`
@@ -96,7 +97,8 @@ Use \`tsq\` for durable local task tracking.
 ## Search
 
 - \`tsq search "<query>"\` — structured query with implicit AND
-- Fields: \`id\`, \`title\`, \`status\`, \`kind\`, \`priority\`, \`assignee\`, \`external_ref\`, \`parent\`, \`label\`, \`ready\`
+- Fields: \`id\`, \`title\`, \`status\`, \`kind\`, \`priority\`, \`assignee\`, \`external_ref\`, \`discovered_from\`, \`parent\`, \`label\`, \`ready\`, \`dep_type_in\`, \`dep_type_out\`
+- Use \`dep_type_in:<blocks|starts_after>\` or \`dep_type_out:<blocks|starts_after>\` (ambiguous \`dep_type:\` is rejected)
 - Negation: \`-status:closed\` (use \`--\` separator: \`tsq search -- -status:closed\`)
 - Bare words match title substring
 

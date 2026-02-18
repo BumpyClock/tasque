@@ -1,8 +1,9 @@
 import { buildDependentsByBlocker } from "../domain/dep-tree";
+import { normalizeDependencyEdges } from "../domain/deps";
 import { evaluateQuery, parseQuery } from "../domain/query";
 import { type PlanningLane, isReady, listReady, listReadyByLane } from "../domain/validate";
 import { TsqError } from "../errors";
-import type { EventRecord, Task, TaskTreeNode } from "../types";
+import type { DependencyRef, DependencyType, EventRecord, Task, TaskTreeNode } from "../types";
 import { scanOrphanedGraph } from "./repair";
 import type {
   DoctorResult,
@@ -34,6 +35,8 @@ export async function show(
   task: Task;
   blockers: string[];
   dependents: string[];
+  blocker_edges: DependencyRef[];
+  dependent_edges: DependencyRef[];
   ready: boolean;
   links: Record<string, string[]>;
   history: EventRecord[];
@@ -41,10 +44,21 @@ export async function show(
   const { state, allEvents } = await loadProjectedState(ctx.repoRoot);
   const id = mustResolveExisting(state, idRaw, exactId);
   const task = mustTask(state, id);
-  const blockers = [...(state.deps[id] ?? [])];
-  const dependents = Object.entries(state.deps)
-    .filter(([, blockersForChild]) => blockersForChild.includes(id))
-    .map(([child]) => child);
+  const blockerEdges = sortDependencyRefs(
+    normalizeDependencyEdges(state.deps[id] as unknown).map((edge) => ({
+      id: edge.blocker,
+      dep_type: edge.dep_type,
+    })),
+  );
+  const dependentsByBlocker = buildDependentsByBlocker(state.deps);
+  const dependentEdges = sortDependencyRefs(
+    (dependentsByBlocker.get(id) ?? []).map((edge) => ({
+      id: edge.id,
+      dep_type: edge.dep_type,
+    })),
+  );
+  const blockers = [...new Set(blockerEdges.map((edge) => edge.id))];
+  const dependents = [...new Set(dependentEdges.map((edge) => edge.id))];
   const linksRaw = state.links[id] ?? {};
   const links: Record<string, string[]> = {};
   for (const [kind, values] of Object.entries(linksRaw)) {
@@ -68,6 +82,8 @@ export async function show(
     task,
     blockers,
     dependents,
+    blocker_edges: blockerEdges,
+    dependent_edges: dependentEdges,
     ready: isReady(state, id),
     links,
     history,
@@ -76,7 +92,17 @@ export async function show(
 
 export async function list(ctx: ServiceContext, filter: ListFilter): Promise<Task[]> {
   const { state } = await loadProjectedState(ctx.repoRoot);
-  return sortTasks(applyListFilter(Object.values(state.tasks), filter));
+  const base = applyListFilter(Object.values(state.tasks), filter);
+  const depType = filter.depType;
+  if (!depType) {
+    return sortTasks(base);
+  }
+  const direction = filter.depDirection ?? "any";
+  const dependentsByBlocker = buildDependentsByBlocker(state.deps);
+  const filtered = base.filter((task) =>
+    matchesDepTypeFilter(state, dependentsByBlocker, task.id, depType, direction),
+  );
+  return sortTasks(filtered);
 }
 
 export async function stale(ctx: ServiceContext, input: StaleInput): Promise<StaleResult> {
@@ -141,13 +167,27 @@ export async function listTree(ctx: ServiceContext, filter: ListFilter): Promise
 
   const dependentsByBlocker = buildDependentsByBlocker(state.deps);
   const buildNode = (task: Task): TaskTreeNode => {
-    const blockers = sortTaskIds(state.deps[task.id] ?? []);
-    const dependents = sortTaskIds(dependentsByBlocker.get(task.id) ?? []);
+    const blockerEdges = sortDependencyRefs(
+      normalizeDependencyEdges(state.deps[task.id] as unknown).map((edge) => ({
+        id: edge.blocker,
+        dep_type: edge.dep_type,
+      })),
+    );
+    const dependentEdges = sortDependencyRefs(
+      (dependentsByBlocker.get(task.id) ?? []).map((edge) => ({
+        id: edge.id,
+        dep_type: edge.dep_type,
+      })),
+    );
+    const blockers = sortTaskIds([...new Set(blockerEdges.map((edge) => edge.id))]);
+    const dependents = sortTaskIds([...new Set(dependentEdges.map((edge) => edge.id))]);
     const childTasks = sortTasks(childrenByParent.get(task.id) ?? []);
     return {
       task,
       blockers,
       dependents,
+      blocker_edges: blockerEdges,
+      dependent_edges: dependentEdges,
       children: childTasks.map((child) => buildNode(child)),
     };
   };
@@ -171,9 +211,9 @@ export async function doctor(ctx: ServiceContext): Promise<DoctorResult> {
     if (!state.tasks[child]) {
       issues.push(`dependency source missing: ${child}`);
     }
-    for (const blocker of blockers) {
-      if (!state.tasks[blocker]) {
-        issues.push(`dependency blocker missing: ${child} -> ${blocker}`);
+    for (const edge of normalizeDependencyEdges(blockers as unknown)) {
+      if (!state.tasks[edge.blocker]) {
+        issues.push(`dependency blocker missing: ${child} -> ${edge.blocker} (${edge.dep_type})`);
       }
     }
   }
@@ -198,6 +238,35 @@ export async function doctor(ctx: ServiceContext): Promise<DoctorResult> {
     warning,
     issues,
   };
+}
+
+function sortDependencyRefs(refs: DependencyRef[]): DependencyRef[] {
+  return [...refs].sort((a, b) => {
+    if (a.id === b.id) {
+      return a.dep_type.localeCompare(b.dep_type);
+    }
+    return a.id.localeCompare(b.id);
+  });
+}
+
+function matchesDepTypeFilter(
+  state: { deps: Record<string, unknown> },
+  dependentsByBlocker: Map<string, Array<{ id: string; dep_type: DependencyType }>>,
+  taskId: string,
+  depType: DependencyType,
+  direction: "in" | "out" | "any",
+): boolean {
+  const hasOut = normalizeDependencyEdges(state.deps[taskId]).some(
+    (edge) => edge.dep_type === depType,
+  );
+  const hasIn = (dependentsByBlocker.get(taskId) ?? []).some((edge) => edge.dep_type === depType);
+  if (direction === "out") {
+    return hasOut;
+  }
+  if (direction === "in") {
+    return hasIn;
+  }
+  return hasOut || hasIn;
 }
 
 export async function history(ctx: ServiceContext, input: HistoryInput): Promise<HistoryResult> {

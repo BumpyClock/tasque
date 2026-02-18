@@ -1,5 +1,6 @@
 import { TsqError } from "../errors";
-import type { State, Task } from "../types";
+import type { DependencyType, State, Task } from "../types";
+import { normalizeDependencyEdges } from "./deps";
 
 /** Direction to walk the dependency graph from the root task. */
 export type DepDirection = "up" | "down" | "both";
@@ -18,7 +19,13 @@ export interface DepTreeNode {
   task: Task;
   direction: DepDirection;
   depth: number;
+  dep_type?: DependencyType;
   children: DepTreeNode[];
+}
+
+interface DependentEdge {
+  id: string;
+  dep_type: DependencyType;
 }
 
 const DEFAULT_MAX_DEPTH = 10;
@@ -103,9 +110,10 @@ function walkUp(
   if (depth > maxDepth) {
     return [];
   }
-  const blockers = state.deps[nodeId] ?? [];
+  const blockers = normalizeDependencyEdges(state.deps[nodeId] as unknown);
   const nodes: DepTreeNode[] = [];
-  for (const blockerId of blockers) {
+  for (const edge of blockers) {
+    const blockerId = edge.blocker;
     if (visited.has(blockerId)) {
       continue;
     }
@@ -119,6 +127,7 @@ function walkUp(
       task: blockerTask,
       direction,
       depth,
+      dep_type: edge.dep_type,
       children: walkUp(state, blockerId, depth + 1, maxDepth, visited, direction),
     });
   }
@@ -126,7 +135,7 @@ function walkUp(
 }
 
 function walkDown(
-  dependentsByBlocker: Map<string, string[]>,
+  dependentsByBlocker: Map<string, DependentEdge[]>,
   state: State,
   nodeId: string,
   depth: number,
@@ -139,7 +148,8 @@ function walkDown(
   }
   const dependents = dependentsByBlocker.get(nodeId) ?? [];
   const nodes: DepTreeNode[] = [];
-  for (const dependentId of dependents) {
+  for (const dependentEdge of dependents) {
+    const dependentId = dependentEdge.id;
     if (visited.has(dependentId)) {
       continue;
     }
@@ -153,6 +163,7 @@ function walkDown(
       task: dependentTask,
       direction,
       depth,
+      dep_type: dependentEdge.dep_type,
       children: walkDown(
         dependentsByBlocker,
         state,
@@ -168,15 +179,16 @@ function walkDown(
 }
 
 /** Build a reverse index: blocker -> list of dependents (children). */
-export function buildDependentsByBlocker(deps: State["deps"]): Map<string, string[]> {
-  const map = new Map<string, string[]>();
+export function buildDependentsByBlocker(deps: State["deps"]): Map<string, DependentEdge[]> {
+  const map = new Map<string, DependentEdge[]>();
   for (const [child, blockers] of Object.entries(deps)) {
-    for (const blocker of blockers) {
-      const list = map.get(blocker);
+    for (const edge of normalizeDependencyEdges(blockers as unknown)) {
+      const list = map.get(edge.blocker);
+      const dependent = { id: child, dep_type: edge.dep_type };
       if (list) {
-        list.push(child);
+        list.push(dependent);
       } else {
-        map.set(blocker, [child]);
+        map.set(edge.blocker, [dependent]);
       }
     }
   }

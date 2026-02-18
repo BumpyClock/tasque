@@ -16,9 +16,9 @@ async function injectOrphanDep(repoDir: string, child: string, blocker: string):
   const stateFile = join(repoDir, ".tasque", "state.json");
   const raw = await readFile(stateFile, "utf8");
   const state = JSON.parse(raw);
-  const deps: string[] = state.deps[child] ?? [];
-  if (!deps.includes(blocker)) {
-    deps.push(blocker);
+  const deps: Array<{ blocker: string; dep_type: string }> = state.deps[child] ?? [];
+  if (!deps.some((dep) => dep.blocker === blocker && dep.dep_type === "blocks")) {
+    deps.push({ blocker, dep_type: "blocks" });
   }
   state.deps[child] = deps;
   await writeFile(stateFile, JSON.stringify(state, null, 2), "utf8");
@@ -68,11 +68,12 @@ describe("cli orphans", () => {
     const result = await runJson(repo, ["orphans"]);
     expect(result.exitCode).toBe(0);
     const data = okData<{
-      orphaned_deps: Array<{ child: string; blocker: string }>;
+      orphaned_deps: Array<{ child: string; blocker: string; dep_type: "blocks" | "starts_after" }>;
       total: number;
     }>(result.envelope);
     expect(data.total).toBeGreaterThan(0);
     expect(data.orphaned_deps.some((d) => d.blocker === "tsq-nonexist")).toBe(true);
+    expect(data.orphaned_deps.some((d) => d.dep_type === "blocks")).toBe(true);
   });
 
   it("detects orphaned links", async () => {

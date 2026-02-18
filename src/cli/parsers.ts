@@ -3,7 +3,7 @@ import type { ListFilter } from "../app/service";
 import type { DepDirection } from "../domain/dep-tree";
 import { TsqError } from "../errors";
 import type { SkillTarget } from "../skills/types";
-import type { PlanningState, RelationType, TaskKind, TaskStatus } from "../types";
+import type { DependencyType, PlanningState, RelationType, TaskKind, TaskStatus } from "../types";
 
 export interface GlobalOpts {
   json?: boolean;
@@ -27,6 +27,7 @@ export interface ListCommandOptions {
   assignee?: string;
   unassigned?: boolean;
   externalRef?: string;
+  discoveredFrom?: string;
   kind?: string;
   label?: string;
   labelAny?: string[];
@@ -37,6 +38,8 @@ export interface ListCommandOptions {
   tree?: boolean;
   full?: boolean;
   planning?: string;
+  depType?: string;
+  depDirection?: string;
 }
 
 export interface StaleCommandOptions {
@@ -52,6 +55,7 @@ export interface CreateCommandOptions {
   parent?: string;
   description?: string;
   externalRef?: string;
+  discoveredFrom?: string;
   planning?: string;
   needsPlanning?: boolean;
   id?: string;
@@ -63,6 +67,8 @@ export interface UpdateCommandOptions {
   description?: string;
   clearDescription?: boolean;
   externalRef?: string;
+  discoveredFrom?: string;
+  clearDiscoveredFrom?: boolean;
   clearExternalRef?: boolean;
   status?: string;
   priority?: string;
@@ -182,6 +188,20 @@ export function parseDepDirection(raw?: string): DepDirection | undefined {
   throw new TsqError("VALIDATION_ERROR", "direction must be up|down|both", 1);
 }
 
+export function parseDependencyType(raw: string): DependencyType {
+  if (raw === "blocks" || raw === "starts_after") {
+    return raw;
+  }
+  throw new TsqError("VALIDATION_ERROR", "dependency type must be blocks|starts_after", 1);
+}
+
+export function parseDepFilterDirection(raw: string): "in" | "out" | "any" {
+  if (raw === "in" || raw === "out" || raw === "any") {
+    return raw;
+  }
+  throw new TsqError("VALIDATION_ERROR", "dep-direction must be in|out|any", 1);
+}
+
 export function parseNonNegativeInt(raw: string, field: string): number {
   const trimmed = raw.trim();
   if (!/^\d+$/u.test(trimmed)) {
@@ -218,6 +238,10 @@ export function parseListFilter(
   if (externalRef) {
     filter.externalRef = externalRef;
   }
+  const discoveredFrom = asOptionalString(options.discoveredFrom);
+  if (discoveredFrom) {
+    filter.discoveredFrom = discoveredFrom;
+  }
   if (options.kind) {
     filter.kind = parseKind(options.kind);
   }
@@ -245,6 +269,14 @@ export function parseListFilter(
   }
   if (options.planning) {
     filter.planning_state = parsePlanningState(options.planning);
+  }
+  if (options.depType) {
+    filter.depType = parseDependencyType(options.depType);
+    filter.depDirection = options.depDirection
+      ? parseDepFilterDirection(options.depDirection)
+      : "any";
+  } else if (options.depDirection) {
+    throw new TsqError("VALIDATION_ERROR", "--dep-direction requires --dep-type", 1);
   }
   return filter;
 }

@@ -378,40 +378,46 @@ export async function duplicateCandidates(
 export async function depAdd(
   ctx: ServiceContext,
   input: DepInput,
-): Promise<{ child: string; blocker: string }> {
+): Promise<{ child: string; blocker: string; dep_type: "blocks" | "starts_after" }> {
   return withWriteLock(ctx.repoRoot, async () => {
     const { state, allEvents } = await loadProjectedState(ctx.repoRoot);
     const child = mustResolveExisting(state, input.child, input.exactId);
     const blocker = mustResolveExisting(state, input.blocker, input.exactId);
+    const depType = input.depType ?? "blocks";
     if (child === blocker) {
       throw new TsqError("VALIDATION_ERROR", "task cannot depend on itself", 1);
     }
-    assertNoDependencyCycle(state, child, blocker);
+    if (depType === "blocks") {
+      assertNoDependencyCycle(state, child, blocker);
+    }
     const event = makeEvent(ctx.actor, ctx.now(), "dep.added", child, {
       blocker,
+      dep_type: depType,
     });
     const nextState = applyEvents(state, [event]);
     await appendEvents(ctx.repoRoot, [event]);
     await persistProjection(ctx.repoRoot, nextState, allEvents.length + 1);
-    return { child, blocker };
+    return { child, blocker, dep_type: depType };
   });
 }
 
 export async function depRemove(
   ctx: ServiceContext,
   input: DepInput,
-): Promise<{ child: string; blocker: string }> {
+): Promise<{ child: string; blocker: string; dep_type: "blocks" | "starts_after" }> {
   return withWriteLock(ctx.repoRoot, async () => {
     const { state, allEvents } = await loadProjectedState(ctx.repoRoot);
     const child = mustResolveExisting(state, input.child, input.exactId);
     const blocker = mustResolveExisting(state, input.blocker, input.exactId);
+    const depType = input.depType ?? "blocks";
     const event = makeEvent(ctx.actor, ctx.now(), "dep.removed", child, {
       blocker,
+      dep_type: depType,
     });
     const nextState = applyEvents(state, [event]);
     await appendEvents(ctx.repoRoot, [event]);
     await persistProjection(ctx.repoRoot, nextState, allEvents.length + 1);
-    return { child, blocker };
+    return { child, blocker, dep_type: depType };
   });
 }
 

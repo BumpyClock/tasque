@@ -3,6 +3,6 @@
     "typescript-lsp@claude-plugins-official": true
   },
   "permissions": {
-    "allow": ["Bash(bun run:*)", "Bash(bun -e:*)", "Bash(tsq *)"]
+    "allow": ["Bash(bun run:*)", "Bash(bun -e:*)", "Bash(tsq:*)"]
   }
 }

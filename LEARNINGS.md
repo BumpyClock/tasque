@@ -43,3 +43,4 @@
 - 2026-02-18: Event parsing now uses Zod at JSONL boundaries; canonical event field is `id` while reads still accept legacy `event_id`.
 - 2026-02-18: Cache path migrated to `.tasque/state.json` with backward-compatible reads from legacy `.tasque/tasks.jsonl`.
 - 2026-02-18: Planned workflow model approved: keep lifecycle `status` separate from new `planning_state`; add `deferred` lifecycle status; `ready` should surface both planning and coding lanes with optional lane filter; create defaults to `planning_state=needs_planning`; add `--body-file`, strict `--id` regex, and deferred follow-up tasks for `discovered-from` + typed dependency model expansion.
+- 2026-02-18: Implemented `discovered_from` provenance metadata end-to-end (`create/update/list/search/show`) and typed dependency edges (`blocks|starts_after`) with directional filters/search (`--dep-type/--dep-direction`, `dep_type_in/out`); only `blocks` affect ready/cycle checks.

@@ -1,4 +1,7 @@
+import { TsqError } from "../errors";
 import type { State, Task } from "../types";
+import { buildDependentsByBlocker } from "./dep-tree";
+import { normalizeDependencyEdges, normalizeDependencyType } from "./deps";
 import { isReady } from "./validate";
 
 /**
@@ -35,9 +38,12 @@ const SUPPORTED_FIELDS = new Set([
   "priority",
   "assignee",
   "external_ref",
+  "discovered_from",
   "parent",
   "label",
   "ready",
+  "dep_type_in",
+  "dep_type_out",
 ]);
 
 /**
@@ -49,7 +55,7 @@ const SUPPORTED_FIELDS = new Set([
  *   - `-field:value`         — negation
  *   - `bare words`           — match title/description/notes text (field = "text")
  *
- * Supported fields: id, text, title, description, notes, status, kind, priority, assignee, external_ref, parent, label, ready.
+ * Supported fields: id, text, title, description, notes, status, kind, priority, assignee, external_ref, discovered_from, parent, label, ready, dep_type_in, dep_type_out.
  * Unknown fields are treated as text matches.
  *
  * Consecutive bare words are combined into a single text term.
@@ -70,7 +76,20 @@ export function parseQuery(q: string): QueryFilter {
       const rawField = match[2] ?? "";
       const rawValue = match[3] ?? "";
       const value = rawValue.replace(/^"(.*)"$/u, "$1");
+      if (rawField === "dep_type") {
+        throw new TsqError(
+          "VALIDATION_ERROR",
+          "dep_type requires explicit direction; use dep_type_in:<type> or dep_type_out:<type>",
+          1,
+        );
+      }
       const field = SUPPORTED_FIELDS.has(rawField) ? rawField : "text";
+      if (
+        (field === "dep_type_in" || field === "dep_type_out") &&
+        !normalizeDependencyType(value)
+      ) {
+        throw new TsqError("VALIDATION_ERROR", `${field} must be blocks|starts_after`, 1);
+      }
       const termValue =
         field === "text" && !SUPPORTED_FIELDS.has(rawField) ? `${rawField}:${value}` : value;
       terms.push({ field, value: termValue, negated });
@@ -136,15 +155,40 @@ function matchTerm(task: Task, term: QueryTerm, state: State): boolean {
       return task.assignee === term.value;
     case "external_ref":
       return task.external_ref === term.value;
+    case "discovered_from":
+      return task.discovered_from === term.value;
     case "parent":
       return task.parent_id === term.value;
     case "label":
       return task.labels.some((l) => l.toLowerCase() === term.value.toLowerCase());
     case "ready":
       return isReady(state, task.id) === (term.value === "true");
+    case "dep_type_in":
+      return hasIncomingDepType(state, task.id, term.value);
+    case "dep_type_out":
+      return hasOutgoingDepType(state, task.id, term.value);
     default:
       return matchTaskText(task, term.value);
   }
+}
+
+function hasOutgoingDepType(state: State, taskId: string, rawType: string): boolean {
+  const depType = normalizeDependencyType(rawType);
+  if (!depType) {
+    return false;
+  }
+  return normalizeDependencyEdges(state.deps[taskId] as unknown).some(
+    (edge) => edge.dep_type === depType,
+  );
+}
+
+function hasIncomingDepType(state: State, taskId: string, rawType: string): boolean {
+  const depType = normalizeDependencyType(rawType);
+  if (!depType) {
+    return false;
+  }
+  const dependents = buildDependentsByBlocker(state.deps).get(taskId) ?? [];
+  return dependents.some((edge) => edge.dep_type === depType);
 }
 
 function matchTaskText(task: Task, value: string): boolean {

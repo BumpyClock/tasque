@@ -27,7 +27,14 @@ bun run release
 ```
 
 - `build` compiles single-file binary to `dist/tsq` (or `dist/tsq.exe` on Windows).
-- `release` rebuilds, then writes platform artifact + checksum file under `dist/releases/`.
+- `release` rebuilds, writes platform artifact, generates task-derived release notes, then writes checksums under `dist/releases/`.
+- release artifacts:
+  - `tsq-v<version>-<platform>-<arch>[.exe]`
+  - `RELEASE_NOTES.md`
+  - `RELEASE_NOTES.json`
+  - `SHA256SUMS.txt` (contains checksums for all artifacts above)
+- release notes baseline uses latest git tag timestamp; with no tag, all closed tasks are considered.
+- set `TSQ_BIN` to override which installed `tsq` executable release hooks call.
 
 ## Storage Layout
 

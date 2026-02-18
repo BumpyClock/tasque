@@ -33,9 +33,7 @@ async function makeRepo(): Promise<string> {
 }
 
 afterEach(async () => {
-  await Promise.all(
-    repos.splice(0).map((repo) => rm(repo, { recursive: true, force: true })),
-  );
+  await Promise.all(repos.splice(0).map((repo) => rm(repo, { recursive: true, force: true })));
 });
 
 function assertEnvelopeShape(value: unknown): asserts value is JsonEnvelope {
@@ -51,11 +49,7 @@ function assertEnvelopeShape(value: unknown): asserts value is JsonEnvelope {
   }
 }
 
-async function runJson(
-  repoDir: string,
-  args: string[],
-  actor = "claim-test",
-): Promise<JsonResult> {
+async function runJson(repoDir: string, args: string[], actor = "claim-test"): Promise<JsonResult> {
   const proc = Bun.spawn({
     cmd: ["bun", "run", cliEntry, ...args, "--json"],
     cwd: repoDir,
@@ -91,10 +85,7 @@ function okData<T>(envelope: JsonEnvelope): T {
   return envelope.data as T;
 }
 
-async function initAndCreate(
-  repo: string,
-  title = "Claim test task",
-): Promise<string> {
+async function initAndCreate(repo: string, title = "Claim test task"): Promise<string> {
   await runJson(repo, ["init"]);
   const created = okData<{ task: { id: string } }>(
     (await runJson(repo, ["create", title])).envelope,
@@ -136,13 +127,7 @@ describe("cli claim transitions", () => {
     const repo = await makeRepo();
     const taskId = await initAndCreate(repo);
 
-    const claimed = await runJson(repo, [
-      "update",
-      taskId,
-      "--claim",
-      "--assignee",
-      "alice",
-    ]);
+    const claimed = await runJson(repo, ["update", taskId, "--claim", "--assignee", "alice"]);
     expect(claimed.exitCode).toBe(0);
 
     const shown = okData<{ task: { id: string; assignee?: string } }>(
@@ -158,13 +143,7 @@ describe("cli claim transitions", () => {
     // First set to in_progress manually
     await runJson(repo, ["update", taskId, "--status", "in_progress"]);
 
-    const claimed = await runJson(repo, [
-      "update",
-      taskId,
-      "--claim",
-      "--assignee",
-      "bob",
-    ]);
+    const claimed = await runJson(repo, ["update", taskId, "--claim", "--assignee", "bob"]);
     expect(claimed.exitCode).toBe(0);
 
     const shown = okData<{
@@ -232,23 +211,11 @@ describe("cli claim transitions", () => {
     const taskId = await initAndCreate(repo);
 
     // First claim succeeds
-    const first = await runJson(repo, [
-      "update",
-      taskId,
-      "--claim",
-      "--assignee",
-      "alice",
-    ]);
+    const first = await runJson(repo, ["update", taskId, "--claim", "--assignee", "alice"]);
     expect(first.exitCode).toBe(0);
 
     // Second claim fails
-    const second = await runJson(repo, [
-      "update",
-      taskId,
-      "--claim",
-      "--assignee",
-      "bob",
-    ]);
+    const second = await runJson(repo, ["update", taskId, "--claim", "--assignee", "bob"]);
     expect(second.exitCode).toBe(1);
     expect(second.envelope.ok).toBe(false);
     expect(second.envelope.error?.code).toBe("CLAIM_CONFLICT");
@@ -261,13 +228,7 @@ describe("cli claim transitions", () => {
     const repo = await makeRepo();
     const taskId = await initAndCreate(repo);
 
-    const result = await runJson(repo, [
-      "update",
-      taskId,
-      "--claim",
-      "--title",
-      "New Title",
-    ]);
+    const result = await runJson(repo, ["update", taskId, "--claim", "--title", "New Title"]);
     expect(result.exitCode).toBe(1);
     expect(result.envelope.ok).toBe(false);
     expect(result.envelope.error?.code).toBe("VALIDATION_ERROR");
@@ -277,13 +238,7 @@ describe("cli claim transitions", () => {
     const repo = await makeRepo();
     const taskId = await initAndCreate(repo);
 
-    const result = await runJson(repo, [
-      "update",
-      taskId,
-      "--claim",
-      "--status",
-      "in_progress",
-    ]);
+    const result = await runJson(repo, ["update", taskId, "--claim", "--status", "in_progress"]);
     expect(result.exitCode).toBe(1);
     expect(result.envelope.ok).toBe(false);
     expect(result.envelope.error?.code).toBe("VALIDATION_ERROR");
@@ -293,13 +248,7 @@ describe("cli claim transitions", () => {
     const repo = await makeRepo();
     const taskId = await initAndCreate(repo);
 
-    const result = await runJson(repo, [
-      "update",
-      taskId,
-      "--claim",
-      "--priority",
-      "2",
-    ]);
+    const result = await runJson(repo, ["update", taskId, "--claim", "--priority", "2"]);
     expect(result.exitCode).toBe(1);
     expect(result.envelope.ok).toBe(false);
     expect(result.envelope.error?.code).toBe("VALIDATION_ERROR");
@@ -322,13 +271,7 @@ describe("cli claim transitions", () => {
       task: { id: string; title: string; priority: number; labels: string[] };
     }>((await runJson(repo, ["show", created.id])).envelope);
 
-    await runJson(repo, [
-      "update",
-      created.id,
-      "--claim",
-      "--assignee",
-      "tester",
-    ]);
+    await runJson(repo, ["update", created.id, "--claim", "--assignee", "tester"]);
 
     const afterClaim = okData<{
       task: {
@@ -354,20 +297,9 @@ describe("cli claim transitions", () => {
     const repo = await makeRepo();
     const taskId = await initAndCreate(repo);
 
-    await runJson(repo, [
-      "update",
-      taskId,
-      "--claim",
-      "--assignee",
-      "historian",
-    ]);
+    await runJson(repo, ["update", taskId, "--claim", "--assignee", "historian"]);
 
-    const history = await runJson(repo, [
-      "history",
-      taskId,
-      "--type",
-      "task.claimed",
-    ]);
+    const history = await runJson(repo, ["history", taskId, "--type", "task.claimed"]);
     expect(history.exitCode).toBe(0);
 
     const data = okData<{
@@ -384,11 +316,7 @@ describe("cli claim transitions", () => {
     const repo = await makeRepo();
     await runJson(repo, ["init"]);
 
-    const result = await runJson(repo, [
-      "update",
-      "tsq-doesnotexist",
-      "--claim",
-    ]);
+    const result = await runJson(repo, ["update", "tsq-doesnotexist", "--claim"]);
     expect(result.exitCode).toBe(1);
     expect(result.envelope.ok).toBe(false);
     expect(result.envelope.error?.code).toBe("TASK_NOT_FOUND");

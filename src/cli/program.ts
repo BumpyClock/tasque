@@ -62,11 +62,7 @@ export function buildProgram(deps: RuntimeDeps): Command {
   program.hook("preAction", (_thisCommand, actionCommand) => {
     const rootCmd = resolveRootCommandName(actionCommand);
     if (!INIT_SAFE_COMMANDS.has(rootCmd) && deps.findTasqueRoot() === null) {
-      throw new TsqError(
-        "NOT_INITIALIZED",
-        "No .tasque directory found. Run 'tsq init' first.",
-        2,
-      );
+      throw new TsqError("NOT_INITIALIZED", "No .tasque directory found. Run 'tsq init' first.", 2);
     }
   });
 
@@ -724,7 +720,7 @@ function applyTreeDefaults(filter: ListFilter, options: ListCommandOptions): Lis
 
 function resolveRootCommandName(command: Command): string {
   let cursor: Command = command;
-  while (cursor.parent && cursor.parent.parent) {
+  while (cursor.parent?.parent) {
     cursor = cursor.parent;
   }
   return cursor.name();

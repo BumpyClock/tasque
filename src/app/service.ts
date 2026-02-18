@@ -8,11 +8,7 @@ import { addLabel, removeLabel } from "../domain/labels";
 import { applyEvents } from "../domain/projector";
 import { evaluateQuery, parseQuery } from "../domain/query";
 import { resolveTaskId } from "../domain/resolve";
-import {
-  assertNoDependencyCycle,
-  isReady,
-  listReady,
-} from "../domain/validate";
+import { assertNoDependencyCycle, isReady, listReady } from "../domain/validate";
 import { TsqError } from "../errors";
 import { applySkillOperation } from "../skills";
 import type { SkillOperationSummary, SkillTarget } from "../skills/types";
@@ -175,16 +171,8 @@ export class TasqueService {
       recursive: true,
     });
     await ensureTasqueGitignore(this.repoRoot);
-    const files = [
-      ".tasque/config.json",
-      ".tasque/events.jsonl",
-      ".tasque/.gitignore",
-    ];
-    const action = input.installSkill
-      ? "install"
-      : input.uninstallSkill
-        ? "uninstall"
-        : undefined;
+    const files = [".tasque/config.json", ".tasque/events.jsonl", ".tasque/.gitignore"];
+    const action = input.installSkill ? "install" : input.uninstallSkill ? "uninstall" : undefined;
 
     if (!action) {
       return { initialized: true, files };
@@ -217,16 +205,10 @@ export class TasqueService {
         ? mustResolveExisting(state, input.parent, input.exactId)
         : undefined;
       if (parentId && !state.tasks[parentId]) {
-        throw new TsqError(
-          "NOT_FOUND",
-          `parent task not found: ${parentId}`,
-          1,
-        );
+        throw new TsqError("NOT_FOUND", `parent task not found: ${parentId}`, 1);
       }
 
-      const id = parentId
-        ? nextChildId(state, parentId)
-        : uniqueRootId(state, input.title);
+      const id = parentId ? nextChildId(state, parentId) : uniqueRootId(state, input.title);
       const ts = this.now();
       const event = makeEvent(this.actor, ts, "task.created", id, {
         id,
@@ -339,9 +321,7 @@ export class TasqueService {
   }
 
   async doctor(): Promise<DoctorResult> {
-    const { state, allEvents, warning, snapshot } = await loadProjectedState(
-      this.repoRoot,
-    );
+    const { state, allEvents, warning, snapshot } = await loadProjectedState(this.repoRoot);
     const issues: string[] = [];
 
     for (const [child, blockers] of Object.entries(state.deps)) {
@@ -362,9 +342,7 @@ export class TasqueService {
       for (const [kind, targets] of Object.entries(rels)) {
         for (const target of targets ?? []) {
           if (!state.tasks[target]) {
-            issues.push(
-              `relation target missing: ${src} -[${kind}]-> ${target}`,
-            );
+            issues.push(`relation target missing: ${src} -[${kind}]-> ${target}`);
           }
         }
       }
@@ -404,20 +382,10 @@ export class TasqueService {
       }
 
       if (existing.status === "canceled" && patch.status === "in_progress") {
-        throw new TsqError(
-          "VALIDATION_ERROR",
-          "cannot move canceled task to in_progress",
-          1,
-        );
+        throw new TsqError("VALIDATION_ERROR", "cannot move canceled task to in_progress", 1);
       }
 
-      const event = makeEvent(
-        this.actor,
-        this.now(),
-        "task.updated",
-        id,
-        patch,
-      );
+      const event = makeEvent(this.actor, this.now(), "task.updated", id, patch);
       const nextState = applyEvents(state, [event]);
       await appendEvents(this.repoRoot, [event]);
       await persistProjection(this.repoRoot, nextState, allEvents.length + 1);
@@ -439,11 +407,7 @@ export class TasqueService {
         );
       }
       if (existing.assignee) {
-        throw new TsqError(
-          "CLAIM_CONFLICT",
-          `task already assigned to ${existing.assignee}`,
-          1,
-        );
+        throw new TsqError("CLAIM_CONFLICT", `task already assigned to ${existing.assignee}`, 1);
       }
       const assignee = input.assignee ?? this.actor;
       const event = makeEvent(this.actor, this.now(), "task.claimed", id, {
@@ -462,11 +426,7 @@ export class TasqueService {
       const child = mustResolveExisting(state, input.child, input.exactId);
       const blocker = mustResolveExisting(state, input.blocker, input.exactId);
       if (child === blocker) {
-        throw new TsqError(
-          "VALIDATION_ERROR",
-          "task cannot depend on itself",
-          1,
-        );
+        throw new TsqError("VALIDATION_ERROR", "task cannot depend on itself", 1);
       }
       assertNoDependencyCycle(state, child, blocker);
       const event = makeEvent(this.actor, this.now(), "dep.added", child, {
@@ -479,9 +439,7 @@ export class TasqueService {
     });
   }
 
-  async depRemove(
-    input: DepInput,
-  ): Promise<{ child: string; blocker: string }> {
+  async depRemove(input: DepInput): Promise<{ child: string; blocker: string }> {
     return withWriteLock(this.repoRoot, async () => {
       const { state, allEvents } = await loadProjectedState(this.repoRoot);
       const child = mustResolveExisting(state, input.child, input.exactId);
@@ -496,9 +454,7 @@ export class TasqueService {
     });
   }
 
-  async linkAdd(
-    input: LinkInput,
-  ): Promise<{ src: string; dst: string; type: RelationType }> {
+  async linkAdd(input: LinkInput): Promise<{ src: string; dst: string; type: RelationType }> {
     return withWriteLock(this.repoRoot, async () => {
       const { state, allEvents } = await loadProjectedState(this.repoRoot);
       const src = mustResolveExisting(state, input.src, input.exactId);
@@ -517,9 +473,7 @@ export class TasqueService {
     });
   }
 
-  async linkRemove(
-    input: LinkInput,
-  ): Promise<{ src: string; dst: string; type: RelationType }> {
+  async linkRemove(input: LinkInput): Promise<{ src: string; dst: string; type: RelationType }> {
     return withWriteLock(this.repoRoot, async () => {
       const { state, allEvents } = await loadProjectedState(this.repoRoot);
       const src = mustResolveExisting(state, input.src, input.exactId);
@@ -544,22 +498,12 @@ export class TasqueService {
       const source = mustResolveExisting(state, input.source, input.exactId);
       const withId = mustResolveExisting(state, input.withId, input.exactId);
       if (source === withId) {
-        throw new TsqError(
-          "VALIDATION_ERROR",
-          "cannot supersede task with itself",
-          1,
-        );
+        throw new TsqError("VALIDATION_ERROR", "cannot supersede task with itself", 1);
       }
-      const event = makeEvent(
-        this.actor,
-        this.now(),
-        "task.superseded",
-        source,
-        {
-          with: withId,
-          reason: input.reason,
-        },
-      );
+      const event = makeEvent(this.actor, this.now(), "task.superseded", source, {
+        with: withId,
+        reason: input.reason,
+      });
       const nextState = applyEvents(state, [event]);
       await appendEvents(this.repoRoot, [event]);
       await persistProjection(this.repoRoot, nextState, allEvents.length + 1);
@@ -577,43 +521,27 @@ export class TasqueService {
   async close(input: CloseInput): Promise<Task[]> {
     return withWriteLock(this.repoRoot, async () => {
       const { state, allEvents } = await loadProjectedState(this.repoRoot);
-      const resolvedIds = input.ids.map((id) =>
-        mustResolveExisting(state, id, input.exactId),
-      );
+      const resolvedIds = input.ids.map((id) => mustResolveExisting(state, id, input.exactId));
       const events: EventRecord[] = [];
 
       for (const id of resolvedIds) {
         const existing = mustTask(state, id);
         if (existing.status === "closed") {
-          throw new TsqError(
-            "VALIDATION_ERROR",
-            `task ${id} is already closed`,
-            1,
-          );
+          throw new TsqError("VALIDATION_ERROR", `task ${id} is already closed`, 1);
         }
         if (existing.status === "canceled") {
-          throw new TsqError(
-            "VALIDATION_ERROR",
-            `cannot close canceled task ${id}`,
-            1,
-          );
+          throw new TsqError("VALIDATION_ERROR", `cannot close canceled task ${id}`, 1);
         }
         const payload: Record<string, unknown> = { status: "closed" };
         if (input.reason) {
           payload.reason = input.reason;
         }
-        events.push(
-          makeEvent(this.actor, this.now(), "task.updated", id, payload),
-        );
+        events.push(makeEvent(this.actor, this.now(), "task.updated", id, payload));
       }
 
       const nextState = applyEvents(state, events);
       await appendEvents(this.repoRoot, events);
-      await persistProjection(
-        this.repoRoot,
-        nextState,
-        allEvents.length + events.length,
-      );
+      await persistProjection(this.repoRoot, nextState, allEvents.length + events.length);
       return resolvedIds.map((id) => mustTask(nextState, id));
     });
   }
@@ -621,9 +549,7 @@ export class TasqueService {
   async reopen(input: ReopenInput): Promise<Task[]> {
     return withWriteLock(this.repoRoot, async () => {
       const { state, allEvents } = await loadProjectedState(this.repoRoot);
-      const resolvedIds = input.ids.map((id) =>
-        mustResolveExisting(state, id, input.exactId),
-      );
+      const resolvedIds = input.ids.map((id) => mustResolveExisting(state, id, input.exactId));
       const events: EventRecord[] = [];
 
       for (const id of resolvedIds) {
@@ -644,11 +570,7 @@ export class TasqueService {
 
       const nextState = applyEvents(state, events);
       await appendEvents(this.repoRoot, events);
-      await persistProjection(
-        this.repoRoot,
-        nextState,
-        allEvents.length + events.length,
-      );
+      await persistProjection(this.repoRoot, nextState, allEvents.length + events.length);
       return resolvedIds.map((id) => mustTask(nextState, id));
     });
   }
@@ -780,11 +702,7 @@ function mustTask(state: State, id: string): Task {
   return task;
 }
 
-function mustResolveExisting(
-  state: State,
-  raw: string,
-  exactId?: boolean,
-): string {
+function mustResolveExisting(state: State, raw: string, exactId?: boolean): string {
   const id = resolveTaskId(state, raw, exactId);
   if (!state.tasks[id]) {
     throw new TsqError("NOT_FOUND", `task not found: ${raw}`, 1);
@@ -844,22 +762,11 @@ function sortTaskIds(taskIds: string[]): string[] {
 
 async function ensureTasqueGitignore(repoRoot: string): Promise<void> {
   const target = join(getPaths(repoRoot).tasqueDir, ".gitignore");
-  const desired = [
-    "tasks.jsonl",
-    "tasks.jsonl.tmp*",
-    ".lock",
-    "snapshots/",
-    "snapshots/*.tmp",
-  ];
+  const desired = ["tasks.jsonl", "tasks.jsonl.tmp*", ".lock", "snapshots/", "snapshots/*.tmp"];
   try {
     await Bun.write(target, `${desired.join("\n")}\n`);
   } catch (error) {
-    throw new TsqError(
-      "IO_ERROR",
-      "failed writing .tasque/.gitignore",
-      2,
-      error,
-    );
+    throw new TsqError("IO_ERROR", "failed writing .tasque/.gitignore", 2, error);
   }
 }
 

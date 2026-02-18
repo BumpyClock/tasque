@@ -15,7 +15,14 @@ async function main(): Promise<void> {
     await program.parseAsync(process.argv);
   } catch (error) {
     const isJsonMode = process.argv.includes("--json");
-    const tsqError = error instanceof TsqError ? error : new TsqError("INTERNAL_ERROR", error instanceof Error ? error.message : "unexpected error", 2);
+    const tsqError =
+      error instanceof TsqError
+        ? error
+        : new TsqError(
+            "INTERNAL_ERROR",
+            error instanceof Error ? error.message : "unexpected error",
+            2,
+          );
 
     if (isJsonMode) {
       const commandName = process.argv.slice(2).find((arg) => !arg.startsWith("-")) || "tsq";

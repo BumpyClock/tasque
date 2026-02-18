@@ -5,6 +5,7 @@ import type {
   EventRecord,
   LinkAddedPayload,
   LinkRemovedPayload,
+  PlanningState,
   Priority,
   RelationType,
   State,
@@ -24,7 +25,15 @@ import { assertNoDependencyCycle } from "./validate";
 
 const RELATION_TYPES: RelationType[] = ["relates_to", "replies_to", "duplicates", "supersedes"];
 const TASK_KINDS: TaskKind[] = ["task", "feature", "epic"];
-const TASK_STATUSES: TaskStatus[] = ["open", "in_progress", "blocked", "closed", "canceled"];
+const TASK_STATUSES: TaskStatus[] = [
+  "open",
+  "in_progress",
+  "blocked",
+  "closed",
+  "canceled",
+  "deferred",
+];
+const PLANNING_STATES: PlanningState[] = ["needs_planning", "planned"];
 
 const asObject = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -77,6 +86,12 @@ const asTaskKind = (value: unknown): TaskKind | undefined => {
 const asTaskStatus = (value: unknown): TaskStatus | undefined => {
   return typeof value === "string" && TASK_STATUSES.includes(value as TaskStatus)
     ? (value as TaskStatus)
+    : undefined;
+};
+
+const asPlanningState = (value: unknown): PlanningState | undefined => {
+  return typeof value === "string" && PLANNING_STATES.includes(value as PlanningState)
+    ? (value as PlanningState)
     : undefined;
 };
 
@@ -193,6 +208,7 @@ const applyTaskCreated = (state: State, event: EventRecord): void => {
   const status = asTaskStatus(payload.status) ?? "open";
   const labels = asStringArray(payload.labels) ?? [];
   const parentId = asString(payload.parent_id);
+  const planningState = asPlanningState(payload.planning_state) ?? "needs_planning";
   const task: Task = {
     id: event.task_id,
     title,
@@ -206,6 +222,7 @@ const applyTaskCreated = (state: State, event: EventRecord): void => {
     parent_id: parentId,
     superseded_by: asString(payload.superseded_by),
     duplicate_of: asString(payload.duplicate_of),
+    planning_state: planningState,
     replies_to: asString(payload.replies_to),
     labels,
     created_at: event.ts,
@@ -297,6 +314,10 @@ const applyTaskUpdated = (state: State, event: EventRecord): void => {
   }
   if (clearExternalRef === true) {
     next.external_ref = undefined;
+  }
+  const planningState = asPlanningState(payload.planning_state);
+  if (planningState !== undefined) {
+    next.planning_state = planningState;
   }
 
   state.tasks[event.task_id] = next;

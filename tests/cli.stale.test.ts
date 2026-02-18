@@ -30,7 +30,7 @@ describe("cli stale", () => {
     expect(Array.isArray(data.tasks)).toBe(true);
     expect(data.days).toBe(30);
     expect(typeof data.cutoff).toBe("string");
-    expect(data.statuses).toEqual(["open", "in_progress", "blocked"]);
+    expect(data.statuses).toEqual(["open", "in_progress", "blocked", "deferred"]);
   });
 
   it("uses default status scope open/in_progress/blocked", async () => {

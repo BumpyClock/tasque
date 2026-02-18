@@ -3,7 +3,7 @@ import type { ListFilter } from "../app/service";
 import type { DepDirection } from "../domain/dep-tree";
 import { TsqError } from "../errors";
 import type { SkillTarget } from "../skills/types";
-import type { RelationType, TaskKind, TaskStatus } from "../types";
+import type { PlanningState, RelationType, TaskKind, TaskStatus } from "../types";
 
 export interface GlobalOpts {
   json?: boolean;
@@ -36,12 +36,14 @@ export interface ListCommandOptions {
   id?: string[];
   tree?: boolean;
   full?: boolean;
+  planning?: string;
 }
 
 export interface StaleCommandOptions {
   days?: string;
   status?: string;
   assignee?: string;
+  limit?: string;
 }
 
 export interface CreateCommandOptions {
@@ -50,6 +52,10 @@ export interface CreateCommandOptions {
   parent?: string;
   description?: string;
   externalRef?: string;
+  planning?: string;
+  needsPlanning?: boolean;
+  id?: string;
+  bodyFile?: string;
 }
 
 export interface UpdateCommandOptions {
@@ -63,6 +69,7 @@ export interface UpdateCommandOptions {
   claim?: boolean;
   assignee?: string;
   requireSpec?: boolean;
+  planning?: string;
 }
 
 export interface SpecAttachCommandOptions {
@@ -111,6 +118,32 @@ export function parseRelationType(raw: string): RelationType {
     "relation type must be relates_to|replies_to|duplicates|supersedes",
     1,
   );
+}
+
+export function parsePlanningState(raw: string): PlanningState {
+  if (raw === "needs_planning" || raw === "planned") {
+    return raw;
+  }
+  throw new TsqError("VALIDATION_ERROR", "planning state must be needs_planning|planned", 1);
+}
+
+export function validateExplicitId(raw: string): string {
+  const trimmed = raw.trim();
+  if (!/^tsq-[0-9a-hjkmnp-tv-z]{8}$/.test(trimmed)) {
+    throw new TsqError(
+      "VALIDATION_ERROR",
+      "explicit --id must match tsq-<8 crockford base32 chars>",
+      1,
+    );
+  }
+  return trimmed;
+}
+
+export function parseLane(raw: string): "planning" | "coding" {
+  if (raw === "planning" || raw === "coding") {
+    return raw;
+  }
+  throw new TsqError("VALIDATION_ERROR", "lane must be planning|coding", 1);
 }
 
 export function parseSkillTargets(raw: string): SkillTarget[] {
@@ -209,6 +242,9 @@ export function parseListFilter(
   }
   if ((options.id?.length ?? 0) > 0) {
     filter.ids = uniqueSorted(options.id ?? []);
+  }
+  if (options.planning) {
+    filter.planning_state = parsePlanningState(options.planning);
   }
   return filter;
 }

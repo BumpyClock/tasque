@@ -12,10 +12,11 @@
 
 ## Design Decisions
 - Bidirectional `relates_to` links; canonical `supersede` closes the source task and sets `superseded_by` without dependency/link rewiring.
-- `duplicate` closes source, adds `duplicate_of` metadata — no dependency rewiring (same pattern as supersede).
+- `duplicate` closes source, adds `duplicate_of` metadata - no dependency rewiring (same pattern as supersede).
 - Strict CAS (compare-and-swap) claim semantics.
 - Spec required sections: `Overview`, `Constraints / Non-goals`, `Interfaces (CLI/API)`, `Data model / schema changes`, `Acceptance criteria`, `Test plan`.
 - Timestamp filters (`--created-after`, `--updated-after`, `--closed-after`) require strict ISO timestamps; reject natural-language dates.
+- There is no task re-parent command; to split/move a subtree, create a new epic/feature branch and use `supersede` links from old tasks to new IDs for durable traceability.
 
 ## Pitfalls
 - `resolveTaskId` throws `TASK_NOT_FOUND`, not `NOT_FOUND`.
@@ -28,11 +29,17 @@
 - Projector validates dep/link targets with `requireTask()` — repair tests must inject orphans via state cache, not raw events, to bypass this validation.
 - `repair --fix` computes plan inside write lock using locked snapshot to prevent plan/apply drift.
 - `process.exitCode` is sticky within a long-lived process. Reset at command entry (`preAction`) so a prior failing command does not cause later successful commands to exit non-zero.
+- Under `bun test` on Windows, piping stdin into compiled `dist/tsq.exe` can be flaky; stdin-focused tests are more reliable when they feed stdin from a file descriptor (e.g., `stdin: Bun.file(path)`) or run via source entry.
 
 ## Build & Release
 - `bun run build` compiles a single binary; `bun run release` emits a platform artifact + `SHA256SUMS.txt` in `dist/releases/`.
 - `tsq init` skill lifecycle for agents uses managed-marker semantics: install, uninstall, idempotent update, non-managed skip unless `--force`.
+- Versioning/release planning baseline: use `package.json` as version source, surface via CLI `-V/--version`, and automate release PR/tag flow with release-please + GitHub Actions artifact publishing.
+
+## Init UX
+- Wizard contract baseline: run `tsq init` wizard only on TTY by default; `--no-wizard` is authoritative; `--wizard` is TTY-only; non-interactive agent flows must remain fully deterministic via flags.
 
 ## Recent Updates
 - 2026-02-18: Event parsing now uses Zod at JSONL boundaries; canonical event field is `id` while reads still accept legacy `event_id`.
 - 2026-02-18: Cache path migrated to `.tasque/state.json` with backward-compatible reads from legacy `.tasque/tasks.jsonl`.
+- 2026-02-18: Planned workflow model approved: keep lifecycle `status` separate from new `planning_state`; add `deferred` lifecycle status; `ready` should surface both planning and coding lanes with optional lane filter; create defaults to `planning_state=needs_planning`; add `--body-file`, strict `--id` regex, and deferred follow-up tasks for `discovered-from` + typed dependency model expansion.

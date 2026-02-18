@@ -10,11 +10,13 @@ import { SNAPSHOT_RETAIN_COUNT } from "../store/snapshots";
 import type { EventRecord, RelationType, RepairPlan, RepairResult, State } from "../types";
 import { loadProjectedState, persistProjection } from "./state";
 
-function buildRepairPlan(
-  state: State,
-): Omit<RepairPlan, "stale_temps" | "stale_lock" | "old_snapshots"> {
-  const orphaned_deps: RepairPlan["orphaned_deps"] = [];
-  const orphaned_links: RepairPlan["orphaned_links"] = [];
+/** Scan state for orphaned deps and links (no filesystem access). */
+export function scanOrphanedGraph(state: State): {
+  orphaned_deps: Array<{ child: string; blocker: string }>;
+  orphaned_links: Array<{ src: string; dst: string; type: RelationType }>;
+} {
+  const orphaned_deps: Array<{ child: string; blocker: string }> = [];
+  const orphaned_links: Array<{ src: string; dst: string; type: RelationType }> = [];
 
   for (const [child, blockers] of Object.entries(state.deps)) {
     for (const blocker of blockers) {
@@ -35,6 +37,12 @@ function buildRepairPlan(
   }
 
   return { orphaned_deps, orphaned_links };
+}
+
+function buildRepairPlan(
+  state: State,
+): Omit<RepairPlan, "stale_temps" | "stale_lock" | "old_snapshots"> {
+  return scanOrphanedGraph(state);
 }
 
 async function scanFilesystem(

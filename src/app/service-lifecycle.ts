@@ -10,6 +10,8 @@ import type {
   DuplicateCandidatesResult,
   DuplicateInput,
   LinkInput,
+  MergeInput,
+  MergeResult,
   ReopenInput,
   ServiceContext,
   SupersedeInput,
@@ -206,6 +208,125 @@ export async function duplicate(ctx: ServiceContext, input: DuplicateInput): Pro
     await appendEvents(ctx.repoRoot, events);
     await persistProjection(ctx.repoRoot, nextState, allEvents.length + events.length);
     return mustTask(nextState, source);
+  });
+}
+
+export async function merge(ctx: ServiceContext, input: MergeInput): Promise<MergeResult> {
+  if (input.sources.length === 0) {
+    throw new TsqError("VALIDATION_ERROR", "at least one source task is required", 1);
+  }
+
+  return withWriteLock(ctx.repoRoot, async () => {
+    const { state, allEvents } = await loadProjectedState(ctx.repoRoot);
+
+    const targetId = mustResolveExisting(state, input.into, input.exactId);
+    const targetTask = mustTask(state, targetId);
+    const warnings: string[] = [];
+
+    if ((targetTask.status === "closed" || targetTask.status === "canceled") && !input.force) {
+      throw new TsqError(
+        "VALIDATION_ERROR",
+        `target task ${targetId} is ${targetTask.status}; use --force to merge anyway`,
+        1,
+      );
+    }
+    if ((targetTask.status === "closed" || targetTask.status === "canceled") && input.force) {
+      warnings.push(`target ${targetId} is ${targetTask.status} (forced)`);
+    }
+
+    const resolvedSources = input.sources.map((s) => mustResolveExisting(state, s, input.exactId));
+
+    for (const src of resolvedSources) {
+      if (src === targetId) {
+        throw new TsqError("VALIDATION_ERROR", `source ${src} cannot be the same as target`, 1);
+      }
+    }
+
+    const events: EventRecord[] = [];
+    const merged: Array<{ id: string; status: string }> = [];
+
+    for (const sourceId of resolvedSources) {
+      const sourceTask = mustTask(state, sourceId);
+
+      if (sourceTask.status === "closed" || sourceTask.status === "canceled") {
+        warnings.push(`${sourceId} already ${sourceTask.status}, skipped`);
+        continue;
+      }
+
+      if (createsDuplicateCycle(state, sourceId, targetId)) {
+        warnings.push(`${sourceId} -> ${targetId} would create a cycle, skipped`);
+        continue;
+      }
+
+      if (!hasDuplicateLink(state, sourceId, targetId)) {
+        events.push(
+          makeEvent(ctx.actor, ctx.now(), "link.added", sourceId, {
+            type: "duplicates",
+            target: targetId,
+          }),
+        );
+      }
+
+      events.push(
+        makeEvent(ctx.actor, ctx.now(), "task.updated", sourceId, {
+          duplicate_of: targetId,
+        }),
+      );
+
+      const ts = ctx.now();
+      events.push(
+        makeEvent(ctx.actor, ts, "task.status_set", sourceId, {
+          status: "closed",
+          closed_at: ts,
+          reason: input.reason,
+        }),
+      );
+
+      merged.push({ id: sourceId, status: "closed" });
+    }
+
+    if (input.dryRun) {
+      // Apply events to get projected state for the result, but don't persist
+      const projectedState = events.length > 0 ? applyEvents(state, events) : state;
+      const projTarget = mustTask(projectedState, targetId);
+      const projectedSources = resolvedSources.map((id) => mustTask(projectedState, id));
+      return {
+        merged,
+        target: { id: targetId, title: projTarget.title, status: projTarget.status },
+        dry_run: true,
+        warnings,
+        plan_summary: {
+          requested_sources: resolvedSources.length,
+          merged_sources: merged.length,
+          skipped_sources: resolvedSources.length - merged.length,
+          planned_events: events.length,
+        },
+        projected: {
+          target: projTarget,
+          sources: projectedSources,
+        },
+      };
+    }
+
+    if (events.length > 0) {
+      const nextState = applyEvents(state, events);
+      await appendEvents(ctx.repoRoot, events);
+      await persistProjection(ctx.repoRoot, nextState, allEvents.length + events.length);
+      const finalTarget = mustTask(nextState, targetId);
+      return {
+        merged,
+        target: { id: targetId, title: finalTarget.title, status: finalTarget.status },
+        dry_run: false,
+        warnings,
+      };
+    }
+
+    return {
+      merged,
+      target: { id: targetId, title: targetTask.title, status: targetTask.status },
+      dry_run: false,
+      warnings,
+    };
   });
 }
 

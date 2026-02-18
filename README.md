@@ -53,6 +53,22 @@ Recommended commit policy:
 - Commit `.tasque/events.jsonl` and `.tasque/config.json`.
 - Do not commit `.tasque/state.json`.
 
+## Planning Workflow
+
+Tasque tracks lifecycle and planning separately:
+
+- `status`: `open|in_progress|blocked|deferred|closed|canceled`
+- `planning_state`: `needs_planning|planned`
+
+Typical loop:
+
+1. `tsq ready --lane planning`
+2. Collaborate on scope/spec, then `tsq update <id> --planning planned`
+3. `tsq ready --lane coding`
+4. Implement and close with `tsq update <id> --status closed`
+
+See `docs/planning-workflow.md` for detailed examples.
+
 ## Command List
 
 Global options:
@@ -63,26 +79,33 @@ Global options:
 Commands:
 
 - `tsq init`
-- `tsq create "<title>" [--kind task|feature|epic] [-p|--priority 0..3] [--parent <id>] [--description <text>] [--external-ref <ref>]`
+- `tsq create "<title>" [--kind task|feature|epic] [-p|--priority 0..3] [--parent <id>] [--description <text>] [--body-file <path|->] [--external-ref <ref>] [--planning <needs_planning|planned>] [--needs-planning] [--id <tsq-xxxxxxxx>]`
 - `tsq show <id>`
-- `tsq list [--status <open|in_progress|blocked|closed|canceled|done>] [--assignee <name>] [--external-ref <ref>] [--kind <task|feature|epic>] [--label <label>] [--label-any <csv-or-repeat>] [--created-after <iso>] [--updated-after <iso>] [--closed-after <iso>] [--unassigned] [--id <csv-or-repeat>] [--tree] [--full]`
-- `tsq ready`
+- `tsq list [--status <open|in_progress|blocked|deferred|closed|canceled|done>] [--assignee <name>] [--external-ref <ref>] [--kind <task|feature|epic>] [--label <label>] [--label-any <csv-or-repeat>] [--created-after <iso>] [--updated-after <iso>] [--closed-after <iso>] [--unassigned] [--id <csv-or-repeat>] [--planning <needs_planning|planned>] [--tree] [--full]`
+- `tsq ready [--lane <planning|coding>]`
 - `tsq watch [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--tree]`
-- `tsq stale [--days <n>] [--status <open|in_progress|blocked|closed|canceled|done>] [--assignee <name>]`
+- `tsq stale [--days <n>] [--status <open|in_progress|blocked|deferred|closed|canceled|done>] [--assignee <name>] [--limit <n>]`
 - `tsq doctor`
-- `tsq update <id> [--title <text>] [--status <...>] [--priority <0..3>] [--description <text>] [--clear-description] [--external-ref <ref>] [--clear-external-ref]`
+- `tsq update <id> [--title <text>] [--status <...>] [--priority <0..3>] [--description <text>] [--clear-description] [--external-ref <ref>] [--clear-external-ref] [--planning <needs_planning|planned>]`
 - `tsq update <id> --claim [--assignee <name>] [--require-spec]`
+- `tsq orphans`
 - `tsq note add <id> <text>`
 - `tsq note list <id>`
 - `tsq spec attach <id> [source] [--file <path> | --stdin | --text <markdown>]`
 - `tsq spec check <id>`
 - `tsq dep add <child> <blocker>`
+- `tsq dep tree <id> [--direction <up|down|both>] [--depth <n>]`
 - `tsq dep remove <child> <blocker>`
 - `tsq link add <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
 - `tsq link remove <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
 - `tsq duplicate <id> --of <canonical-id> [--reason <text>]`
 - `tsq duplicates [--limit <n>]` (dry-run scaffold)
+- `tsq merge <source-id...> --into <target-id> [--reason <text>] [--force] [--dry-run]`
 - `tsq supersede <old-id> --with <new-id> [--reason <text>]`
+- `tsq label add <id> <label>`
+- `tsq label remove <id> <label>`
+- `tsq label list`
+- `tsq history <id> [--limit <n>] [--type <event-type>] [--actor <name>] [--since <iso>]`
 
 Tree mode notes:
 
@@ -153,13 +176,14 @@ Error shape:
 - Claim `--require-spec`: blocks claim unless `tsq spec check <id>` would return `ok: true`.
 - External refs: `external_ref` is optional task metadata; list filtering is exact-match (`--external-ref`) and search supports `external_ref:<value>`.
 - Watch: defaults to `open,in_progress` with `--interval 2` seconds; `--once` emits a single frame for scripting.
-- Ready: task status in `open|in_progress` and no open blockers.
-- Stale: returns tasks where `updated_at <= now - days` (default statuses: `open|in_progress|blocked`).
+- Ready: task is unblocked and not in `closed|canceled|deferred`; `--lane planning` returns `planning_state=needs_planning`, `--lane coding` returns `planning_state=planned`.
+- Stale: returns tasks where `updated_at <= now - days` (default statuses: `open|in_progress|blocked|deferred`).
 - Open blocker: blocker exists and status is not `closed|canceled`.
 - Dependency add: self-edge/cycle rejected.
 - Relation add/remove: self-edge rejected; `relates_to` maintained bidirectionally.
 - Duplicate workflow: `duplicate` sets `duplicate_of`, adds `duplicates` link metadata, closes source, and does not rewire dependencies.
 - Duplicates scaffold: `duplicates` reports normalized-title candidate groups without mutating state.
+- Merge workflow: `merge` consolidates duplicates into a target; `--dry-run` previews projected outcomes and plan summary without writes.
 - Supersede: source task closed + `superseded_by` set; replacement task unchanged; dependencies not rewired.
 - Spec check: returns diagnostics and checks canonical spec fingerprint drift plus required sections (`Overview`, `Constraints / Non-goals`, `Interfaces (CLI/API)`, `Data model / schema changes`, `Acceptance criteria`, `Test plan`).
 

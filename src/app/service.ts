@@ -46,10 +46,13 @@ export type {
   LabelInput,
   LinkInput,
   ListFilter,
+  MergeInput,
+  MergeResult,
   NoteAddInput,
   NoteAddResult,
   NoteListInput,
   NoteListResult,
+  OrphansResult,
   ReopenInput,
   SearchInput,
   SpecAttachInput,
@@ -126,26 +129,53 @@ export class TasqueService {
   }
 
   async create(input: import("./service-types").CreateInput): Promise<Task> {
+    if (input.explicitId && input.parent) {
+      throw new TsqError("VALIDATION_ERROR", "cannot combine --id with --parent", 1);
+    }
+    if (input.description !== undefined && input.bodyFile !== undefined) {
+      throw new TsqError("VALIDATION_ERROR", "cannot combine --description with --body-file", 1);
+    }
+
     return withWriteLock(this.repoRoot, async () => {
       const { state, allEvents } = await loadProjectedState(this.repoRoot);
-      const parentId = input.parent
-        ? mustResolveExisting(state, input.parent, input.exactId)
-        : undefined;
-      if (parentId && !state.tasks[parentId]) {
-        throw new TsqError("NOT_FOUND", `parent task not found: ${parentId}`, 1);
+
+      let id: string;
+      let parentId: string | undefined;
+
+      if (input.explicitId) {
+        if (!/^tsq-[0-9a-hjkmnp-tv-z]{8}$/.test(input.explicitId)) {
+          throw new TsqError(
+            "VALIDATION_ERROR",
+            "explicit --id must match tsq-<8 crockford base32 chars>",
+            1,
+          );
+        }
+        if (state.tasks[input.explicitId]) {
+          throw new TsqError("ID_COLLISION", `task already exists: ${input.explicitId}`, 1);
+        }
+        id = input.explicitId;
+      } else {
+        parentId = input.parent
+          ? mustResolveExisting(state, input.parent, input.exactId)
+          : undefined;
+        if (parentId && !state.tasks[parentId]) {
+          throw new TsqError("NOT_FOUND", `parent task not found: ${parentId}`, 1);
+        }
+        id = parentId ? nextChildId(state, parentId) : uniqueRootId(state, input.title);
       }
 
-      const id = parentId ? nextChildId(state, parentId) : uniqueRootId(state, input.title);
+      const description = input.bodyFile !== undefined ? input.bodyFile : input.description;
       const ts = this.now();
       const event = makeEvent(this.actor, ts, "task.created", id, {
         id,
         title: input.title,
-        description: input.description,
+        description,
         external_ref: input.externalRef,
         kind: input.kind,
         priority: input.priority,
         status: "open",
         parent_id: parentId,
+        planning_state: input.planning_state ?? "needs_planning",
       });
 
       const nextState = applyEvents(state, [event]);
@@ -171,12 +201,16 @@ export class TasqueService {
     return query.listTree(this.ctx, filter);
   }
 
-  async ready(): Promise<Task[]> {
-    return query.ready(this.ctx);
+  async ready(lane?: "planning" | "coding"): Promise<Task[]> {
+    return query.ready(this.ctx, lane);
   }
 
   async doctor() {
     return query.doctor(this.ctx);
+  }
+
+  async orphans() {
+    return query.orphans(this.ctx);
   }
 
   async update(input: import("./service-types").UpdateInput): Promise<Task> {
@@ -218,6 +252,9 @@ export class TasqueService {
       }
       if (input.clearExternalRef) {
         patch.clear_external_ref = true;
+      }
+      if (input.planning_state !== undefined) {
+        patch.planning_state = input.planning_state;
       }
 
       const hasFieldPatch = Object.keys(patch).length > 0;
@@ -374,6 +411,10 @@ export class TasqueService {
 
   async duplicate(input: import("./service-types").DuplicateInput): Promise<Task> {
     return lifecycle.duplicate(this.ctx, input);
+  }
+
+  async merge(input: import("./service-types").MergeInput) {
+    return lifecycle.merge(this.ctx, input);
   }
 
   async duplicateCandidates(limit = 20) {

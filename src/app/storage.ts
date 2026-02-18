@@ -12,6 +12,7 @@ import { dirname, isAbsolute, join } from "node:path";
 import { TsqError } from "../errors";
 import { getPaths, taskSpecFile, taskSpecRelativePath } from "../store/paths";
 import type { Task } from "../types";
+import { readStdinContent } from "./stdin";
 
 // ── Re-exports from existing modules ────────────────────────────────────────
 export { loadProjectedState, persistProjection } from "./state";
@@ -320,43 +321,6 @@ export function sha256(content: string): string {
 }
 
 // ── Internal helpers ────────────────────────────────────────────────────────
-
-const STDIN_TIMEOUT_MS = 30_000;
-
-async function readStdinContent(): Promise<string> {
-  process.stdin.setEncoding("utf8");
-  let content = "";
-
-  const readAll = async (): Promise<string> => {
-    for await (const chunk of process.stdin) {
-      content += chunk;
-    }
-    return content;
-  };
-
-  const timeout = new Promise<never>((_resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(
-        new TsqError(
-          "VALIDATION_ERROR",
-          `stdin read timed out after ${STDIN_TIMEOUT_MS / 1000} seconds`,
-          1,
-        ),
-      );
-    }, STDIN_TIMEOUT_MS);
-    if (typeof timer === "object" && "unref" in timer) {
-      timer.unref();
-    }
-  });
-
-  const result = await Promise.race([readAll(), timeout]);
-
-  if (result.trim().length === 0) {
-    throw new TsqError("VALIDATION_ERROR", "stdin content must not be empty", 1);
-  }
-
-  return result;
-}
 
 function resolveSpecPath(repoRoot: string, specPath: string): string {
   if (isAbsolute(specPath)) {

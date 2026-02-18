@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 import { normalizeStatus, parsePriority } from "../../app/runtime";
+import { readStdinContent } from "../../app/stdin";
 import { TsqError } from "../../errors";
 import type { RunAction, RuntimeDeps } from "../action";
 import {
@@ -11,11 +12,14 @@ import {
   asOptionalString,
   collectCsvOption,
   parseKind,
+  parseLane,
   parseListFilter,
   parseNonNegativeInt,
+  parsePlanningState,
   parsePositiveInt,
+  validateExplicitId,
 } from "../parsers";
-import { printTask, printTaskList, printTaskTree } from "../render";
+import { printMergeResult, printTask, printTaskList, printTaskTree } from "../render";
 
 export function registerTaskCommands(
   program: Command,
@@ -30,6 +34,10 @@ export function registerTaskCommands(
     .option("--parent <id>", "parent task ID")
     .option("--description <text>", "task description")
     .option("--external-ref <ref>", "external reference (ticket/URL/id)")
+    .option("--planning <state>", "planning state: needs_planning|planned")
+    .option("--needs-planning", "shorthand for --planning needs_planning")
+    .option("--id <id>", "explicit task ID (tsq-<8 crockford base32>)")
+    .option("--body-file <path>", "read description from file (use - for stdin)")
     .description("Create task")
     .action(async function action(title: string, options: CreateCommandOptions) {
       await runAction(
@@ -37,6 +45,42 @@ export function registerTaskCommands(
         async (opts) => {
           const kind = parseKind(options.kind ?? "task");
           const priority = parsePriority(options.priority ?? "2");
+          if (options.planning && options.needsPlanning) {
+            throw new TsqError(
+              "VALIDATION_ERROR",
+              "cannot combine --planning with --needs-planning",
+              1,
+            );
+          }
+          if (options.id && options.parent) {
+            throw new TsqError("VALIDATION_ERROR", "cannot combine --id with --parent", 1);
+          }
+          if (asOptionalString(options.description) !== undefined && options.bodyFile) {
+            throw new TsqError(
+              "VALIDATION_ERROR",
+              "cannot combine --description with --body-file",
+              1,
+            );
+          }
+          const planning_state = options.needsPlanning
+            ? ("needs_planning" as const)
+            : options.planning
+              ? parsePlanningState(options.planning)
+              : undefined;
+
+          let bodyFile: string | undefined;
+          if (options.bodyFile) {
+            if (options.bodyFile === "-") {
+              bodyFile = await readStdinContent();
+            } else {
+              const { readFile } = await import("node:fs/promises");
+              bodyFile = await readFile(options.bodyFile, "utf8");
+            }
+            if (bodyFile.trim().length === 0) {
+              throw new TsqError("VALIDATION_ERROR", "body file content must not be empty", 1);
+            }
+          }
+
           return deps.service.create({
             title,
             kind,
@@ -45,6 +89,9 @@ export function registerTaskCommands(
             description: asOptionalString(options.description),
             externalRef: asOptionalString(options.externalRef),
             exactId: opts.exactId,
+            planning_state,
+            explicitId: options.id ? validateExplicitId(options.id) : undefined,
+            bodyFile,
           });
         },
         {
@@ -110,6 +157,7 @@ export function registerTaskCommands(
     )
     .option("--tree", "render parent/child hierarchy")
     .option("--full", "with --tree, include closed/blocked/canceled items")
+    .option("--planning <state>", "filter by planning state: needs_planning|planned")
     .description("List tasks")
     .on("option:assignee", () => {
       listFlagState.assignee = true;
@@ -156,6 +204,7 @@ export function registerTaskCommands(
     .option("--days <n>", "stale threshold in days", "30")
     .option("--status <status>", "single status scope")
     .option("--assignee <assignee>", "filter by assignee")
+    .option("--limit <n>", "max stale tasks to return")
     .description("List stale tasks")
     .action(async function action(options: StaleCommandOptions) {
       await runAction(
@@ -165,6 +214,7 @@ export function registerTaskCommands(
             days: parseNonNegativeInt(options.days ?? "30", "days"),
             status: options.status ? normalizeStatus(options.status) : undefined,
             assignee: asOptionalString(options.assignee),
+            limit: options.limit ? parsePositiveInt(options.limit, "limit", 1, 10000) : undefined,
           }),
         {
           jsonData: (data) => data,
@@ -175,12 +225,20 @@ export function registerTaskCommands(
 
   program
     .command("ready")
+    .option("--lane <lane>", "filter by lane: planning|coding")
     .description("List ready tasks")
-    .action(async function action() {
-      await runAction(this, async () => deps.service.ready(), {
-        jsonData: (tasks) => ({ tasks }),
-        human: (tasks) => printTaskList(tasks),
-      });
+    .action(async function action(options: { lane?: string }) {
+      await runAction(
+        this,
+        async () => {
+          const lane = options.lane ? parseLane(options.lane) : undefined;
+          return deps.service.ready(lane);
+        },
+        {
+          jsonData: (tasks) => ({ tasks }),
+          human: (tasks) => printTaskList(tasks),
+        },
+      );
     });
 
   program
@@ -196,6 +254,7 @@ export function registerTaskCommands(
     .option("--claim", "claim this task")
     .option("--assignee <assignee>", "assignee for claim")
     .option("--require-spec", "with --claim, require attached spec to pass validation")
+    .option("--planning <state>", "set planning state: needs_planning|planned")
     .description("Update task")
     .action(async function action(id: string, options: UpdateCommandOptions) {
       await runAction(
@@ -256,6 +315,7 @@ export function registerTaskCommands(
             clearExternalRef,
             status: options.status ? normalizeStatus(String(options.status)) : undefined,
             priority: options.priority ? parsePriority(String(options.priority)) : undefined,
+            planning_state: options.planning ? parsePlanningState(options.planning) : undefined,
             exactId: opts.exactId,
           });
         },
@@ -336,6 +396,41 @@ export function registerTaskCommands(
         {
           jsonData: (task) => ({ task }),
           human: (task) => printTask(task),
+        },
+      );
+    });
+
+  program
+    .command("merge")
+    .argument("<sources...>", "source task IDs to merge")
+    .requiredOption("--into <target>", "target task ID to merge into")
+    .option("--reason <text>", "merge reason")
+    .option("--force", "allow merging into closed/canceled target")
+    .option("--dry-run", "preview merge without applying")
+    .description("Merge tasks as duplicates into a target")
+    .action(async function action(
+      sources: string[],
+      options: {
+        into: string;
+        reason?: string;
+        force?: boolean;
+        dryRun?: boolean;
+      },
+    ) {
+      await runAction(
+        this,
+        async (opts) =>
+          deps.service.merge({
+            sources,
+            into: options.into,
+            reason: options.reason,
+            force: Boolean(options.force),
+            dryRun: Boolean(options.dryRun),
+            exactId: opts.exactId,
+          }),
+        {
+          jsonData: (data) => data,
+          human: (data) => printMergeResult(data),
         },
       );
     });

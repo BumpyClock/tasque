@@ -2,6 +2,7 @@ import type { DepDirection } from "../domain/dep-tree";
 import type { SkillOperationSummary, SkillTarget } from "../skills/types";
 import type {
   EventRecord,
+  PlanningState,
   Priority,
   RelationType,
   Task,
@@ -36,6 +37,9 @@ export interface CreateInput {
   externalRef?: string;
   parent?: string;
   exactId?: boolean;
+  planning_state?: PlanningState;
+  explicitId?: string;
+  bodyFile?: string;
 }
 
 export interface UpdateInput {
@@ -48,6 +52,7 @@ export interface UpdateInput {
   status?: TaskStatus;
   priority?: Priority;
   exactId?: boolean;
+  planning_state?: PlanningState;
 }
 
 export interface ClaimInput {
@@ -200,12 +205,44 @@ export interface ListFilter {
   closedAfter?: string;
   unassigned?: boolean;
   ids?: string[];
+  planning_state?: PlanningState;
+}
+
+export interface ReadyInput {
+  lane?: "planning" | "coding";
+}
+
+export interface MergeInput {
+  sources: string[];
+  into: string;
+  reason?: string;
+  force?: boolean;
+  dryRun?: boolean;
+  exactId?: boolean;
+}
+
+export interface MergeResult {
+  merged: Array<{ id: string; status: string }>;
+  target: { id: string; title: string; status: string };
+  dry_run: boolean;
+  warnings: string[];
+  plan_summary?: {
+    requested_sources: number;
+    merged_sources: number;
+    skipped_sources: number;
+    planned_events: number;
+  };
+  projected?: {
+    target: Task;
+    sources: Task[];
+  };
 }
 
 export interface StaleInput {
   days: number;
   status?: TaskStatus;
   assignee?: string;
+  limit?: number;
 }
 
 export interface StaleResult {
@@ -221,6 +258,12 @@ export interface DoctorResult {
   snapshot_loaded: boolean;
   warning?: string;
   issues: string[];
+}
+
+export interface OrphansResult {
+  orphaned_deps: Array<{ child: string; blocker: string }>;
+  orphaned_links: Array<{ src: string; dst: string; type: string }>;
+  total: number;
 }
 
 /** Constructor parameters shared by service method modules. */

@@ -4,23 +4,28 @@
 - use parallel sub-agents and agent teams for implementation.
 
 ## Objective
-Simple Beads-inspired tracker for local agent work.
+Simple local-first tracker for local agent work, inspired by Beads patterns.
 Local-first. Git-friendly. JSONL-backed.
 Durable across restarts and context compaction.
 
 ## Reference
-- Beads behavior reference: `C:\Users\adityasharma\Projects\references\beads`
+- Inspiration reference: `C:\Users\adityasharma\Projects\references\beads`
 
 ## Scope (Current)
 - task/feature/epic create/read/update
 - blocker dependencies
 - relation links
 - duplicate workflow (`duplicate`, `duplicates` dry-run scaffold)
+- merge workflow (`merge` with `--force` and `--dry-run`)
 - ready detection
+- lane-aware ready detection (`--lane planning|coding`)
+- planning state tracking (`planning_state`)
+- deferred lifecycle status for parked work
 - atomic claim
 - optional claim spec gate (`--require-spec`)
 - spec attach/check workflow
 - supersede workflow
+- orphans reporting (`tsq orphans`, read-only)
 - append-only audit trail
 - stable machine output (`--json`)
 - tree list view (`tsq list --tree`)
@@ -59,7 +64,9 @@ Event fields:
 Event types:
 - `task.created`
 - `task.updated`
+- `task.status_set`
 - `task.claimed`
+- `task.noted`
 - `task.spec_attached`
 - `task.superseded`
 - `dep.added`
@@ -79,10 +86,11 @@ Write path:
 
 ## Task Model
 Task fields:
-- `id` (`tsq-<hash6>` root, `<parent>.<n>` child)
+- `id` (`tsq-<8 crockford base32 chars>` root, `<parent>.<n>` child)
 - `kind` (`task|feature|epic`)
 - `title`
-- `status` (`open|in_progress|blocked|closed|canceled`)
+- `status` (`open|in_progress|blocked|deferred|closed|canceled`)
+- `planning_state` (`needs_planning|planned`)
 - `priority` (`0..3`)
 - `assignee` (optional)
 - `parent_id` (optional)
@@ -105,24 +113,33 @@ Relation types:
 ## CLI Contract
 - `tsq init`
 - `tsq init --install-skill|--uninstall-skill [--skill-targets ...]`
-- `tsq create "Title" [--kind ...] [-p ...] [--parent <id>]`
-- `tsq create "Title" [--kind ...] [-p ...] [--parent <id>] [--external-ref <ref>]`
+- `tsq create "Title" [--kind ...] [-p ...] [--parent <id>] [--external-ref <ref>] [--planning <needs_planning|planned>] [--needs-planning] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
 - `tsq show <id>`
-- `tsq list [--status ...] [--assignee ...] [--external-ref <ref>] [--kind ...] [--tree]`
-- `tsq ready`
+- `tsq list [--status ...] [--assignee ...] [--external-ref <ref>] [--kind ...] [--planning <needs_planning|planned>] [--tree]`
+- `tsq ready [--lane <planning|coding>]`
 - `tsq watch [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--tree]`
+- `tsq stale [--days <n>] [--status <status>] [--assignee <name>] [--limit <n>]`
 - `tsq doctor`
-- `tsq update <id> [--title ...] [--status ...] [--priority ...] [--external-ref <ref>] [--clear-external-ref]`
+- `tsq update <id> [--title ...] [--status ...] [--priority ...] [--external-ref <ref>] [--clear-external-ref] [--planning <needs_planning|planned>]`
 - `tsq update <id> --claim [--assignee <a>] [--require-spec]`
+- `tsq orphans`
 - `tsq spec attach <id> [source] [--file <path> | --stdin | --text <markdown>]`
 - `tsq spec check <id>`
 - `tsq dep add <child> <blocker>`
+- `tsq dep tree <id> [--direction <up|down|both>] [--depth <n>]`
 - `tsq dep remove <child> <blocker>`
 - `tsq link add <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
 - `tsq link remove <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
 - `tsq duplicate <id> --of <canonical-id> [--reason <text>]`
 - `tsq duplicates [--limit <n>]`
+- `tsq merge <source-id...> --into <target-id> [--reason <text>] [--force] [--dry-run]`
 - `tsq supersede <old-id> --with <new-id> [--reason <text>]`
+- `tsq note add <id> <text>`
+- `tsq note list <id>`
+- `tsq label add <id> <label>`
+- `tsq label remove <id> <label>`
+- `tsq label list`
+- `tsq history <id> [--limit <n>] [--type <event-type>] [--actor <name>] [--since <iso>]`
 
 Global options:
 - `--json`
@@ -130,6 +147,13 @@ Global options:
 
 Status alias:
 - `done -> closed`
+
+Planning workflow guidance:
+- Treat lifecycle `status` and `planning_state` as separate dimensions.
+- `tsq ready --lane planning` surfaces tasks that need planning work (`planning_state=needs_planning`).
+- Planning-lane work should collaborate with the user and update specs/task body as needed before coding.
+- `tsq ready --lane coding` surfaces tasks already planned (`planning_state=planned`).
+- Use `status=deferred` for valid work intentionally parked for later.
 
 Exit codes:
 - `0` success

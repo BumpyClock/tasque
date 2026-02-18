@@ -65,13 +65,14 @@ export function normalizeStatus(raw: string) {
     normalized === "in_progress" ||
     normalized === "blocked" ||
     normalized === "closed" ||
-    normalized === "canceled"
+    normalized === "canceled" ||
+    normalized === "deferred"
   ) {
     return normalized;
   }
   throw new TsqError(
     "VALIDATION_ERROR",
-    "status must be one of: open, todo, in_progress, blocked, closed, done, canceled",
+    "status must be one of: open, todo, in_progress, blocked, closed, done, canceled, deferred",
     1,
   );
 }

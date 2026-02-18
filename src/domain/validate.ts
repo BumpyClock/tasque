@@ -1,6 +1,8 @@
 import { TsqError } from "../errors";
 import type { State, Task, TaskStatus } from "../types";
 
+export type PlanningLane = "planning" | "coding";
+
 const OPEN_READY_STATUSES = new Set(["open", "in_progress"] as const);
 const CLOSED_BLOCKER_STATUSES = new Set(["closed", "canceled"] as const);
 const isOpenReadyStatus = (status: TaskStatus): status is "open" | "in_progress" =>
@@ -67,4 +69,15 @@ export const listReady = (state: State): Task[] => {
   }
 
   return ready;
+};
+
+export const listReadyByLane = (state: State, lane?: PlanningLane): Task[] => {
+  const all = listReady(state);
+  if (!lane) {
+    return all;
+  }
+  if (lane === "planning") {
+    return all.filter((t) => !t.planning_state || t.planning_state === "needs_planning");
+  }
+  return all.filter((t) => t.planning_state === "planned");
 };

@@ -1,13 +1,15 @@
 import { buildDependentsByBlocker } from "../domain/dep-tree";
 import { evaluateQuery, parseQuery } from "../domain/query";
-import { isReady, listReady } from "../domain/validate";
+import { type PlanningLane, isReady, listReady, listReadyByLane } from "../domain/validate";
 import { TsqError } from "../errors";
 import type { EventRecord, Task, TaskTreeNode } from "../types";
+import { scanOrphanedGraph } from "./repair";
 import type {
   DoctorResult,
   HistoryInput,
   HistoryResult,
   ListFilter,
+  OrphansResult,
   SearchInput,
   ServiceContext,
   StaleInput,
@@ -81,6 +83,11 @@ export async function stale(ctx: ServiceContext, input: StaleInput): Promise<Sta
   if (!Number.isInteger(input.days) || input.days < 0) {
     throw new TsqError("VALIDATION_ERROR", "days must be an integer >= 0", 1);
   }
+  if (input.limit !== undefined) {
+    if (!Number.isInteger(input.limit) || input.limit < 1) {
+      throw new TsqError("VALIDATION_ERROR", "limit must be an integer >= 1", 1);
+    }
+  }
 
   const { state } = await loadProjectedState(ctx.repoRoot);
   const nowValue = ctx.now();
@@ -101,8 +108,10 @@ export async function stale(ctx: ServiceContext, input: StaleInput): Promise<Sta
     return task.updated_at <= cutoff;
   });
 
+  const sorted = sortStaleTasks(tasks);
+  const limited = input.limit !== undefined ? sorted.slice(0, input.limit) : sorted;
   return {
-    tasks: sortStaleTasks(tasks),
+    tasks: limited,
     days: input.days,
     cutoff,
     statuses,
@@ -146,8 +155,11 @@ export async function listTree(ctx: ServiceContext, filter: ListFilter): Promise
   return sortTasks(roots).map((task) => buildNode(task));
 }
 
-export async function ready(ctx: ServiceContext): Promise<Task[]> {
+export async function ready(ctx: ServiceContext, lane?: PlanningLane): Promise<Task[]> {
   const { state } = await loadProjectedState(ctx.repoRoot);
+  if (lane) {
+    return sortTasks(listReadyByLane(state, lane));
+  }
   return sortTasks(listReady(state));
 }
 
@@ -224,4 +236,14 @@ export async function search(ctx: ServiceContext, input: SearchInput): Promise<T
   const { state } = await loadProjectedState(ctx.repoRoot);
   const filter = parseQuery(input.query);
   return sortTasks(evaluateQuery(Object.values(state.tasks), filter, state));
+}
+
+export async function orphans(ctx: ServiceContext): Promise<OrphansResult> {
+  const { state } = await loadProjectedState(ctx.repoRoot);
+  const scan = scanOrphanedGraph(state);
+  return {
+    orphaned_deps: scan.orphaned_deps,
+    orphaned_links: scan.orphaned_links,
+    total: scan.orphaned_deps.length + scan.orphaned_links.length,
+  };
 }

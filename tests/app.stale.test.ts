@@ -67,7 +67,7 @@ describe("service stale", () => {
 
     expect(result.days).toBe(30);
     expect(result.cutoff).toBe("2026-01-11T00:00:00.000Z");
-    expect(result.statuses).toEqual(["open", "in_progress", "blocked"]);
+    expect(result.statuses).toEqual(["open", "in_progress", "blocked", "deferred"]);
     expect(result.tasks.map((task) => task.id)).toEqual([
       oldest.id,
       ...lowPriorityIds,

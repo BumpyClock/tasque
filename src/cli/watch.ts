@@ -49,8 +49,9 @@ const STATUS_ORDER: Record<TaskStatus, number> = {
   in_progress: 0,
   open: 1,
   blocked: 2,
-  closed: 3,
-  canceled: 4,
+  deferred: 3,
+  closed: 4,
+  canceled: 5,
 };
 
 // ── Public API ─────────────────────────────────────────────────────────────

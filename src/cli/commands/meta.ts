@@ -9,7 +9,7 @@ import {
   parsePositiveInt,
   parseSkillTargets,
 } from "../parsers";
-import { printHistory, printRepairResult } from "../render";
+import { printHistory, printOrphansResult, printRepairResult } from "../render";
 import { startWatch } from "../watch";
 
 export function registerMetaCommands(
@@ -116,6 +116,16 @@ export function registerMetaCommands(
           human: (data) => printRepairResult(data),
         },
       );
+    });
+
+  program
+    .command("orphans")
+    .description("List orphaned deps and links (read-only)")
+    .action(async function action() {
+      await runAction(this, async () => deps.service.orphans(), {
+        jsonData: (data) => data,
+        human: (data) => printOrphansResult(data),
+      });
     });
 
   program

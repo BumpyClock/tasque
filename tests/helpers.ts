@@ -95,24 +95,20 @@ export async function runJson(
   actor = "test",
   stdinText?: string,
 ): Promise<JsonResult> {
+  // Compiled Bun executables can drop piped stdin under bun test on Windows.
+  // Keep compiled coverage for normal paths, but force source-run for stdin cases.
+  const cmd = stdinText === undefined ? cliCmd : ["bun", "run", cliEntry];
   const proc = Bun.spawn({
-    cmd: [...cliCmd, ...args, "--json"],
+    cmd: [...cmd, ...args, "--json"],
     cwd: repoDir,
     env: {
       ...process.env,
       TSQ_ACTOR: actor,
     },
-    stdin: stdinText === undefined ? "ignore" : "pipe",
+    stdin: stdinText === undefined ? "ignore" : new Blob([stdinText]),
     stdout: "pipe",
     stderr: "pipe",
   });
-
-  if (stdinText !== undefined) {
-    const stdin = proc.stdin;
-    expect(stdin).toBeDefined();
-    stdin?.write(stdinText);
-    stdin?.end();
-  }
 
   const [exitCode, stdout, stderr] = await Promise.all([
     proc.exited,

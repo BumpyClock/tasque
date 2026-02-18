@@ -1,7 +1,8 @@
 export const SCHEMA_VERSION = 1;
 
 export type TaskKind = "task" | "feature" | "epic";
-export type TaskStatus = "open" | "in_progress" | "blocked" | "closed" | "canceled";
+export type TaskStatus = "open" | "in_progress" | "blocked" | "closed" | "canceled" | "deferred";
+export type PlanningState = "needs_planning" | "planned";
 export type RelationType = "relates_to" | "replies_to" | "duplicates" | "supersedes";
 export type Priority = 0 | 1 | 2 | 3;
 
@@ -29,6 +30,7 @@ export interface Task {
   parent_id?: string;
   superseded_by?: string;
   duplicate_of?: string;
+  planning_state?: PlanningState;
   replies_to?: string;
   labels: string[];
   created_at: string;
@@ -84,6 +86,7 @@ export interface TaskCreatedPayload {
   labels?: string[];
   external_ref?: string;
   description?: string;
+  planning_state?: PlanningState;
 }
 
 export interface TaskUpdatedPayload {
@@ -97,6 +100,7 @@ export interface TaskUpdatedPayload {
   clear_external_ref?: boolean;
   kind?: TaskKind;
   duplicate_of?: string;
+  planning_state?: PlanningState;
 }
 
 export interface TaskStatusSetPayload {

@@ -1,5 +1,5 @@
-tasks.jsonl
-tasks.jsonl.tmp*
+state.json
+state.json.tmp*
 .lock
 snapshots/
 snapshots/*.tmp

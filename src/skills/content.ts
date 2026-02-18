@@ -31,16 +31,21 @@ Use \`tsq\` for durable local task tracking.
 
 ## Core loop
 
-1. \`tsq ready\`
+1. \`tsq ready --lane planning\`
 2. \`tsq show <id>\`
-3. \`tsq update <id> --status in_progress\`
-4. \`tsq update <id> --status closed\`
+3. collaborate with user and finalize plan/spec
+4. \`tsq update <id> --planning planned\`
+5. \`tsq ready --lane coding\`
+6. \`tsq update <id> --status in_progress\`
+7. \`tsq update <id> --status closed\`
 
 ## Create and inspect
 
-- \`tsq create "Title" --kind task|feature|epic -p 0..3 [--external-ref <ref>]\`
+- \`tsq create "Title" --kind task|feature|epic -p 0..3 [--external-ref <ref>] [--planning needs_planning|planned] [--needs-planning] [--id <tsq-xxxxxxxx>] [--body-file <path|->]\`
 - \`tsq show <id>\`
-- \`tsq list [--status S] [--assignee A] [--external-ref R] [--kind K] [--label L] [--tree [--full]]\`
+- \`tsq list [--status S] [--assignee A] [--external-ref R] [--kind K] [--label L] [--planning needs_planning|planned] [--tree [--full]]\`
+- \`tsq ready [--lane planning|coding]\`
+- \`tsq orphans\` (read-only graph orphan report)
 - \`tsq search "status:open label:bug some title text"\`
 - \`tsq doctor\`
 - \`tsq watch [--once] [--interval N] [--status ...] [--assignee A] [--tree]\`
@@ -77,8 +82,16 @@ Use \`tsq\` for durable local task tracking.
 - \`tsq link add <src> <dst> --type relates_to|replies_to|duplicates|supersedes\`
 - \`tsq link remove <src> <dst> --type relates_to|replies_to|duplicates|supersedes\`
 - \`tsq duplicate <id> --of <canonical-id> [--reason <text>]\` to canonicalize duplicates without dependency rewiring
+- \`tsq merge <source-id...> --into <target-id> [--reason <text>] [--force] [--dry-run]\` to consolidate duplicates
 - \`tsq duplicates [--limit <n>]\` for dry-run duplicate candidate scaffolding
 - \`tsq supersede <old-id> --with <new-id> [--reason <text>]\`
+
+## Planning + deferred guidance
+
+- Treat \`status\` and \`planning_state\` as separate axes.
+- Planning lane work means: gather requirements, refine scope, and attach/update spec before coding.
+- Coding lane work means: \`planning_state=planned\` and task is unblocked.
+- Use \`tsq update <id> --status deferred\` for valid tasks that are intentionally parked.
 
 ## Search
 

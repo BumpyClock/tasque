@@ -5,7 +5,7 @@ import { TsqError } from "../errors";
 import type { State, Task, TaskStatus } from "../types";
 import type { ListFilter } from "./service-types";
 
-export const DEFAULT_STALE_STATUSES: TaskStatus[] = ["open", "in_progress", "blocked"];
+export const DEFAULT_STALE_STATUSES: TaskStatus[] = ["open", "in_progress", "blocked", "deferred"];
 
 export function uniqueRootId(state: State, title: string): string {
   const maxAttempts = 10;
@@ -98,6 +98,9 @@ export function applyListFilter(tasks: Task[], filter: ListFilter): Task[] {
       if (task.closed_at <= filter.closedAfter) {
         return false;
       }
+    }
+    if (filter.planning_state && task.planning_state !== filter.planning_state) {
+      return false;
     }
     return true;
   });

@@ -1,5 +1,5 @@
 import pc from "picocolors";
-import type { HistoryResult } from "../app/service";
+import type { HistoryResult, MergeResult, OrphansResult } from "../app/service";
 import type { DepTreeNode } from "../domain/dep-tree";
 import type { RepairResult, Task, TaskNote, TaskStatus, TaskTreeNode } from "../types";
 import { type Density, resolveDensity, resolveWidth } from "./terminal";
@@ -48,6 +48,9 @@ export function printTaskList(tasks: Task[]): void {
 export function printTask(task: Task): void {
   console.log(`${pc.bold(task.id)} ${task.title}`);
   console.log(`kind=${task.kind} status=${task.status} priority=${task.priority}`);
+  if (task.planning_state) {
+    console.log(`planning=${task.planning_state}`);
+  }
   if (task.assignee) {
     console.log(`assignee=${task.assignee}`);
   }
@@ -101,7 +104,7 @@ export function renderTaskTree(nodes: TaskTreeNode[], options: TreeRenderOptions
   const totals = summarizeTree(nodes);
   lines.push(
     pc.dim(
-      `total=${totals.total} open=${totals.open} in_progress=${totals.in_progress} blocked=${totals.blocked} closed=${totals.closed} canceled=${totals.canceled}`,
+      `total=${totals.total} open=${totals.open} in_progress=${totals.in_progress} blocked=${totals.blocked} deferred=${totals.deferred} closed=${totals.closed} canceled=${totals.canceled}`,
     ),
   );
   return lines;
@@ -201,6 +204,37 @@ export function printRepairResult(result: RepairResult): void {
   }
 }
 
+export function printMergeResult(result: MergeResult): void {
+  if (result.dry_run) {
+    console.log("mode=dry-run (use without --dry-run to apply)");
+  }
+  console.log(`target=${result.target.id} "${result.target.title}" [${result.target.status}]`);
+  if (result.plan_summary) {
+    console.log(
+      `plan=requested:${result.plan_summary.requested_sources} merged:${result.plan_summary.merged_sources} skipped:${result.plan_summary.skipped_sources} events:${result.plan_summary.planned_events}`,
+    );
+  }
+  console.log(`merged=${result.merged.length}`);
+  for (const m of result.merged) {
+    console.log(`  ${m.id} -> ${m.status}`);
+  }
+  if (result.projected) {
+    console.log(
+      `projected_target=${result.projected.target.id} [${result.projected.target.status}] planning=${result.projected.target.planning_state ?? "needs_planning"}`,
+    );
+    for (const source of result.projected.sources) {
+      console.log(
+        `  projected_source=${source.id} [${source.status}] duplicate_of=${source.duplicate_of ?? "-"}`,
+      );
+    }
+  }
+  if (result.warnings.length > 0) {
+    for (const w of result.warnings) {
+      console.log(`warning: ${w}`);
+    }
+  }
+}
+
 export function formatMetaBadge(task: Task): string {
   return `[p${task.priority}${task.assignee ? ` @${task.assignee}` : ""}]`;
 }
@@ -251,6 +285,8 @@ export function formatStatusText(status: TaskStatus): string {
       return "✓ closed";
     case "canceled":
       return "✕ canceled";
+    case "deferred":
+      return "◇ deferred";
     default:
       return status;
   }
@@ -268,6 +304,8 @@ export function formatStatus(status: TaskStatus): string {
       return pc.green("✓ closed");
     case "canceled":
       return pc.red("✕ canceled");
+    case "deferred":
+      return pc.magenta("◇ deferred");
     default:
       return status;
   }
@@ -279,6 +317,7 @@ function summarizeTree(nodes: TaskTreeNode[]): Record<TaskStatus | "total", numb
     open: 0,
     in_progress: 0,
     blocked: 0,
+    deferred: 0,
     closed: 0,
     canceled: 0,
   };
@@ -337,6 +376,26 @@ export function printTaskNotes(taskId: string, notes: TaskNote[]): void {
     console.log(`${note.ts} by=${note.actor} [${note.event_id}]`);
     console.log(note.text);
   }
+}
+
+export function printOrphansResult(result: OrphansResult): void {
+  if (result.total === 0) {
+    console.log("clean — no orphaned deps or links");
+    return;
+  }
+  if (result.orphaned_deps.length > 0) {
+    console.log(`orphaned_deps=${result.orphaned_deps.length}`);
+    for (const dep of result.orphaned_deps) {
+      console.log(`  ${dep.child} -> ${dep.blocker}`);
+    }
+  }
+  if (result.orphaned_links.length > 0) {
+    console.log(`orphaned_links=${result.orphaned_links.length}`);
+    for (const link of result.orphaned_links) {
+      console.log(`  ${link.src} -[${link.type}]-> ${link.dst}`);
+    }
+  }
+  console.log(`total=${result.total}`);
 }
 
 export function printDepTreeResult(root: DepTreeNode): void {

@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bun run:*)",
+      "Bash(bun -e:*)",
+      "Bash(tsq list:*)",
+      "Bash(tsq tree:*)",
+      "Bash(tsq show:*)",
+      "Bash(tsq ready:*)",
+      "Bash(bun test:*)"
+    ]
+  }
+}

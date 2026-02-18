@@ -1,25 +1,24 @@
 # LEARNINGS
 
-- 2026-02-17: Chose JSONL-first V1 architecture (`.tasque/events.jsonl` source of truth, `state.json` derived cache). Explicitly no sqlite/dolt/backend abstraction in V1.
-- 2026-02-17: Beads-inspired plan finalized in `docs/learned/tasque-v1-implementation-plan.md`. Chosen path: Bun+TypeScript V1, JSONL source-of-truth + derived state cache + single-machine lockfile protocol for <=5 concurrent agents.
-- 2026-02-17: Locked V1 defaults: Bun runtime; fixed 6-char hash IDs + append-only child IDs; strict CAS claim; no generic link API in V1; supersede without auto-rewire; dep/supersede cycle rejection; state cache gitignored; JSON output includes schema_version=1.
-- 2026-02-17: Updated V1 spec to Beads-compatible supersede/link behavior: generic `link add/remove` in V1; `supersede` closes source task and sets `superseded_by` without dependency rewiring.
-- 2026-02-17: Locked durability decisions: bidirectional relates_to, canonical supersede command (close source + superseded_by), universal JSON envelope with schema_version=1, ULID event IDs, fail-safe stale-lock cleanup, and snapshot-based compaction with events.jsonl as canonical source.
-- 2026-02-17: Docs synced to shipped V1 behavior (including `doctor`, `--exact-id`, lock policy, JSON envelope, and storage layout). Pitfall fixed: plan/spec references diverged from implementation defaults (`snapshot_every=200`, local-only snapshots via `.tasque/.gitignore`).
-- 2026-02-17: Corrected earlier draft mismatch: V1 does include generic `link add/remove` plus dedicated `supersede` workflow command.
-- 2026-02-17: Added release packaging flow: `bun run build` compiles single binary; `bun run release` emits platform artifact + `SHA256SUMS.txt` in `dist/releases/`.
-- 2026-02-17: Added skill lifecycle via `tsq init` for `claude|codex|copilot|opencode` with safe managed-marker semantics (`install`, `uninstall`, idempotent update, non-managed skip unless force) plus CLI/e2e coverage.
-- 2026-02-17: Added `tsq list --tree` with nested parent/child rendering and per-node blocker/dependent context; JSON mode returns structured `tree` nodes (`task`, `blockers`, `dependents`, `children`).
-- 2026-02-17: Renamed derived cache path from `.tasque/state.json` to `.tasque/tasks.jsonl`; dropped legacy cache-file read compatibility.
-- 2026-02-17: Polished `tsq list --tree` output with width-aware density modes (wide/medium/narrow): inline metadata on wide terminals, dependency flow on secondary line for medium, and truncated titles + metadata lanes on narrow widths; covered by dedicated renderer width-tier tests.
-- 2026-02-17: Implemented Beads-parity features: `close`/`reopen` (multi-id), `history` (filtered, newest-first, limit+truncation), `label add/remove/list` + `list --label`, `dep tree` (up/down/both with cycle-safe visited set), `search` (structured query with field:value, negation, AND logic). All via existing `task.updated` event type — no schema changes. Pitfall: `resolveTaskId` throws `TASK_NOT_FOUND` not `NOT_FOUND`; negated search queries (`-field:value`) need `--` separator due to commander option parsing.
-- 2026-02-17: Snapshot maintenance hardened: loader now scans newest-to-oldest valid snapshot and reports warnings for invalid files; snapshot writes prune to latest 5 files with repair command as backstop.
-- 2026-02-18: Implemented external release hooks (no tsq release command): `bun run release` now generates task-derived `RELEASE_NOTES.md/.json` from installed `tsq --json`, uses latest git tag baseline when present, and writes SHA256 over all release artifacts.
-- 2026-02-18: Beads gap review captured in `docs/learned/beads-gap-analysis-2026-02-18.md`. Recommended next pull-overs for Tasque: rich task content (`description` + notes), `stale` command, selected list filter expansion, then duplicate workflow and optional external refs; explicitly skip Dolt/daemon/sync class features for current single-user local-first scope.
-- 2026-02-18: Added rich content core: optional task `description`, append-only deterministic `notes` (from `task.noted` event metadata), CLI note commands, update/create description flags, show rendering visibility, and search matching across title+description+notes.
-- 2026-02-18: Implemented spec ingestion via `tsq spec attach` with exclusive source validation (`--file|--stdin|--text|positional`), canonical spec storage at `.tasque/specs/<task-id>/spec.md`, `task.spec_attached` event projection, and show/json exposure of spec metadata (`spec_path`, `spec_fingerprint`, `spec_attached_at`, `spec_attached_by`).
-- 2026-02-18: Spec durability contract now documented/tested around `tsq spec check` + claim gate: check returns `ok` + diagnostics (including fingerprint drift and missing required sections `Overview|Constraints / Non-goals|Interfaces (CLI/API)|Data model / schema changes|Acceptance criteria|Test plan`), and `tsq update <id> --claim --require-spec` rejects claim when diagnostics are present.
-- 2026-02-18: Extended list filters with `--label-any`, `--created-after`, `--updated-after`, `--closed-after`, `--no-assignee`, and repeatable `--id`; parser supports csv/repeat forms and rejects ambiguous `--assignee` + `--no-assignee`.
-- 2026-02-18: Added duplicate workflow commands: `tsq duplicate <id> --of <canonical>` (sets `duplicate_of`, closes source, adds duplicates link metadata, no dependency rewiring) and dry-run `tsq duplicates --limit N` title-based candidate scaffold.
-- 2026-02-18: Added `external_ref` end-to-end (`create`/`update`/`show`, `list --external-ref`, `search external_ref:<value>`), including clear semantics via `--clear-external-ref`.
-- 2026-02-18: Added `tsq watch` live view with `--once`, status/assignee filters, optional tree rendering, JSON frame output, and default `--interval 2` seconds.
+## Architecture
+- JSONL append-only events (`.tasque/events.jsonl`) are the sole source of truth. Derived state (`.tasque/tasks.jsonl`) is a rebuildable cache — never edit it manually.
+- Single-machine write lock via `.tasque/.lock` (`open wx`, short retry). No multi-writer guarantees.
+- Snapshot loader scans newest-to-oldest valid snapshot; writes prune to latest 5 files.
+- Event IDs are ULIDs. Task IDs are 6-char hashes (root) or `<parent>.<n>` (children, append-only).
+- JSON output uses a universal envelope with `schema_version=1`.
+
+## Design Decisions
+- Bidirectional `relates_to` links; canonical `supersede` closes the source task and sets `superseded_by` without dependency/link rewiring.
+- `duplicate` closes source, adds `duplicate_of` metadata — no dependency rewiring (same pattern as supersede).
+- Strict CAS (compare-and-swap) claim semantics.
+- Spec required sections: `Overview`, `Constraints / Non-goals`, `Interfaces (CLI/API)`, `Data model / schema changes`, `Acceptance criteria`, `Test plan`.
+- Timestamp filters (`--created-after`, `--updated-after`, `--closed-after`) require strict ISO timestamps; reject natural-language dates.
+
+## Pitfalls
+- `resolveTaskId` throws `TASK_NOT_FOUND`, not `NOT_FOUND`.
+- Negated search queries (`-field:value`) need a `--` separator before them due to commander treating leading `-` as option flags.
+- Commander option conflict detection (e.g. `--assignee` vs `--no-assignee`) must use option events, not just value checks, to handle both `--flag value` and `--flag=value` forms consistently.
+
+## Build & Release
+- `bun run build` compiles a single binary; `bun run release` emits a platform artifact + `SHA256SUMS.txt` in `dist/releases/`.
+- `tsq init` skill lifecycle for agents uses managed-marker semantics: install, uninstall, idempotent update, non-managed skip unless `--force`.

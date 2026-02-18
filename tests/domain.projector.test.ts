@@ -295,6 +295,72 @@ describe("projector rich content", () => {
     ]);
     expect(noted.tasks["tsq-rich03"]?.updated_at).toBe(at(2));
   });
+
+  test("task.spec_attached stores spec metadata", () => {
+    const withTask = applyEvent(
+      createEmptyState(),
+      event("task.created", "tsq-rich04", { title: "Spec", kind: "task", priority: 1 }, 1),
+    );
+    const attached = applyEvent(
+      withTask,
+      event(
+        "task.spec_attached",
+        "tsq-rich04",
+        {
+          spec_path: ".tasque/specs/tsq-rich04/spec.md",
+          spec_fingerprint: "abc123",
+          spec_attached_at: at(2),
+          spec_attached_by: "spec-agent",
+        },
+        2,
+      ),
+    );
+
+    expect(attached.tasks["tsq-rich04"]?.spec_path).toBe(".tasque/specs/tsq-rich04/spec.md");
+    expect(attached.tasks["tsq-rich04"]?.spec_fingerprint).toBe("abc123");
+    expect(attached.tasks["tsq-rich04"]?.spec_attached_at).toBe(at(2));
+    expect(attached.tasks["tsq-rich04"]?.spec_attached_by).toBe("spec-agent");
+    expect(attached.tasks["tsq-rich04"]?.updated_at).toBe(at(2));
+  });
+
+  test("task.spec_attached requires path and fingerprint", () => {
+    const withTask = applyEvent(
+      createEmptyState(),
+      event("task.created", "tsq-rich05", { title: "Spec invalid", kind: "task", priority: 1 }, 1),
+    );
+    expect(() =>
+      applyEvent(withTask, event("task.spec_attached", "tsq-rich05", { spec_path: "x" }, 2)),
+    ).toThrow("task.spec_attached requires spec_path and spec_fingerprint");
+  });
+});
+
+describe("projector spec attach", () => {
+  test("task.spec_attached defaults attached metadata to event timestamp and actor", () => {
+    const created = applyEvent(
+      createEmptyState(),
+      event("task.created", "tsq-spec01", { title: "Spec", kind: "task", priority: 1 }, 1),
+    );
+
+    const withSpec = applyEvent(
+      created,
+      event(
+        "task.spec_attached",
+        "tsq-spec01",
+        {
+          spec_path: ".tasque/specs/tsq-spec01/spec.md",
+          spec_fingerprint: "abc123",
+        },
+        2,
+      ),
+    );
+
+    const projected = withSpec.tasks["tsq-spec01"];
+    expect(projected?.spec_path).toBe(".tasque/specs/tsq-spec01/spec.md");
+    expect(projected?.spec_fingerprint).toBe("abc123");
+    expect(projected?.spec_attached_at).toBe(at(2));
+    expect(projected?.spec_attached_by).toBe("test");
+    expect(projected?.updated_at).toBe(at(2));
+  });
 });
 
 describe("projector supersede", () => {

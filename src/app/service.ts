@@ -1,5 +1,6 @@
-import { mkdir, open, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { mkdir, open, readFile, rename } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { ulid } from "ulid";
 import { buildDepTree } from "../domain/dep-tree";
 import type { DepDirection, DepTreeNode } from "../domain/dep-tree";
@@ -15,7 +16,7 @@ import type { SkillOperationSummary, SkillTarget } from "../skills/types";
 import { writeDefaultConfig } from "../store/config";
 import { appendEvents } from "../store/events";
 import { withWriteLock } from "../store/lock";
-import { getPaths } from "../store/paths";
+import { getPaths, taskSpecFile, taskSpecRelativePath } from "../store/paths";
 import type {
   EventRecord,
   Priority,
@@ -144,6 +145,15 @@ export interface NoteListInput {
   exactId?: boolean;
 }
 
+export interface SpecAttachInput {
+  id: string;
+  file?: string;
+  source?: string;
+  text?: string;
+  stdin?: boolean;
+  exactId?: boolean;
+}
+
 export interface NoteAddResult {
   task_id: string;
   note: TaskNote;
@@ -153,6 +163,17 @@ export interface NoteAddResult {
 export interface NoteListResult {
   task_id: string;
   notes: TaskNote[];
+}
+
+export interface SpecAttachResult {
+  task: Task;
+  spec: {
+    spec_path: string;
+    spec_fingerprint: string;
+    spec_attached_at: string;
+    spec_attached_by: string;
+    bytes: number;
+  };
 }
 
 export interface SearchInput {
@@ -167,6 +188,19 @@ export interface ListFilter {
   label?: string;
 }
 
+export interface StaleInput {
+  days: number;
+  status?: TaskStatus;
+  assignee?: string;
+}
+
+export interface StaleResult {
+  tasks: Task[];
+  days: number;
+  cutoff: string;
+  statuses: TaskStatus[];
+}
+
 export interface DoctorResult {
   tasks: number;
   events: number;
@@ -174,6 +208,8 @@ export interface DoctorResult {
   warning?: string;
   issues: string[];
 }
+
+const DEFAULT_STALE_STATUSES: TaskStatus[] = ["open", "in_progress", "blocked"];
 
 export class TasqueService {
   constructor(
@@ -303,6 +339,38 @@ export class TasqueService {
   async list(filter: ListFilter): Promise<Task[]> {
     const { state } = await loadProjectedState(this.repoRoot);
     return sortTasks(applyListFilter(Object.values(state.tasks), filter));
+  }
+
+  async stale(input: StaleInput): Promise<StaleResult> {
+    if (!Number.isInteger(input.days) || input.days < 0) {
+      throw new TsqError("VALIDATION_ERROR", "days must be an integer >= 0", 1);
+    }
+
+    const { state } = await loadProjectedState(this.repoRoot);
+    const nowValue = this.now();
+    const nowMs = Date.parse(nowValue);
+    if (!Number.isFinite(nowMs)) {
+      throw new TsqError("INTERNAL_ERROR", `invalid current timestamp: ${nowValue}`, 2);
+    }
+
+    const cutoff = new Date(nowMs - input.days * 24 * 60 * 60 * 1000).toISOString();
+    const statuses = input.status ? [input.status] : [...DEFAULT_STALE_STATUSES];
+    const tasks = Object.values(state.tasks).filter((task) => {
+      if (!statuses.includes(task.status)) {
+        return false;
+      }
+      if (input.assignee && task.assignee !== input.assignee) {
+        return false;
+      }
+      return task.updated_at <= cutoff;
+    });
+
+    return {
+      tasks: sortStaleTasks(tasks),
+      days: input.days,
+      cutoff,
+      statuses,
+    };
   }
 
   async listTree(filter: ListFilter): Promise<TaskTreeNode[]> {
@@ -470,6 +538,44 @@ export class TasqueService {
       task_id: id,
       notes: [...(task.notes ?? [])],
     };
+  }
+
+  async specAttach(input: SpecAttachInput): Promise<SpecAttachResult> {
+    const source = resolveSpecAttachSource(input);
+    const sourceContent = await readSpecAttachContent(source);
+    if (sourceContent.trim().length === 0) {
+      throw new TsqError("VALIDATION_ERROR", "spec markdown content must not be empty", 1);
+    }
+
+    return withWriteLock(this.repoRoot, async () => {
+      const { state, allEvents } = await loadProjectedState(this.repoRoot);
+      const id = mustResolveExisting(state, input.id, input.exactId);
+      const specFile = await writeTaskSpecAtomic(this.repoRoot, id, sourceContent);
+      const fingerprint = sha256(specFile.content);
+      const attachedAt = this.now();
+      const attachedBy = this.actor;
+
+      const event = makeEvent(this.actor, attachedAt, "task.spec_attached", id, {
+        spec_path: specFile.specPath,
+        spec_fingerprint: fingerprint,
+        spec_attached_at: attachedAt,
+        spec_attached_by: attachedBy,
+      });
+      const nextState = applyEvents(state, [event]);
+      await appendEvents(this.repoRoot, [event]);
+      await persistProjection(this.repoRoot, nextState, allEvents.length + 1);
+
+      return {
+        task: mustTask(nextState, id),
+        spec: {
+          spec_path: specFile.specPath,
+          spec_fingerprint: fingerprint,
+          spec_attached_at: attachedAt,
+          spec_attached_by: attachedBy,
+          bytes: Buffer.byteLength(specFile.content, "utf8"),
+        },
+      };
+    });
   }
 
   async claim(input: ClaimInput): Promise<Task> {
@@ -801,6 +907,18 @@ function sortTasks(tasks: Task[]): Task[] {
   });
 }
 
+function sortStaleTasks(tasks: Task[]): Task[] {
+  return [...tasks].sort((a, b) => {
+    if (a.updated_at !== b.updated_at) {
+      return a.updated_at.localeCompare(b.updated_at);
+    }
+    if (a.priority !== b.priority) {
+      return a.priority - b.priority;
+    }
+    return a.id.localeCompare(b.id);
+  });
+}
+
 function applyListFilter(tasks: Task[], filter: ListFilter): Task[] {
   const allowedStatuses = filter.status ? [filter.status] : filter.statuses;
   return tasks.filter((task) => {
@@ -837,6 +955,101 @@ function buildDependentsByBlocker(deps: State["deps"]): Map<string, string[]> {
 
 function sortTaskIds(taskIds: string[]): string[] {
   return [...taskIds].sort((a, b) => a.localeCompare(b));
+}
+
+type SpecAttachSource =
+  | { type: "file"; path: string }
+  | { type: "stdin" }
+  | { type: "text"; content: string };
+
+function resolveSpecAttachSource(input: SpecAttachInput): SpecAttachSource {
+  const file = normalizeOptionalInput(input.file);
+  const positional = normalizeOptionalInput(input.source);
+  const hasStdin = input.stdin === true;
+  const hasText = input.text !== undefined;
+
+  const sourcesProvided = [file !== undefined, positional !== undefined, hasStdin, hasText].filter(
+    (value) => value,
+  ).length;
+  if (sourcesProvided !== 1) {
+    throw new TsqError(
+      "VALIDATION_ERROR",
+      "exactly one source is required: --file, --stdin, --text, or positional source path",
+      1,
+    );
+  }
+
+  if (hasText) {
+    return { type: "text", content: input.text ?? "" };
+  }
+  if (hasStdin) {
+    return { type: "stdin" };
+  }
+  return { type: "file", path: file ?? positional ?? "" };
+}
+
+async function readSpecAttachContent(source: SpecAttachSource): Promise<string> {
+  if (source.type === "text") {
+    return source.content;
+  }
+  if (source.type === "stdin") {
+    return readStdinContent();
+  }
+
+  try {
+    return await readFile(source.path, "utf8");
+  } catch (error) {
+    throw new TsqError("IO_ERROR", `failed reading spec source file: ${source.path}`, 2, error);
+  }
+}
+
+async function readStdinContent(): Promise<string> {
+  process.stdin.setEncoding("utf8");
+  let content = "";
+  for await (const chunk of process.stdin) {
+    content += chunk;
+  }
+  return content;
+}
+
+async function writeTaskSpecAtomic(
+  repoRoot: string,
+  taskId: string,
+  content: string,
+): Promise<{ specPath: string; content: string }> {
+  const specFile = taskSpecFile(repoRoot, taskId);
+  const specPath = taskSpecRelativePath(taskId);
+  await mkdir(dirname(specFile), { recursive: true });
+  const temp = `${specFile}.tmp-${process.pid}-${Date.now()}`;
+
+  try {
+    const handle = await open(temp, "w");
+    try {
+      await handle.writeFile(content, "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await rename(temp, specFile);
+    return {
+      specPath,
+      content: await readFile(specFile, "utf8"),
+    };
+  } catch (error) {
+    throw new TsqError("IO_ERROR", "failed writing attached spec", 2, error);
+  }
+}
+
+function sha256(content: string): string {
+  return createHash("sha256").update(content, "utf8").digest("hex");
+}
+
+function normalizeOptionalInput(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 async function ensureTasqueGitignore(repoRoot: string): Promise<void> {

@@ -49,6 +49,12 @@ interface ListCommandOptions {
   full?: boolean;
 }
 
+interface StaleCommandOptions {
+  days?: string;
+  status?: string;
+  assignee?: string;
+}
+
 interface CreateCommandOptions {
   kind?: string;
   priority?: string;
@@ -64,6 +70,12 @@ interface UpdateCommandOptions {
   priority?: string;
   claim?: boolean;
   assignee?: string;
+}
+
+interface SpecAttachCommandOptions {
+  file?: string;
+  stdin?: boolean;
+  text?: string;
 }
 
 const TREE_DEFAULT_STATUSES: TaskStatus[] = ["open", "in_progress"];
@@ -236,6 +248,28 @@ export function buildProgram(deps: RuntimeDeps): Command {
     });
 
   program
+    .command("stale")
+    .option("--days <n>", "stale threshold in days", "30")
+    .option("--status <status>", "single status scope")
+    .option("--assignee <assignee>", "filter by assignee")
+    .description("List stale tasks")
+    .action(async function action(options: StaleCommandOptions) {
+      await runAction(
+        this,
+        async () =>
+          deps.service.stale({
+            days: parseNonNegativeInt(options.days ?? "30", "days"),
+            status: options.status ? normalizeStatus(options.status) : undefined,
+            assignee: asOptionalString(options.assignee),
+          }),
+        {
+          jsonData: (data) => data,
+          human: (data) => printTaskList(data.tasks),
+        },
+      );
+    });
+
+  program
     .command("ready")
     .description("List ready tasks")
     .action(async function action() {
@@ -378,6 +412,42 @@ export function buildProgram(deps: RuntimeDeps): Command {
         jsonData: (data) => data,
         human: (data) => printTaskNotes(data.task_id, data.notes),
       });
+    });
+
+  const spec = program.command("spec").description("Task specification operations");
+  spec
+    .command("attach")
+    .argument("<id>", "task id")
+    .argument("[source]", "markdown source file path (shorthand for --file)")
+    .option("--file <path>", "markdown source file path")
+    .option("--stdin", "read markdown source from stdin")
+    .option("--text <markdown>", "inline markdown source")
+    .description("Attach markdown spec to a task")
+    .action(async function action(
+      id: string,
+      source: string | undefined,
+      options: SpecAttachCommandOptions,
+    ) {
+      await runAction(
+        this,
+        async (opts) =>
+          deps.service.specAttach({
+            id,
+            source: asOptionalString(source),
+            file: asOptionalString(options.file),
+            stdin: Boolean(options.stdin),
+            text: typeof options.text === "string" ? options.text : undefined,
+            exactId: opts.exactId,
+          }),
+        {
+          jsonData: (data) => data,
+          human: (data) => {
+            printTask(data.task);
+            console.log(`spec=${data.spec.spec_path}`);
+            console.log(`spec_sha256=${data.spec.spec_fingerprint}`);
+          },
+        },
+      );
     });
 
   const dep = program.command("dep").description("Dependency operations");
@@ -738,6 +808,18 @@ function parseDepDirection(raw?: string): DepDirection | undefined {
   if (!raw) return undefined;
   if (raw === "up" || raw === "down" || raw === "both") return raw;
   throw new TsqError("VALIDATION_ERROR", "direction must be up|down|both", 1);
+}
+
+function parseNonNegativeInt(raw: string, field: string): number {
+  const trimmed = raw.trim();
+  if (!/^-?\d+$/u.test(trimmed)) {
+    throw new TsqError("VALIDATION_ERROR", `${field} must be an integer >= 0`, 1);
+  }
+  const value = Number.parseInt(trimmed, 10);
+  if (value < 0) {
+    throw new TsqError("VALIDATION_ERROR", `${field} must be an integer >= 0`, 1);
+  }
+  return value;
 }
 
 function asTsqError(error: unknown): TsqError {

@@ -18,6 +18,10 @@ export interface Task {
   title: string;
   description?: string;
   notes: TaskNote[];
+  spec_path?: string;
+  spec_fingerprint?: string;
+  spec_attached_at?: string;
+  spec_attached_by?: string;
   status: TaskStatus;
   priority: Priority;
   assignee?: string;
@@ -47,6 +51,7 @@ export interface EventRecord {
     | "task.updated"
     | "task.claimed"
     | "task.noted"
+    | "task.spec_attached"
     | "task.superseded"
     | "dep.added"
     | "dep.removed"

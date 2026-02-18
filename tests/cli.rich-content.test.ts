@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -66,6 +67,7 @@ async function runJson(
   repoDir: string,
   args: string[],
   actor = "test-rich-content",
+  stdinText?: string,
 ): Promise<JsonResult> {
   const proc = Bun.spawn({
     cmd: ["bun", "run", cliEntry, ...args, "--json"],
@@ -74,9 +76,17 @@ async function runJson(
       ...process.env,
       TSQ_ACTOR: actor,
     },
+    stdin: stdinText === undefined ? "ignore" : "pipe",
     stdout: "pipe",
     stderr: "pipe",
   });
+
+  if (stdinText !== undefined) {
+    const stdin = proc.stdin;
+    expect(stdin).toBeDefined();
+    stdin?.write(stdinText);
+    stdin?.end();
+  }
 
   const [exitCode, stdout, stderr] = await Promise.all([
     proc.exited,
@@ -271,5 +281,134 @@ describe("cli rich content", () => {
     expect(shown.exitCode).toBe(0);
     expect(shown.stdout.includes("description=Visible description text")).toBe(true);
     expect(shown.stdout.includes("notes=1")).toBe(true);
+  });
+
+  it("spec attach stores markdown from --text and show exposes spec metadata", async () => {
+    const repo = await makeRepo();
+    await runJson(repo, ["init"]);
+    const created = okData<{ task: { id: string } }>(
+      (await runJson(repo, ["create", "Spec attach text"])).envelope,
+    ).task;
+
+    const markdown = "# Delivery Plan\n\n- one\n- two\n";
+    const attached = await runJson(repo, ["spec", "attach", created.id, "--text", markdown]);
+    expect(attached.exitCode).toBe(0);
+    const attachedData = okData<{
+      task: {
+        id: string;
+        spec_path?: string;
+        spec_fingerprint?: string;
+        spec_attached_at?: string;
+        spec_attached_by?: string;
+      };
+      spec: {
+        spec_path: string;
+        spec_fingerprint: string;
+        spec_attached_at: string;
+        spec_attached_by: string;
+        bytes: number;
+      };
+    }>(attached.envelope);
+
+    expect(attachedData.spec.spec_path).toBe(`.tasque/specs/${created.id}/spec.md`);
+    expect(attachedData.task.spec_path).toBe(attachedData.spec.spec_path);
+    expect(attachedData.task.spec_fingerprint).toBe(attachedData.spec.spec_fingerprint);
+    expect(attachedData.task.spec_attached_at).toBe(attachedData.spec.spec_attached_at);
+    expect(attachedData.task.spec_attached_by).toBe("test-rich-content");
+    expect(attachedData.spec.bytes).toBe(markdown.length);
+
+    const persisted = await readFile(join(repo, ".tasque", "specs", created.id, "spec.md"), "utf8");
+    expect(persisted).toBe(markdown);
+    expect(attachedData.spec.spec_fingerprint).toBe(
+      createHash("sha256").update(persisted, "utf8").digest("hex"),
+    );
+
+    const shown = okData<{
+      task: {
+        spec_path?: string;
+        spec_fingerprint?: string;
+        spec_attached_at?: string;
+        spec_attached_by?: string;
+      };
+    }>((await runJson(repo, ["show", created.id])).envelope);
+    expect(shown.task.spec_path).toBe(`.tasque/specs/${created.id}/spec.md`);
+    expect(shown.task.spec_fingerprint).toBe(attachedData.spec.spec_fingerprint);
+    expect(shown.task.spec_attached_at).toBe(attachedData.spec.spec_attached_at);
+    expect(shown.task.spec_attached_by).toBe(attachedData.spec.spec_attached_by);
+
+    const shownHuman = await runCli(repo, ["show", created.id]);
+    expect(shownHuman.exitCode).toBe(0);
+    expect(shownHuman.stdout.includes(`spec=.tasque/specs/${created.id}/spec.md`)).toBe(true);
+  });
+
+  it("spec attach supports positional file shorthand and stdin", async () => {
+    const repo = await makeRepo();
+    await runJson(repo, ["init"]);
+    const fromFileTask = okData<{ task: { id: string } }>(
+      (await runJson(repo, ["create", "Spec attach file"])).envelope,
+    ).task;
+
+    const sourceFile = join(repo, "spec-source.md");
+    await writeFile(sourceFile, "## Source file spec\n", "utf8");
+    const fileAttach = await runJson(repo, ["spec", "attach", fromFileTask.id, sourceFile]);
+    expect(fileAttach.exitCode).toBe(0);
+    const fileAttachData = okData<{ spec: { spec_path: string } }>(fileAttach.envelope);
+    expect(fileAttachData.spec.spec_path).toBe(`.tasque/specs/${fromFileTask.id}/spec.md`);
+    expect(await readFile(join(repo, ".tasque", "specs", fromFileTask.id, "spec.md"), "utf8")).toBe(
+      "## Source file spec\n",
+    );
+
+    const fromStdinTask = okData<{ task: { id: string } }>(
+      (await runJson(repo, ["create", "Spec attach stdin"])).envelope,
+    ).task;
+    const stdinAttach = await runJson(
+      repo,
+      ["spec", "attach", fromStdinTask.id, "--stdin"],
+      "stdin-actor",
+      "### stdin spec\n",
+    );
+    expect(stdinAttach.exitCode).toBe(0);
+    const stdinAttachData = okData<{
+      task: { spec_attached_by?: string };
+      spec: { spec_attached_by: string };
+    }>(stdinAttach.envelope);
+    expect(stdinAttachData.task.spec_attached_by).toBe("stdin-actor");
+    expect(stdinAttachData.spec.spec_attached_by).toBe("stdin-actor");
+    expect(
+      await readFile(join(repo, ".tasque", "specs", fromStdinTask.id, "spec.md"), "utf8"),
+    ).toBe("### stdin spec\n");
+  });
+
+  it("spec attach enforces exactly one source and non-empty markdown", async () => {
+    const repo = await makeRepo();
+    await runJson(repo, ["init"]);
+    const created = okData<{ task: { id: string } }>(
+      (await runJson(repo, ["create", "Spec attach validation"])).envelope,
+    ).task;
+    const sourceFile = join(repo, "spec-source-validation.md");
+    await writeFile(sourceFile, "# validation\n", "utf8");
+
+    const conflict = await runJson(repo, [
+      "spec",
+      "attach",
+      created.id,
+      "--file",
+      sourceFile,
+      "--text",
+      "# inline",
+    ]);
+    expect(conflict.exitCode).toBe(1);
+    expect(conflict.envelope.ok).toBe(false);
+    expect(conflict.envelope.error?.code).toBe("VALIDATION_ERROR");
+
+    const empty = await runJson(repo, ["spec", "attach", created.id, "--text", " \n\t "]);
+    expect(empty.exitCode).toBe(1);
+    expect(empty.envelope.ok).toBe(false);
+    expect(empty.envelope.error?.code).toBe("VALIDATION_ERROR");
+
+    const missingTask = await runJson(repo, ["spec", "attach", "tsq-missing", "--text", "# x"]);
+    expect(missingTask.exitCode).toBe(1);
+    expect(missingTask.envelope.ok).toBe(false);
+    expect(missingTask.envelope.error?.code).toBe("TASK_NOT_FOUND");
   });
 });

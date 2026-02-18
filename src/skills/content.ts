@@ -38,6 +38,13 @@ Use \`tsq\` for durable local task tracking.
 
 - \`tsq history <id> [--limit N] [--type <event-type>] [--actor <name>] [--since <iso>]\`
 
+## Specs
+
+- \`tsq spec attach <id> --text "<markdown>"\` for short inline specs
+- \`tsq spec attach <id> --file <path>\` to ingest an existing markdown file
+- \`tsq spec attach <id> --stdin\` to ingest piped markdown content
+- Never manually write \`.tasque/specs/<id>/spec.md\`; always use \`tsq spec attach\` so canonical path + metadata stay consistent
+
 ## Labels
 
 - \`tsq label add <id> <label>\` — add label (lowercase, [a-z0-9:_/-], max 64)

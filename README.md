@@ -43,6 +43,7 @@ Repo-local `.tasque/`:
 - `events.jsonl`: canonical append-only event log.
 - `tasks.jsonl`: derived projection cache (rebuildable, gitignored).
 - `snapshots/`: periodic checkpoints (gitignored by default).
+- `specs/<task-id>/spec.md`: canonical markdown specs attached to tasks.
 - `config.json`: config (`snapshot_every` default `200`).
 - `.lock`: ephemeral write lock.
 - `.gitignore`: local-only artifacts (`tasks.jsonl`, `.lock`, `snapshots/`, temp files).
@@ -66,11 +67,13 @@ Commands:
 - `tsq show <id>`
 - `tsq list [--status <open|in_progress|blocked|closed|canceled|done>] [--assignee <name>] [--kind <task|feature|epic>] [--tree] [--full]`
 - `tsq ready`
+- `tsq stale [--days <n>] [--status <open|in_progress|blocked|closed|canceled|done>] [--assignee <name>]`
 - `tsq doctor`
 - `tsq update <id> [--title <text>] [--status <...>] [--priority <0..3>] [--description <text>] [--clear-description]`
 - `tsq update <id> --claim [--assignee <name>]`
 - `tsq note add <id> <text>`
 - `tsq note list <id>`
+- `tsq spec attach <id> [source] [--file <path> | --stdin | --text <markdown>]`
 - `tsq dep add <child> <blocker>`
 - `tsq dep remove <child> <blocker>`
 - `tsq link add <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
@@ -144,6 +147,7 @@ Error shape:
 - Status alias: `done` accepted by CLI, normalized to `closed`.
 - Claim: strict CAS; only unassigned tasks can be claimed.
 - Ready: task status in `open|in_progress` and no open blockers.
+- Stale: returns tasks where `updated_at <= now - days` (default statuses: `open|in_progress|blocked`).
 - Open blocker: blocker exists and status is not `closed|canceled`.
 - Dependency add: self-edge/cycle rejected.
 - Relation add/remove: self-edge rejected; `relates_to` maintained bidirectionally.
@@ -155,7 +159,7 @@ Error shape:
 - Lock timeout: `3s`; retry jitter: `20-80ms`.
 - Stale lock cleanup only when lock host matches current host and lock PID is dead.
 - Event appends are fsynced; event log is append-only.
-- `tasks.jsonl`, snapshots, and config writes are atomic temp-write + rename.
+- `tasks.jsonl`, snapshots, specs, and config writes are atomic temp-write + rename.
 - Snapshot writes keep only the latest 5 snapshot JSON files (oldest pruned best-effort).
 - Snapshot load falls back newest-to-oldest and ignores invalid snapshot files with a warning.
 - Replay recovery tolerates one malformed trailing JSONL line in `events.jsonl` (ignored with warning).

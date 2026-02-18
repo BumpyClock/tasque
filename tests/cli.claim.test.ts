@@ -306,8 +306,10 @@ describe("cli claim transitions", () => {
       events: Array<{ type: string; payload: Record<string, unknown> }>;
     }>(history.envelope);
     expect(data.events.length).toBe(1);
-    expect(data.events[0].type).toBe("task.claimed");
-    expect(data.events[0].payload.assignee).toBe("historian");
+    const first = data.events.at(0);
+    expect(first).toBeDefined();
+    expect(first?.type).toBe("task.claimed");
+    expect(first?.payload.assignee).toBe("historian");
   });
 
   // ── NOT_FOUND ────────────────────────────────────────────────────────

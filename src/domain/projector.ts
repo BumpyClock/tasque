@@ -281,6 +281,33 @@ const applyTaskNoted = (state: State, event: EventRecord): void => {
   };
 };
 
+const applyTaskSpecAttached = (state: State, event: EventRecord): void => {
+  const current = requireTask(state, event.task_id);
+  const payload = asObject(event.payload);
+  const specPath = asString(payload.spec_path);
+  const specFingerprint = asString(payload.spec_fingerprint);
+  const specAttachedAt = asString(payload.spec_attached_at) ?? event.ts;
+  const specAttachedBy = asString(payload.spec_attached_by) ?? event.actor;
+
+  if (!specPath || !specFingerprint) {
+    throw new TsqError(
+      "INVALID_EVENT",
+      "task.spec_attached requires spec_path and spec_fingerprint",
+      1,
+      { event_id: event.event_id },
+    );
+  }
+
+  state.tasks[event.task_id] = {
+    ...current,
+    spec_path: specPath,
+    spec_fingerprint: specFingerprint,
+    spec_attached_at: specAttachedAt,
+    spec_attached_by: specAttachedBy,
+    updated_at: event.ts,
+  };
+};
+
 const applyTaskSuperseded = (state: State, event: EventRecord): void => {
   const source = requireTask(state, event.task_id);
   const payload = asObject(event.payload);
@@ -381,6 +408,9 @@ const applyEventMut = (state: State, event: EventRecord): void => {
       break;
     case "task.noted":
       applyTaskNoted(state, event);
+      break;
+    case "task.spec_attached":
+      applyTaskSpecAttached(state, event);
       break;
     case "task.superseded":
       applyTaskSuperseded(state, event);

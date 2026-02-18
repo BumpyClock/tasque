@@ -61,6 +61,11 @@ export function printTask(task: Task): void {
   }
   const noteCount = (task.notes ?? []).length;
   console.log(`notes=${noteCount}`);
+  if (task.spec_path && task.spec_fingerprint) {
+    const attachedBy = task.spec_attached_by ? ` by=${task.spec_attached_by}` : "";
+    const attachedAt = task.spec_attached_at ? ` at=${task.spec_attached_at}` : "";
+    console.log(`spec=${task.spec_path} sha256=${task.spec_fingerprint}${attachedBy}${attachedAt}`);
+  }
 }
 
 export function printTaskTree(nodes: TaskTreeNode[]): void {

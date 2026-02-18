@@ -7,6 +7,7 @@ export interface TasquePaths {
   stateFile: string;
   lockFile: string;
   snapshotsDir: string;
+  specsDir: string;
 }
 
 export function getPaths(repoRoot: string): TasquePaths {
@@ -18,5 +19,14 @@ export function getPaths(repoRoot: string): TasquePaths {
     stateFile: join(tasqueDir, "tasks.jsonl"),
     lockFile: join(tasqueDir, ".lock"),
     snapshotsDir: join(tasqueDir, "snapshots"),
+    specsDir: join(tasqueDir, "specs"),
   };
+}
+
+export function taskSpecRelativePath(taskId: string): string {
+  return `.tasque/specs/${taskId}/spec.md`;
+}
+
+export function taskSpecFile(repoRoot: string, taskId: string): string {
+  return join(repoRoot, ".tasque", "specs", taskId, "spec.md");
 }

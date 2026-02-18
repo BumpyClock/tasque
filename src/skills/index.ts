@@ -1,7 +1,9 @@
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
-import { MANAGED_MARKER, renderReadmeMarkdown, renderSkillMarkdown } from "./content";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { TsqError } from "../errors";
+import { MANAGED_MARKER } from "./managed";
 import type {
   SkillOperationOptions,
   SkillOperationResult,
@@ -13,6 +15,10 @@ export async function applySkillOperation(
   options: SkillOperationOptions,
 ): Promise<SkillOperationSummary> {
   const targetDirectories = resolveTargetDirectories(options);
+  const skillSourceDirectory =
+    options.action === "install"
+      ? await resolveManagedSkillSourceDirectory(options.skillName, options.sourceRootDir)
+      : undefined;
   const results: SkillOperationResult[] = [];
 
   for (const target of options.targets) {
@@ -20,10 +26,14 @@ export async function applySkillOperation(
     const skillDirectory = join(targetDirectory, options.skillName);
 
     if (options.action === "install") {
+      if (!skillSourceDirectory) {
+        throw new TsqError("INTERNAL_ERROR", "missing managed skill source directory", 2);
+      }
       results.push(
         await installSkill({
           force: options.force,
           skillName: options.skillName,
+          skillSourceDirectory,
           skillDirectory,
           target,
         }),
@@ -52,6 +62,7 @@ type PathKind = "missing" | "file" | "directory";
 interface InstallContext {
   force: boolean;
   skillName: string;
+  skillSourceDirectory: string;
   skillDirectory: string;
   target: SkillTarget;
 }
@@ -110,7 +121,7 @@ function expandHome(directory: string, home: string): string {
 async function installSkill(context: InstallContext): Promise<SkillOperationResult> {
   const pathKind = await inspectPath(context.skillDirectory);
   if (pathKind === "missing") {
-    await writeManagedSkillFiles(context.skillDirectory, context.skillName, context.target);
+    await copyManagedSkillDirectory(context.skillSourceDirectory, context.skillDirectory);
     return {
       target: context.target,
       path: context.skillDirectory,
@@ -129,7 +140,7 @@ async function installSkill(context: InstallContext): Promise<SkillOperationResu
       };
     }
     await rm(context.skillDirectory, { force: true });
-    await writeManagedSkillFiles(context.skillDirectory, context.skillName, context.target);
+    await copyManagedSkillDirectory(context.skillSourceDirectory, context.skillDirectory);
     return {
       target: context.target,
       path: context.skillDirectory,
@@ -148,7 +159,8 @@ async function installSkill(context: InstallContext): Promise<SkillOperationResu
     };
   }
 
-  await writeManagedSkillFiles(context.skillDirectory, context.skillName, context.target);
+  await rm(context.skillDirectory, { recursive: true, force: true });
+  await copyManagedSkillDirectory(context.skillSourceDirectory, context.skillDirectory);
   return {
     target: context.target,
     path: context.skillDirectory,
@@ -205,16 +217,11 @@ async function uninstallSkill(context: UninstallContext): Promise<SkillOperation
   };
 }
 
-async function writeManagedSkillFiles(
-  skillDirectory: string,
-  skillName: string,
-  target: SkillTarget,
+async function copyManagedSkillDirectory(
+  sourceDirectory: string,
+  destinationDirectory: string,
 ): Promise<void> {
-  await mkdir(skillDirectory, { recursive: true });
-  await Promise.all([
-    writeFile(join(skillDirectory, "SKILL.md"), renderSkillMarkdown(skillName), "utf8"),
-    writeFile(join(skillDirectory, "README.md"), renderReadmeMarkdown(skillName, target), "utf8"),
-  ]);
+  await copyDirectoryRecursive(sourceDirectory, destinationDirectory);
 }
 
 async function isManagedSkill(skillDirectory: string): Promise<boolean> {
@@ -247,6 +254,87 @@ async function inspectPath(path: string): Promise<PathKind> {
     }
     throw error;
   }
+}
+
+async function resolveManagedSkillSourceDirectory(
+  skillName: string,
+  sourceRootDir?: string,
+): Promise<string> {
+  const defaultHome = homedir();
+  const moduleDirectory = dirname(fileURLToPath(import.meta.url));
+  const processArgv0Directory = process.argv[0] ? dirname(resolve(process.argv[0])) : undefined;
+  const processArgvDirectory = process.argv[1] ? dirname(resolve(process.argv[1])) : undefined;
+  const execDirectory = dirname(process.execPath);
+  const candidates = uniqueNonEmptyPaths([
+    sourceRootDir ? normalizeDirectory(sourceRootDir, defaultHome) : undefined,
+    process.env.TSQ_SKILLS_DIR
+      ? normalizeDirectory(process.env.TSQ_SKILLS_DIR, defaultHome)
+      : undefined,
+    resolve(process.cwd(), "SKILLS"),
+    processArgv0Directory ? join(processArgv0Directory, "SKILLS") : undefined,
+    processArgv0Directory ? resolve(processArgv0Directory, "..", "SKILLS") : undefined,
+    processArgvDirectory ? join(processArgvDirectory, "SKILLS") : undefined,
+    resolve(moduleDirectory, "..", "..", "SKILLS"),
+    join(execDirectory, "SKILLS"),
+    resolve(execDirectory, "..", "SKILLS"),
+    join(execDirectory, "..", "share", "tsq", "SKILLS"),
+  ]);
+
+  for (const candidateRoot of candidates) {
+    const candidateDirectory = join(candidateRoot, skillName);
+    const pathKind = await inspectPath(candidateDirectory);
+    if (pathKind !== "directory") {
+      continue;
+    }
+    const skillFileKind = await inspectPath(join(candidateDirectory, "SKILL.md"));
+    if (skillFileKind === "file") {
+      return candidateDirectory;
+    }
+  }
+
+  throw new TsqError(
+    "VALIDATION_ERROR",
+    `skill source not found for '${skillName}' (expected SKILLS/${skillName}/SKILL.md)`,
+    1,
+    { searched_roots: candidates, skill_name: skillName },
+  );
+}
+
+async function copyDirectoryRecursive(
+  sourceDirectory: string,
+  destinationDirectory: string,
+): Promise<void> {
+  await mkdir(destinationDirectory, { recursive: true });
+  const entries = await readdir(sourceDirectory, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const sourcePath = join(sourceDirectory, entry.name);
+    const destinationPath = join(destinationDirectory, entry.name);
+    if (entry.isDirectory()) {
+      await copyDirectoryRecursive(sourcePath, destinationPath);
+      continue;
+    }
+    if (entry.isFile()) {
+      await copyFile(sourcePath, destinationPath);
+      continue;
+    }
+    throw new TsqError(
+      "VALIDATION_ERROR",
+      `unsupported entry in managed skill source: ${sourcePath}`,
+      1,
+    );
+  }
+}
+
+function uniqueNonEmptyPaths(paths: Array<string | undefined>): string[] {
+  const unique = new Set<string>();
+  for (const path of paths) {
+    if (!path || path.length === 0) {
+      continue;
+    }
+    unique.add(path);
+  }
+  return [...unique];
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {

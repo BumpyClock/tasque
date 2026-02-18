@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { applySkillOperation } from "../src/skills";
 import type { SkillOperationResult, SkillTarget } from "../src/skills/types";
 
 const MANAGED_MARKER = "tsq-managed-skill:v1";
 const tempDirectories: string[] = [];
 const targets: SkillTarget[] = ["claude", "codex", "copilot", "opencode"];
+const skillSourceRoot = resolve(import.meta.dir, "..", "SKILLS");
 
 afterEach(async () => {
   await Promise.all(
@@ -56,6 +57,7 @@ describe("skills installer", () => {
       skillName: "tasque",
       targets,
       force: false,
+      sourceRootDir: skillSourceRoot,
       homeDir: homeDirectory,
       codexHome: codexHomeDirectory,
       targetDirOverrides,
@@ -71,22 +73,12 @@ describe("skills installer", () => {
 
       expect(result.path).toBe(expectedPath);
       expect(result.status).toBe("installed");
+      expect(await pathExists(join(expectedPath, "references", "README.md"))).toBe(true);
+      expect(await pathExists(join(expectedPath, "scripts", "README.md"))).toBe(true);
 
       const skillMarkdownPath = join(expectedPath, "SKILL.md");
       const skillMarkdown = await readFile(skillMarkdownPath, "utf8");
-      expect(skillMarkdown.startsWith("---")).toBe(true);
       expect(skillMarkdown.includes(MANAGED_MARKER)).toBe(true);
-      expect(skillMarkdown.includes("tsq ready")).toBe(true);
-      expect(skillMarkdown.includes("tsq create")).toBe(true);
-      expect(skillMarkdown.includes("tsq update")).toBe(true);
-      expect(skillMarkdown.includes("tsq dep add")).toBe(true);
-      expect(skillMarkdown.includes("tsq show")).toBe(true);
-      expect(skillMarkdown.includes("tsq link add")).toBe(true);
-      expect(skillMarkdown.includes("tsq supersede")).toBe(true);
-      expect(skillMarkdown.includes("tsq doctor")).toBe(true);
-      expect(skillMarkdown.includes("--json")).toBe(true);
-      expect(skillMarkdown.includes("gate readiness")).toBe(true);
-      expect(skillMarkdown.includes(".tasque/events.jsonl")).toBe(true);
     }
 
     const updateSummary = await applySkillOperation({
@@ -94,6 +86,7 @@ describe("skills installer", () => {
       skillName: "tasque",
       targets,
       force: false,
+      sourceRootDir: skillSourceRoot,
       homeDir: homeDirectory,
       codexHome: codexHomeDirectory,
       targetDirOverrides,
@@ -108,6 +101,7 @@ describe("skills installer", () => {
       skillName: "tasque",
       targets,
       force: false,
+      sourceRootDir: skillSourceRoot,
       homeDir: homeDirectory,
       codexHome: codexHomeDirectory,
       targetDirOverrides,
@@ -139,6 +133,7 @@ describe("skills installer", () => {
       skillName: "tasque",
       targets: ["claude"],
       force: false,
+      sourceRootDir: skillSourceRoot,
       homeDir: join(root, "home"),
       codexHome: join(root, "codex-home"),
       targetDirOverrides: { claude: targetDirectory },
@@ -153,6 +148,7 @@ describe("skills installer", () => {
       skillName: "tasque",
       targets: ["claude"],
       force: false,
+      sourceRootDir: skillSourceRoot,
       homeDir: join(root, "home"),
       codexHome: join(root, "codex-home"),
       targetDirOverrides: { claude: targetDirectory },
@@ -177,6 +173,7 @@ describe("skills installer", () => {
       skillName: "tasque",
       targets: ["copilot"],
       force: true,
+      sourceRootDir: skillSourceRoot,
       homeDir: join(root, "home"),
       codexHome: join(root, "codex-home"),
       targetDirOverrides: { copilot: targetDirectory },

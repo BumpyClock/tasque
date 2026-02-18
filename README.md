@@ -179,6 +179,11 @@ Default target roots:
 - Copilot: `~/.copilot/skills`
 - OpenCode: `~/.opencode/skills`
 
+Managed skill source:
+
+- Install/update copies the full directory tree from `SKILLS/<skill-name>/` into each target root.
+- Include `SKILL.md` with marker `tsq-managed-skill:v1`; installer uses markers in both `SKILL.md` and `README.md` to detect managed directories.
+
 ## JSON Envelope
 
 All commands with `--json` return:

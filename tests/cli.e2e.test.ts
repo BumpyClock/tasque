@@ -402,6 +402,8 @@ describe("cli e2e", () => {
       const skillPath = join(rootDir, "tasque");
       expect(await pathExists(join(skillPath, "SKILL.md"))).toBe(true);
       expect(await pathExists(join(skillPath, "README.md"))).toBe(true);
+      expect(await pathExists(join(skillPath, "references", "README.md"))).toBe(true);
+      expect(await pathExists(join(skillPath, "scripts", "README.md"))).toBe(true);
     }
   });
 

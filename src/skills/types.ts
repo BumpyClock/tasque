@@ -7,6 +7,7 @@ export interface SkillOperationOptions {
   skillName: string;
   targets: SkillTarget[];
   force: boolean;
+  sourceRootDir?: string;
   homeDir?: string;
   codexHome?: string;
   targetDirOverrides?: Partial<Record<SkillTarget, string>>;

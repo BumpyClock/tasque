@@ -100,10 +100,7 @@ Add \`--json\` to any command for stable automation output:
 `;
 }
 
-export function renderReadmeMarkdown(
-  skillName: string,
-  target: SkillTarget,
-): string {
+export function renderReadmeMarkdown(skillName: string, target: SkillTarget): string {
   return `<!-- ${MANAGED_MARKER} -->
 # ${skillName} Skill
 

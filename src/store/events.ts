@@ -10,31 +10,19 @@ import { getPaths } from "./paths";
  * present and the expected typeof for each.
  */
 const PAYLOAD_REQUIRED_FIELDS: Record<EventType, Array<{ field: string; type: string }>> = {
-  "task.created": [
-    { field: "title", type: "string" },
-  ],
+  "task.created": [{ field: "title", type: "string" }],
   "task.updated": [],
   "task.claimed": [],
-  "task.noted": [
-    { field: "text", type: "string" },
-  ],
+  "task.noted": [{ field: "text", type: "string" }],
   "task.spec_attached": [
     { field: "spec_path", type: "string" },
     { field: "spec_fingerprint", type: "string" },
   ],
   "task.superseded": [],
-  "dep.added": [
-    { field: "blocker", type: "string" },
-  ],
-  "dep.removed": [
-    { field: "blocker", type: "string" },
-  ],
-  "link.added": [
-    { field: "type", type: "string" },
-  ],
-  "link.removed": [
-    { field: "type", type: "string" },
-  ],
+  "dep.added": [{ field: "blocker", type: "string" }],
+  "dep.removed": [{ field: "blocker", type: "string" }],
+  "link.added": [{ field: "type", type: "string" }],
+  "link.removed": [{ field: "type", type: "string" }],
 };
 
 const VALID_EVENT_TYPES = new Set<string>(Object.keys(PAYLOAD_REQUIRED_FIELDS));
@@ -43,10 +31,7 @@ const VALID_EVENT_TYPES = new Set<string>(Object.keys(PAYLOAD_REQUIRED_FIELDS));
  * Validates that an event's payload contains the required fields for its type.
  * Throws `TsqError` with code `EVENTS_CORRUPT` if validation fails.
  */
-function validateEventPayload(
-  raw: Record<string, unknown>,
-  lineNumber: number,
-): void {
+function validateEventPayload(raw: Record<string, unknown>, lineNumber: number): void {
   const eventType = raw.type as string;
   if (!VALID_EVENT_TYPES.has(eventType)) {
     throw new TsqError(

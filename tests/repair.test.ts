@@ -10,26 +10,9 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 
-interface JsonEnvelope {
-  schema_version: number;
-  command: string;
-  ok: boolean;
-  data?: unknown;
-  error?: {
-    code: string;
-    message: string;
-    details?: unknown;
-  };
-}
-
-interface JsonResult {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-  envelope: JsonEnvelope;
-}
+import { type JsonResult, assertEnvelopeShape, cliCmd, okData } from "./helpers";
 
 // CliResult removed — unused in this test file
 
@@ -49,8 +32,6 @@ interface RepairResult {
 }
 
 const repos: string[] = [];
-const repoRoot = resolve(import.meta.dir, "..");
-const cliEntry = join(repoRoot, "src", "main.ts");
 
 async function makeRepo(): Promise<string> {
   const repo = await mkdtemp(join(tmpdir(), "tasque-repair-"));
@@ -62,22 +43,9 @@ afterEach(async () => {
   await Promise.all(repos.splice(0).map((repo) => rm(repo, { recursive: true, force: true })));
 });
 
-function assertEnvelopeShape(value: unknown): asserts value is JsonEnvelope {
-  expect(value).toBeObject();
-  const envelope = value as Record<string, unknown>;
-  expect(envelope.schema_version).toBe(1);
-  expect(typeof envelope.command).toBe("string");
-  expect(typeof envelope.ok).toBe("boolean");
-  if (envelope.ok === true) {
-    expect("data" in envelope).toBe(true);
-  } else {
-    expect("error" in envelope).toBe(true);
-  }
-}
-
 async function runJson(repoDir: string, args: string[]): Promise<JsonResult> {
   const proc = Bun.spawn({
-    cmd: ["bun", "run", cliEntry, ...args, "--json"],
+    cmd: [...cliCmd, ...args, "--json"],
     cwd: repoDir,
     env: { ...process.env, TSQ_ACTOR: "repair-test" },
     stdout: "pipe",
@@ -96,11 +64,6 @@ async function runJson(repoDir: string, args: string[]): Promise<JsonResult> {
   assertEnvelopeShape(parsed);
 
   return { exitCode, stdout, stderr, envelope: parsed };
-}
-
-function okData<T>(envelope: JsonEnvelope): T {
-  expect(envelope.ok).toBe(true);
-  return envelope.data as T;
 }
 
 async function pathExists(path: string): Promise<boolean> {

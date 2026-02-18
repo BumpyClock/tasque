@@ -380,4 +380,3 @@ function resolveDensity(width: number): Density {
   if (width >= 90) return "medium";
   return "narrow";
 }
-

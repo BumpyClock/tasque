@@ -52,7 +52,9 @@ describe("store lock", () => {
   it("lockExists returns true when lock is held", async () => {
     const repo = await makeRepo();
     let resolveInner: (() => void) | undefined;
-    const innerPromise = new Promise<void>((r) => { resolveInner = r; });
+    const innerPromise = new Promise<void>((r) => {
+      resolveInner = r;
+    });
 
     const holder = withWriteLock(repo, async () => {
       await innerPromise;
@@ -67,20 +69,25 @@ describe("store lock", () => {
   });
 
   it("times out when lock is held too long", async () => {
-    const repo = await makeRepo();
+    process.env.TSQ_LOCK_TIMEOUT_MS = "500";
+    try {
+      const repo = await makeRepo();
 
-    const holder = withWriteLock(repo, async () => {
-      await sleep(3600);
-    });
+      const holder = withWriteLock(repo, async () => {
+        await sleep(1000);
+      });
 
-    await sleep(25);
+      await sleep(25);
 
-    await expect(withWriteLock(repo, async () => {})).rejects.toMatchObject({
-      code: "LOCK_TIMEOUT",
-      exitCode: 3,
-    });
+      await expect(withWriteLock(repo, async () => {})).rejects.toMatchObject({
+        code: "LOCK_TIMEOUT",
+        exitCode: 3,
+      });
 
-    await holder;
+      await holder;
+    } finally {
+      process.env.TSQ_LOCK_TIMEOUT_MS = undefined;
+    }
   });
 
   it("cleans up stale lock from dead PID on same host and allows new lock acquisition", async () => {
@@ -105,22 +112,27 @@ describe("store lock", () => {
   });
 
   it("does not clean up lock held by current PID and times out instead", async () => {
-    const repo = await makeRepo();
-    const paths = getPaths(repo);
-    await mkdir(paths.tasqueDir, { recursive: true });
+    process.env.TSQ_LOCK_TIMEOUT_MS = "500";
+    try {
+      const repo = await makeRepo();
+      const paths = getPaths(repo);
+      await mkdir(paths.tasqueDir, { recursive: true });
 
-    const currentPidLockPayload = {
-      host: hostname(),
-      pid: process.pid,
-      created_at: new Date(Date.now() - 60_000).toISOString(),
-    };
-    await writeFile(paths.lockFile, `${JSON.stringify(currentPidLockPayload)}\n`, "utf8");
+      const currentPidLockPayload = {
+        host: hostname(),
+        pid: process.pid,
+        created_at: new Date(Date.now() - 60_000).toISOString(),
+      };
+      await writeFile(paths.lockFile, `${JSON.stringify(currentPidLockPayload)}\n`, "utf8");
 
-    await expect(withWriteLock(repo, async () => {})).rejects.toMatchObject({
-      code: "LOCK_TIMEOUT",
-      exitCode: 3,
-    });
+      await expect(withWriteLock(repo, async () => {})).rejects.toMatchObject({
+        code: "LOCK_TIMEOUT",
+        exitCode: 3,
+      });
 
-    expect(await lockExists(repo)).toBe(true);
+      expect(await lockExists(repo)).toBe(true);
+    } finally {
+      process.env.TSQ_LOCK_TIMEOUT_MS = undefined;
+    }
   });
 });

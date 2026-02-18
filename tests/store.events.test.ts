@@ -66,7 +66,13 @@ describe("store events", () => {
     const repo = await makeRepo();
     const paths = getPaths(repo);
     await mkdir(paths.tasqueDir, { recursive: true });
-    const invalid = JSON.stringify({ ts: "2026-02-17T00:00:00.000Z", actor: "test", type: "task.created", task_id: "tsq-abc123", payload: {} });
+    const invalid = JSON.stringify({
+      ts: "2026-02-17T00:00:00.000Z",
+      actor: "test",
+      type: "task.created",
+      task_id: "tsq-abc123",
+      payload: {},
+    });
     await writeFile(paths.eventsFile, `${invalid}\n`, "utf8");
 
     const err = await readEvents(repo).catch((e) => e);
@@ -80,7 +86,14 @@ describe("store events", () => {
     const valid = event("01AAAAAA", "task.created");
     await appendEvents(repo, [valid]);
     const paths = getPaths(repo);
-    const invalid = JSON.stringify({ event_id: "01BBBBBB", ts: 12345, actor: "test", type: "task.updated", task_id: "tsq-abc123", payload: {} });
+    const invalid = JSON.stringify({
+      event_id: "01BBBBBB",
+      ts: 12345,
+      actor: "test",
+      type: "task.updated",
+      task_id: "tsq-abc123",
+      payload: {},
+    });
     await appendFile(paths.eventsFile, `${invalid}\n`, "utf8");
 
     const err = await readEvents(repo).catch((e) => e);
@@ -94,7 +107,13 @@ describe("store events", () => {
     const repo = await makeRepo();
     const paths = getPaths(repo);
     await mkdir(paths.tasqueDir, { recursive: true });
-    const invalid = JSON.stringify({ event_id: "01AAAAAA", ts: "2026-02-17T00:00:00.000Z", actor: "test", type: "task.created", payload: {} });
+    const invalid = JSON.stringify({
+      event_id: "01AAAAAA",
+      ts: "2026-02-17T00:00:00.000Z",
+      actor: "test",
+      type: "task.created",
+      payload: {},
+    });
     await writeFile(paths.eventsFile, `${invalid}\n`, "utf8");
 
     const err = await readEvents(repo).catch((e) => e);

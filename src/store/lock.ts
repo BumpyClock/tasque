@@ -4,7 +4,9 @@ import { hostname } from "node:os";
 import { TsqError } from "../errors";
 import { getPaths } from "./paths";
 
-const LOCK_TIMEOUT_MS = 3000;
+function getLockTimeoutMs(): number {
+  return Number(process.env.TSQ_LOCK_TIMEOUT_MS) || 3000;
+}
 const STALE_LOCK_MS = 30000;
 const JITTER_MIN_MS = 20;
 const JITTER_MAX_MS = 80;
@@ -106,7 +108,7 @@ async function tryCleanupStaleLock(lockFile: string, currentHost: string): Promi
 }
 
 async function acquireWriteLock(lockFile: string, tasqueDir: string): Promise<LockPayload> {
-  const deadline = Date.now() + LOCK_TIMEOUT_MS;
+  const deadline = Date.now() + getLockTimeoutMs();
   const host = hostname();
 
   while (true) {
@@ -140,7 +142,7 @@ async function acquireWriteLock(lockFile: string, tasqueDir: string): Promise<Lo
       if (Date.now() >= deadline) {
         throw new TsqError("LOCK_TIMEOUT", "Timed out acquiring write lock", 3, {
           lockFile,
-          timeout_ms: LOCK_TIMEOUT_MS,
+          timeout_ms: getLockTimeoutMs(),
         });
       }
 

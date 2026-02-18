@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type { Task } from "../src/types";
-import { type JsonEnvelope, assertEnvelopeShape, cleanupRepos, cliEntry, makeRepo as makeRepoBase, okData, runJson as runJsonBase } from "./helpers";
+import {
+  type JsonEnvelope,
+  assertEnvelopeShape,
+  cleanupRepos,
+  cliCmd,
+  makeRepo as makeRepoBase,
+  okData,
+  runJson as runJsonBase,
+} from "./helpers";
 
 async function makeRepo(): Promise<string> {
   return makeRepoBase("tasque-search-e2e-");
@@ -131,7 +139,7 @@ describe("cli search", () => {
 
     // Use --json before -- so commander parses it as global option
     const proc = Bun.spawn({
-      cmd: ["bun", "run", cliEntry, "search", "--json", "--", "-status:closed"],
+      cmd: [...cliCmd, "search", "--json", "--", "-status:closed"],
       cwd: repo,
       env: { ...process.env, TSQ_ACTOR: "test-search" },
       stdout: "pipe",

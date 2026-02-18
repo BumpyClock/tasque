@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { assertEnvelopeShape, cleanupRepos, makeRepo as makeRepoBase, okData, runCli as runCliBase, runJson as runJsonBase } from "./helpers";
+import {
+  assertEnvelopeShape,
+  cleanupRepos,
+  makeRepo as makeRepoBase,
+  okData,
+  runCli as runCliBase,
+  runJson as runJsonBase,
+} from "./helpers";
 
 async function makeRepo(): Promise<string> {
   return makeRepoBase("tasque-labels-e2e-");

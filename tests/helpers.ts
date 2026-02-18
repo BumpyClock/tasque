@@ -1,4 +1,5 @@
 import { expect } from "bun:test";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -32,6 +33,38 @@ const repos: string[] = [];
 const repoRoot = resolve(import.meta.dir, "..");
 export const cliEntry = join(repoRoot, "src", "main.ts");
 
+/**
+ * Resolve the CLI command to use for testing.
+ * Priority:
+ * 1. TSQ_TEST_BIN environment variable (path to compiled binary)
+ * 2. dist/tsq.exe if it exists (Windows compiled binary)
+ * 3. Fallback to "bun run src/main.ts"
+ */
+function resolveCliCommand(): string[] {
+  // Check environment variable first
+  const testBin = process.env.TSQ_TEST_BIN;
+  if (testBin) {
+    return [testBin];
+  }
+
+  // Check for compiled binary at dist/tsq.exe
+  const compiledBinary = join(repoRoot, "dist", "tsq.exe");
+  if (existsSync(compiledBinary)) {
+    return [compiledBinary];
+  }
+
+  // Fallback to bun run
+  return ["bun", "run", cliEntry];
+}
+
+export const cliCmd = resolveCliCommand();
+
+// Warm up compiled binary so the first test doesn't bear cold-start cost
+// (OS process cache, AV scan on Windows, Bun spawn infrastructure).
+if (cliCmd.length === 1) {
+  Bun.spawnSync({ cmd: [...cliCmd, "--help"], stdout: "ignore", stderr: "ignore" });
+}
+
 export function makeRepo(prefix = "tasque-test-"): Promise<string> {
   return mkdtemp(join(tmpdir(), prefix)).then((repo) => {
     repos.push(repo);
@@ -63,7 +96,7 @@ export async function runJson(
   stdinText?: string,
 ): Promise<JsonResult> {
   const proc = Bun.spawn({
-    cmd: ["bun", "run", cliEntry, ...args, "--json"],
+    cmd: [...cliCmd, ...args, "--json"],
     cwd: repoDir,
     env: {
       ...process.env,
@@ -100,13 +133,9 @@ export async function runJson(
   };
 }
 
-export async function runCli(
-  repoDir: string,
-  args: string[],
-  actor = "test",
-): Promise<CliResult> {
+export async function runCli(repoDir: string, args: string[], actor = "test"): Promise<CliResult> {
   const proc = Bun.spawn({
-    cmd: ["bun", "run", cliEntry, ...args],
+    cmd: [...cliCmd, ...args],
     cwd: repoDir,
     env: {
       ...process.env,

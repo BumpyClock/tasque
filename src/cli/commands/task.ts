@@ -1,11 +1,7 @@
 import type { Command } from "commander";
 import { normalizeStatus, parsePriority } from "../../app/runtime";
 import { TsqError } from "../../errors";
-import {
-  printTask,
-  printTaskList,
-  printTaskTree,
-} from "../render";
+import { printTask, printTaskList, printTaskTree } from "../render";
 import type { RuntimeDeps, RunAction } from "../action";
 import {
   type CreateCommandOptions,

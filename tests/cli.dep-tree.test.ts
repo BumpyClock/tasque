@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type { DepTreeNode } from "../src/domain/dep-tree";
-import { cleanupRepos, makeRepo as makeRepoBase, okData, runCli as runCliBase, runJson as runJsonBase } from "./helpers";
+import {
+  cleanupRepos,
+  makeRepo as makeRepoBase,
+  okData,
+  runCli as runCliBase,
+  runJson as runJsonBase,
+} from "./helpers";
 
 async function makeRepo(): Promise<string> {
   return makeRepoBase("tasque-dep-tree-e2e-");

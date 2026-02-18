@@ -14,8 +14,9 @@
     "typecheck": "bunx tsc --noEmit",
     "lint": "bunx @biomejs/biome check .",
     "fmt": "bunx @biomejs/biome format --write .",
-    "test": "bun test",
-    "doctor": "bun run typecheck && bun run fmt && bun run lint && bun test"
+    "test": "bun run build && bun test",
+    "test:fast": "bun run build && bun run scripts/test-parallel.ts",
+    "doctor": "bun run typecheck && bun run fmt && bun run lint && bun run build && bun test"
   },
   "dependencies": {
     "commander": "^14.0.2",

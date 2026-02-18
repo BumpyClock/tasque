@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { type JsonEnvelope, cleanupRepos, makeRepo as makeRepoBase, okData, runJson as runJsonBase } from "./helpers";
+import { cleanupRepos, makeRepo as makeRepoBase, okData, runJson as runJsonBase } from "./helpers";
 
 async function makeRepo(): Promise<string> {
   return makeRepoBase("tasque-cli-close-");
@@ -201,9 +201,9 @@ describe("cli close and reopen", () => {
     expect(reopened.envelope.schema_version).toBe(1);
     expect(reopened.envelope.command).toBe("tsq reopen");
     expect(reopened.envelope.ok).toBe(true);
-    const reopenedData = okData<{ tasks: Array<{ id: string; status: string; closed_at?: unknown }> }>(
-      reopened.envelope,
-    );
+    const reopenedData = okData<{
+      tasks: Array<{ id: string; status: string; closed_at?: unknown }>;
+    }>(reopened.envelope);
     expect(reopenedData.tasks).toHaveLength(1);
     const reopenedTask = reopenedData.tasks[0]!;
     expect(reopenedTask.id).toBe(created.id);

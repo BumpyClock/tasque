@@ -25,7 +25,14 @@ function makeRepairEvent<T extends EventType>(
   taskId: string,
   payload: EventPayloadMap[T],
 ): EventRecord {
-  return { event_id: ulid(), ts, actor, type, task_id: taskId, payload: payload as Record<string, unknown> };
+  return {
+    event_id: ulid(),
+    ts,
+    actor,
+    type,
+    task_id: taskId,
+    payload: payload as Record<string, unknown>,
+  };
 }
 
 function buildRepairPlan(

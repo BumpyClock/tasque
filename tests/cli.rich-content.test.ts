@@ -2,7 +2,13 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { cleanupRepos, makeRepo as makeRepoBase, okData, runCli as runCliBase, runJson as runJsonBase } from "./helpers";
+import {
+  cleanupRepos,
+  makeRepo as makeRepoBase,
+  okData,
+  runCli as runCliBase,
+  runJson as runJsonBase,
+} from "./helpers";
 
 interface TaskNote {
   event_id: string;
@@ -17,7 +23,12 @@ async function makeRepo(): Promise<string> {
 
 afterEach(cleanupRepos);
 
-async function runJson(repoDir: string, args: string[], actor = "test-rich-content", stdinText?: string) {
+async function runJson(
+  repoDir: string,
+  args: string[],
+  actor = "test-rich-content",
+  stdinText?: string,
+) {
   return runJsonBase(repoDir, args, actor, stdinText);
 }
 

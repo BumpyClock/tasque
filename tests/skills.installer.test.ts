@@ -85,7 +85,7 @@ describe("skills installer", () => {
       expect(skillMarkdown.includes("tsq supersede")).toBe(true);
       expect(skillMarkdown.includes("tsq doctor")).toBe(true);
       expect(skillMarkdown.includes("--json")).toBe(true);
-      expect(skillMarkdown.includes("child waits on blocker")).toBe(true);
+      expect(skillMarkdown.includes("gate readiness")).toBe(true);
       expect(skillMarkdown.includes(".tasque/events.jsonl")).toBe(true);
     }
 

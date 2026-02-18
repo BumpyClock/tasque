@@ -30,6 +30,8 @@
 - `repair --fix` computes plan inside write lock using locked snapshot to prevent plan/apply drift.
 - `process.exitCode` is sticky within a long-lived process. Reset at command entry (`preAction`) so a prior failing command does not cause later successful commands to exit non-zero.
 - Under `bun test` on Windows, piping stdin into compiled `dist/tsq.exe` can be flaky; stdin-focused tests are more reliable when they feed stdin from a file descriptor (e.g., `stdin: Bun.file(path)`) or run via source entry.
+- Test helpers default to compiled `dist/tsq.exe` when present; for new CLI-option coverage before a fresh build, run those tests against `bun run src/main.ts` to avoid stale-binary false failures.
+- `bun run build` can fail with `EPERM` on Windows if `dist/tsq.exe` is still in use by a running test process; retry build after tests complete.
 
 ## Build & Release
 - `bun run build` compiles a single binary; `bun run release` emits a platform artifact + `SHA256SUMS.txt` in `dist/releases/`.
@@ -39,6 +41,7 @@
 
 ## Init UX
 - Wizard contract baseline: run `tsq init` wizard only on TTY by default; `--no-wizard` is authoritative; `--wizard` is TTY-only; non-interactive agent flows must remain fully deterministic via flags.
+- Refined wizard UX contract (docs/design/init-wizard-design.md): preserve a 4-step max flow, always show resolved plan before writes, treat `--yes` as wizard auto-accept (no-op outside wizard), and keep preset semantics deterministic (`minimal`, `standard`, `full`) with explicit-flags-over-preset precedence.
 
 ## Recent Updates
 - 2026-02-18: Event parsing now uses Zod at JSONL boundaries; canonical event field is `id` while reads still accept legacy `event_id`.

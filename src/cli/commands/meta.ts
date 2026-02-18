@@ -1,13 +1,13 @@
 import type { Command } from "commander";
 import { normalizeStatus } from "../../app/runtime";
 import type { RunAction, RuntimeDeps } from "../action";
+import { resolveInitPlan, runInitWizard } from "../init-flow";
 import {
   type GlobalOpts,
   type InitCommandOptions,
   type WatchCommandOptions,
   asOptionalString,
   parsePositiveInt,
-  parseSkillTargets,
 } from "../parsers";
 import { printHistory, printOrphansResult, printRepairResult } from "../render";
 import { startWatch } from "../watch";
@@ -20,14 +20,14 @@ export function registerMetaCommands(
   program
     .command("init")
     .description("Initialize .tasque storage")
+    .option("--wizard", "force interactive setup wizard (TTY only)")
+    .option("--no-wizard", "disable interactive setup wizard")
+    .option("--yes", "auto-accept wizard defaults and apply confirmation")
+    .option("--preset <preset>", "wizard preset: minimal|standard|full")
     .option("--install-skill", "install tsq skill files")
     .option("--uninstall-skill", "uninstall tsq skill files")
-    .option(
-      "--skill-targets <targets>",
-      "comma-separated: claude,codex,copilot,opencode,all",
-      "all",
-    )
-    .option("--skill-name <name>", "skill folder name", "tasque")
+    .option("--skill-targets <targets>", "comma-separated: claude,codex,copilot,opencode,all")
+    .option("--skill-name <name>", "skill folder name")
     .option("--force-skill-overwrite", "overwrite unmanaged skill files")
     .option("--skill-dir-claude <path>", "override claude skills root dir")
     .option("--skill-dir-codex <path>", "override codex skills root dir")
@@ -36,25 +36,23 @@ export function registerMetaCommands(
     .action(async function action(initOptions: InitCommandOptions) {
       await runAction(
         this,
-        async () => {
-          const wantsSkillOperation = Boolean(
-            initOptions.installSkill || initOptions.uninstallSkill,
-          );
-          return deps.service.init({
-            installSkill: Boolean(initOptions.installSkill),
-            uninstallSkill: Boolean(initOptions.uninstallSkill),
-            skillTargets: wantsSkillOperation
-              ? parseSkillTargets(initOptions.skillTargets ?? "all")
-              : undefined,
-            skillName: wantsSkillOperation
-              ? (asOptionalString(initOptions.skillName) ?? "tasque")
-              : undefined,
-            forceSkillOverwrite: Boolean(initOptions.forceSkillOverwrite),
-            skillDirClaude: asOptionalString(initOptions.skillDirClaude),
-            skillDirCodex: asOptionalString(initOptions.skillDirCodex),
-            skillDirCopilot: asOptionalString(initOptions.skillDirCopilot),
-            skillDirOpencode: asOptionalString(initOptions.skillDirOpencode),
+        async (opts) => {
+          const plan = resolveInitPlan(initOptions, {
+            rawArgs: process.argv.slice(2),
+            isTTY: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+            json: Boolean(opts.json),
           });
+
+          if (plan.mode === "non_interactive") {
+            return deps.service.init(plan.input);
+          }
+
+          const input = await runInitWizard(
+            plan.seed,
+            { stdin: process.stdin, stdout: process.stdout },
+            plan.autoAccept,
+          );
+          return deps.service.init(input);
         },
         {
           jsonData: (data) => data,

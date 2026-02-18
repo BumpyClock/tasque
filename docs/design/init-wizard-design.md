@@ -1,94 +1,115 @@
-# `tsq init` Setup Wizard Design Doc
+# `tsq init` Wizard UX Design Doc (Refined)
+
+Read when: implementing `tsq init` wizard flow, `--wizard/--no-wizard/--preset/--yes` behavior, or init UX tests.
 
 ## Overview
 - Goals:
   - Reduce first-run friction for humans.
-  - Keep setup fast and low-noise for power users.
   - Preserve deterministic non-interactive setup for agents/CI.
+  - Make write actions explicit before execution.
 - Primary users:
-  - New users running `tsq` for first time.
-  - Agent workflows that need one-shot initialization.
-  - Existing users updating skills/targets.
+  - Human developers running `tsq init` for first use.
+  - Agent/automation workflows needing one-shot setup.
 - Success criteria:
-  - Human can complete init in <=30 seconds with default choices.
-  - Agent can skip prompts entirely and configure in one command.
-  - Zero ambiguity about what files/actions `init` will perform.
+  - Human completes default wizard in <= 30 seconds.
+  - Non-interactive flows remain stable and scriptable.
+  - Validation failures are clear and actionable on first read.
 
 ## Inputs and Constraints
-- Platform targets: terminal CLI on macOS/Linux/Windows.
-- Breakpoints: terminal width tiers (`>=120`, `90-119`, `<90`).
-- Design system/component library: N/A (CLI/TUI text UI).
+- Platform targets: terminal CLI (macOS/Linux/Windows).
+- Breakpoints:
+  - Wide: `>= 120` columns.
+  - Medium: `90-119` columns.
+  - Narrow: `< 90` columns.
+- Design system/component library: terminal text UI only.
 - Content requirements:
-  - Explain minimal impact of each choice.
-  - Show resulting plan before apply.
-  - Keep wording concise and concrete.
+  - Utility-first copy.
+  - Minimal prompt count.
+  - Explicit plan summary before writes.
 - Technical constraints:
-  - Must preserve existing `tsq init` behavior for script compatibility.
-  - Must support full non-interactive path via flags.
-  - Must avoid wizard in non-TTY contexts.
+  - Existing `tsq init` scripted behavior must stay backward compatible.
+  - Wizard must never auto-run in non-TTY.
+  - Existing init flags remain authoritative when provided.
 
 ## Information Architecture
-- Page hierarchy (CLI flow stages):
-  - Entry gate (`auto wizard` vs `non-interactive`).
-  - Setup choices (storage + optional skill install).
-  - Confirmation summary.
-  - Execution + result summary.
+- Flow hierarchy:
+  1. Mode resolution (interactive vs non-interactive).
+  2. Optional wizard steps (4-step max).
+  3. Resolved execution plan summary.
+  4. Apply and print result summary.
 - Navigation model:
-  - Linear, single-pass flow.
-  - Explicit back/skip options per step.
+  - Linear single-pass flow.
+  - Explicit `Back`, `Skip wizard`, and `Quit` at each wizard step.
 - Key user flows:
-  1. Human default: `tsq init` -> answer 3-5 prompts -> confirm -> done.
-  2. Human explicit skip: `tsq init --no-wizard ...` -> immediate apply.
-  3. Agent one-shot: `tsq init --no-wizard --yes --install-skill --skill-targets codex`.
+  1. Human default: `tsq init` in TTY -> guided prompts -> confirm -> apply.
+  2. Human explicit non-interactive: `tsq init --no-wizard ...` -> direct apply.
+  3. Agent one-shot: `tsq init --no-wizard --install-skill --skill-targets codex --yes`.
+
+## Design Direction
+- Personality: Utility & Function with Precision & Density.
+- Why:
+  - Fits developer CLI expectations.
+  - Keeps cognitive load low.
+  - Prioritizes deterministic behavior over decorative UI.
+- Rules:
+  - Monochrome-first output; color only for success/warn/error labels.
+  - Short lines and consistent markers (`[step]`, `[ok]`, `[warn]`, `[error]`).
+  - No cursor-position tricks or full-screen modes.
 
 ## Design System Strategy
-- Existing tokens/components to reuse:
-  - Reuse current CLI render conventions (`created ...`, `skill ...`) and status wording.
-  - Reuse existing validation/parser behavior for flags.
-- Discovery notes:
-  - Current init supports many flags but no guided prompt experience.
-- New components needed:
-  - `WizardStepHeader` (title + step counter).
-  - `ChoicePrompt` (single-choice, default highlighted).
-  - `PlanSummary` (resolved options before apply).
-  - `NonInteractiveNotice` (explicit message when prompts are bypassed).
-- Token naming conventions:
-  - Keep textual markers simple: `[step x/y]`, `default`, `recommended`, `applied`.
+- Reuse:
+  - Existing terminal render conventions used across `tsq`.
+  - Existing validation language and error envelope conventions.
+- New CLI “components”:
+  - `WizardStepHeader`: `tsq init wizard [step x/4]`.
+  - `ChoicePrompt`: single-select or yes/no with default marker.
+  - `PlanSummary`: resolved action list before apply.
+  - `ExecutionSummary`: final actions and next-step hints.
+- Token conventions:
+  - Step marker: `[step x/4]`.
+  - Defaults: `(default)`.
+  - Recommendations: `(recommended)`.
+  - Status labels: `[ok]`, `[warn]`, `[error]`.
 
 ## Layout and Responsive Behavior
-- Wide terminal (`>=120`):
-  - Two-column prompt rows: question left, defaults/help right.
-- Medium (`90-119`):
-  - Single-column with compact help line under each question.
-- Narrow (`<90`):
-  - One question per block; helper copy truncated; optional details behind `--verbose`.
+- Desktop/wide (`>=120`):
+  - Two-column prompt layout.
+  - Right-side helper text for defaults/impacts.
+- Tablet/medium (`90-119`):
+  - Single-column prompt + one helper line.
+- Mobile/narrow (`<90`):
+  - Single-column blocks.
+  - Keep one decision per block.
+  - Truncate helper copy to one line; defer details to summary.
 
 ## ASCII Layout
 ```text
 Wide (>=120)
 +--------------------------------------------------------------------------------+
-| tsq init wizard                                           [step 2/4]           |
+| tsq init wizard                                               [step 3/4]       |
 +--------------------------------------------------------------------------------+
-| Install skill files now?                     (recommended: yes)               |
-|  > yes - set up Claude/Codex/Copilot/OpenCode skill folders                  |
-|    no  - initialize .tasque only                                               |
+| Skill action:                      (default: install)                          |
+|  > install - add managed skill files for selected targets                      |
+|    uninstall - remove managed skill files                                      |
+|    none - initialize .tasque only                                              |
 +--------------------------------------------------------------------------------+
 | Planned changes:                                                               |
 |  - create .tasque/config.json                                                  |
 |  - create .tasque/events.jsonl                                                 |
 |  - create .tasque/.gitignore                                                   |
-|  - install skill "tasque" to: codex,claude                                    |
+|  - install skill "tasque" to targets: all                                     |
 +--------------------------------------------------------------------------------+
-| Enter=continue  b=back  s=skip wizard  q=quit                                  |
+| Enter continue   b back   s skip wizard   q quit                               |
 +--------------------------------------------------------------------------------+
 
 Narrow (<90)
 +----------------------------------------------+
-| tsq init wizard [2/4]                        |
+| tsq init wizard [3/4]                        |
 +----------------------------------------------+
-| Install skill files now?                     |
-| > yes (recommended)                          |
-|   no                                         |
+| Skill action                                 |
+| > install (default)                          |
+|   uninstall                                  |
+|   none                                       |
 +----------------------------------------------+
 | Planned: .tasque/* + skill install           |
 | Enter continue | b back | s skip | q quit    |
@@ -97,92 +118,120 @@ Narrow (<90)
 
 ## Component Inventory
 - `WizardStepHeader`
-  - Purpose: keep orientation and progress.
-  - States: normal, warning (if destructive/overwrite action).
+  - Purpose: orientation and progress.
+  - States: normal, warning.
 - `ChoicePrompt`
-  - Purpose: answer setup decisions quickly.
-  - Variants: yes/no, single-select list, free-text (path overrides).
-  - States: focused, default-selected, validation-error.
+  - Purpose: quick decision capture.
+  - Variants: yes/no, single-select, free-text (override paths).
+  - States: focused, default-selected, invalid.
 - `PlanSummary`
   - Purpose: transparency before writes.
-  - States: ready, warning (conflict/overwrite).
+  - States: ready, warning (overwrite/force).
 - `ExecutionSummary`
-  - Purpose: show concrete output file actions and next command hints.
+  - Purpose: concise completion feedback.
   - States: success, partial success, failure.
 
 ## Interaction and State Matrix
 - Primary actions:
-  - Continue, Back, Skip wizard, Confirm apply, Cancel.
-- Focus/active/disabled:
-  - Active option indicated with `>` and explicit text, not color-only.
-  - Disabled options include reason text.
-- Loading/empty/error:
-  - Loading: short `Applying setup...` with spinner-safe fallback text.
-  - Empty: not applicable.
-  - Error: print exact validation issue and return to offending step.
-- Validation and inline feedback:
-  - Invalid target list or paths are validated immediately.
-  - Show accepted values in same prompt block.
+  - Continue (`Enter`), Back (`b`), Skip wizard (`s`), Quit (`q`), Confirm apply.
+- Option movement:
+  - Arrow keys or `j/k`; `Enter` accepts focused/default choice.
+- Validation:
+  - Inline message shown at failing step.
+  - Keep failing value in context and show one corrective example.
+- Error handling:
+  - No stack trace in normal mode.
+  - One-line cause + one-line fix.
+
+### Mode Resolution Matrix
+- TTY + no flags: wizard runs.
+- TTY + `--wizard`: wizard runs.
+- TTY + `--no-wizard`: wizard bypassed.
+- Non-TTY + no wizard flags: non-interactive path.
+- Non-TTY + `--wizard`: validation error.
+- Non-TTY + `--preset ...`: validation error.
+- `--wizard` + `--no-wizard`: validation error.
+- `--preset ...` + `--no-wizard`: validation error.
+
+### `--yes` Semantics
+- Wizard enabled: auto-accept defaults for all steps and final confirmation.
+- Wizard bypassed/non-TTY: accepted as no-op.
+- `--yes` never suppresses validation errors.
+
+## Preset Strategy (Refined)
+Presets are valid only when wizard mode is active (auto or forced). They pre-seed wizard answers and are shown in plan summary before apply.
+
+- `minimal`
+  - Initialize `.tasque` files only.
+  - No skill install/uninstall action.
+- `standard`
+  - Initialize `.tasque` files.
+  - Install managed skill with default name and default targets.
+  - No force overwrite.
+- `full`
+  - Same as `standard`.
+  - Enable force overwrite for skill install.
+
+Precedence inside wizard-enabled mode:
+1. Explicit flags
+2. Preset values
+3. Built-in defaults
+
+## Wizard Step Contract
+- Step 1: Baseline init confirmation (always displayed unless `--yes` auto-advances).
+- Step 2: Skill action selection (`install|uninstall|none`).
+- Step 3: Skill details (targets/name/overwrite/dir overrides) only when needed.
+- Step 4: Final resolved plan with explicit apply confirmation.
 
 ## Visual System
 - Color roles:
-  - Monochrome-first; optional color accents only for success/warn/error labels.
-- Typography scale:
-  - Terminal native; rely on casing + spacing + prefix markers for hierarchy.
-- Spacing and sizing:
-  - 1-line separation between sections.
-  - 2-line separation between major blocks.
+  - Default text for structure.
+  - Success/error/warn labels only where meaningful.
+- Typography:
+  - Terminal native, no ASCII art headers.
+  - Keep line lengths under terminal width budgets.
+- Spacing:
+  - 1 blank line between prompt blocks.
+  - 1 blank line before summary block.
 - Iconography:
   - ASCII-safe markers only (`>`, `-`, `[ok]`, `[warn]`, `[error]`).
 
 ## Accessibility
 - Keyboard navigation:
-  - Full flow usable with keyboard only.
-  - Enter confirms default; arrow keys or `j/k` move options.
-- Focus order and states:
-  - Strict top-to-bottom step progression; explicit focus marker.
-- Contrast targets:
-  - Must remain legible with no ANSI colors.
-- Screen-reader/assistive notes:
-  - Output should remain plain text and deterministic, no cursor-position dependence.
+  - Full flow works without mouse.
+  - Inputs mapped to simple keys (`Enter`, arrows, `j/k`, `b`, `s`, `q`).
+- Focus order:
+  - Strict top-to-bottom flow.
+  - Active option always prefixed with `>`.
+- Contrast:
+  - Readable with ANSI color disabled.
+- Assistive compatibility:
+  - Avoid cursor repositioning and animated controls.
+  - Keep output plain text and line-oriented.
 
 ## Content Notes
-- Copy tone and hierarchy:
-  - Utility-first, short sentences, no marketing language.
-- Empty-state copy:
-  - For no-op mode: `No additional setup selected; initialized .tasque only.`
-- Error messaging guidelines:
-  - Lead with exact failing flag/value.
-  - Follow with one-line fix example.
+- Copy tone:
+  - Direct and operational.
+  - Prefer verb-first labels: `Install skill now?`.
+- Empty/no-op copy:
+  - `No skill action selected; initialized .tasque only.`
+- Error copy style:
+  - `Invalid value for --skill-targets: foo`
+  - `Allowed: claude,codex,copilot,opencode,all`
 
-## Final CLI Contract
-- Flag precedence:
-  - `--no-wizard` wins and disables wizard unconditionally.
-  - `--wizard` forces interactive mode, but only in TTY contexts.
-  - `--preset` is valid only when wizard is enabled.
-  - `--yes` auto-accepts wizard defaults/confirmation when wizard is enabled; otherwise no-op.
-- Conflicting flags:
-  - `--wizard` + `--no-wizard` is invalid.
-  - `--preset` + `--no-wizard` is invalid.
-- Existing init flags (`--install-skill`, `--uninstall-skill`, `--skill-targets`, `--skill-name`, `--force-skill-overwrite`, `--skill-dir-*`) remain authoritative in non-interactive mode and pre-seed wizard answers in interactive mode.
+## Acceptance Criteria (UX Handoff)
+- Wizard behavior matches mode resolution matrix exactly.
+- Wizard path can be completed end-to-end with keyboard only.
+- Step count never exceeds 4.
+- Final plan summary appears before writes in all wizard runs.
+- `--yes` semantics match contract and never skip validation.
+- Preset behavior is transparent in plan summary and deterministic.
 
-## Final Default Behavior
-- TTY + no explicit disable:
-  - Run wizard by default.
-- Non-TTY:
-  - Never run wizard automatically.
-  - Reject `--wizard` and `--preset` with explicit non-interactive guidance.
-- `--no-wizard`:
-  - Always bypass wizard and execute directly from explicit flags/default init behavior.
-
-## Minimal Wizard Step Set
-- Step 1: baseline init confirmation (`.tasque/config.json`, `.tasque/events.jsonl`, `.tasque/.gitignore`).
-- Step 2: skill action selection (`none`, `install`, `uninstall`).
-- Step 3: skill details (targets, overwrite behavior, optional directory overrides) when step 2 is install/uninstall.
-- Step 4: final resolved execution plan confirmation.
-
-## Final Validation Rules
-- `--install-skill` and `--uninstall-skill` are mutually exclusive.
-- Skill-scoped flags without an active skill operation are validation errors.
-- Invalid target values or malformed overrides fail before filesystem writes.
-- Wizard should surface the same validation messages as non-interactive mode to keep behavior consistent.
+## Test-Oriented Verification Guidance
+- Add/maintain CLI tests for:
+  - mode resolution matrix cases,
+  - preset mapping behavior,
+  - explicit flag over preset precedence,
+  - `--yes` behavior in wizard and non-wizard modes,
+  - concise, stable prompt/summary output across width tiers.
+- Snapshot/golden tests should assert key lines, not full terminal framing, to reduce brittleness.

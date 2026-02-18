@@ -122,7 +122,7 @@ Global options:
 
 Commands:
 
-- `tsq init`
+- `tsq init [--wizard|--no-wizard] [--yes] [--preset <minimal|standard|full>] [--install-skill|--uninstall-skill] [--skill-targets <csv>] [--skill-name <name>] [--force-skill-overwrite] [--skill-dir-claude <path>] [--skill-dir-codex <path>] [--skill-dir-copilot <path>] [--skill-dir-opencode <path>]`
 - `tsq create "<title>" [--kind task|feature|epic] [-p|--priority 0..3] [--parent <id>] [--description <text>] [--body-file <path|->] [--external-ref <ref>] [--discovered-from <id>] [--planning <needs_planning|planned>] [--needs-planning] [--id <tsq-xxxxxxxx>]`
 - `tsq show <id>`
 - `tsq list [--status <open|in_progress|blocked|deferred|closed|canceled|done>] [--assignee <name>] [--external-ref <ref>] [--discovered-from <id>] [--kind <task|feature|epic>] [--label <label>] [--label-any <csv-or-repeat>] [--created-after <iso>] [--updated-after <iso>] [--closed-after <iso>] [--unassigned] [--id <csv-or-repeat>] [--planning <needs_planning|planned>] [--dep-type <blocks|starts_after>] [--dep-direction <in|out|any>] [--tree] [--full]`

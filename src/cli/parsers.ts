@@ -13,6 +13,9 @@ export interface GlobalOpts {
 export interface InitCommandOptions {
   installSkill?: boolean;
   uninstallSkill?: boolean;
+  wizard?: boolean;
+  yes?: boolean;
+  preset?: string;
   skillTargets?: string;
   skillName?: string;
   forceSkillOverwrite?: boolean;
@@ -131,6 +134,16 @@ export function parsePlanningState(raw: string): PlanningState {
     return raw;
   }
   throw new TsqError("VALIDATION_ERROR", "planning state must be needs_planning|planned", 1);
+}
+
+export type InitPreset = "minimal" | "standard" | "full";
+
+export function parseInitPreset(raw: string): InitPreset {
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "minimal" || normalized === "standard" || normalized === "full") {
+    return normalized;
+  }
+  throw new TsqError("VALIDATION_ERROR", "preset must be minimal|standard|full", 1);
 }
 
 export function validateExplicitId(raw: string): string {

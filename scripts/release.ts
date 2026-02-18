@@ -31,6 +31,7 @@ export async function main(): Promise<void> {
     repoRoot: ROOT,
     releaseDir: RELEASE_DIR,
     version,
+    tsqBin: binaryPath,
   });
   const checksums = await writeChecksumsFile(RELEASE_DIR);
 

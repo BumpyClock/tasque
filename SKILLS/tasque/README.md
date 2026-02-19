@@ -5,9 +5,9 @@ Managed skill package for `tsq`.
 
 ## Files
 
-- `SKILL.md`: focused operational guide for `tsq` (load first)
-- `README.md`: installer metadata and summary
-- `references/`: optional deep-dive docs (planning, command catalog, durability, checklists)
+- `SKILL.md`: operational guide for `tsq`
+- `README.md`: installer metadata and managed marker
+- `references/`: additional docs copied during install
 - `scripts/`: optional helper scripts copied during install
 
 ## Safety

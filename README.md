@@ -163,6 +163,7 @@ Skill installer via `init`:
 
 - `tsq init --install-skill`
 - `tsq init --uninstall-skill`
+- Explicit `--install-skill` / `--uninstall-skill` bypasses auto-wizard mode by default. Use `--wizard` if you want interactive prompts.
 - `--skill-targets claude,codex,copilot,opencode|all` (default `all`)
 - `--skill-name <name>` (default `tasque`)
 - `--force-skill-overwrite` (overwrite unmanaged skill dirs)

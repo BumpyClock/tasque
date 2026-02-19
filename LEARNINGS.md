@@ -42,6 +42,7 @@
 ## Init UX
 - Wizard contract baseline: run `tsq init` wizard only on TTY by default; `--no-wizard` is authoritative; `--wizard` is TTY-only; non-interactive agent flows must remain fully deterministic via flags.
 - Refined wizard UX contract (docs/design/init-wizard-design.md): preserve a 4-step max flow, always show resolved plan before writes, treat `--yes` as wizard auto-accept (no-op outside wizard), and keep preset semantics deterministic (`minimal`, `standard`, `full`) with explicit-flags-over-preset precedence.
+- Explicit skill actions (`--install-skill` / `--uninstall-skill`) should bypass auto-wizard mode so `tsq init` executes immediately; `--wizard` is still available to force interactive flow.
 
 ## Recent Updates
 - 2026-02-18: Event parsing now uses Zod at JSONL boundaries; canonical event field is `id` while reads still accept legacy `event_id`.

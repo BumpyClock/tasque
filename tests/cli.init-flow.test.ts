@@ -69,6 +69,16 @@ describe("init flow resolution", () => {
     expect(plan.mode).toBe("non_interactive");
   });
 
+  it("disables auto wizard in tty mode when explicit skill action is provided", () => {
+    const plan = resolve({ installSkill: true }, ["init", "--install-skill"], { isTTY: true });
+    expect(plan.mode).toBe("non_interactive");
+    if (plan.mode !== "non_interactive") {
+      throw new Error("expected non_interactive mode");
+    }
+    expect(plan.input.installSkill).toBe(true);
+    expect(plan.input.uninstallSkill).toBe(false);
+  });
+
   it("marks wizard plan as auto-accept when --yes is provided", () => {
     const plan = resolve({ yes: true }, ["init"], { isTTY: true });
     expect(plan.mode).toBe("wizard");
@@ -108,11 +118,12 @@ describe("init flow resolution", () => {
       ["init", "--preset", "full", "--uninstall-skill"],
       { isTTY: true },
     );
-    expect(plan.mode).toBe("wizard");
-    if (plan.mode !== "wizard") {
-      throw new Error("expected wizard mode");
+    expect(plan.mode).toBe("non_interactive");
+    if (plan.mode !== "non_interactive") {
+      throw new Error("expected non_interactive mode");
     }
-    expect(plan.seed.action).toBe("uninstall");
+    expect(plan.input.uninstallSkill).toBe(true);
+    expect(plan.input.installSkill).toBe(false);
   });
 
   it("uses explicit skill targets over preset defaults", () => {

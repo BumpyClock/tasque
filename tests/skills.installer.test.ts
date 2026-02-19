@@ -73,8 +73,8 @@ describe("skills installer", () => {
 
       expect(result.path).toBe(expectedPath);
       expect(result.status).toBe("installed");
-      expect(await pathExists(join(expectedPath, "references", "README.md"))).toBe(true);
-      expect(await pathExists(join(expectedPath, "scripts", "README.md"))).toBe(true);
+      expect(await pathExists(join(expectedPath, "references", "planning-workflow.md"))).toBe(true);
+      expect(await pathExists(join(expectedPath, "scripts"))).toBe(true);
 
       const skillMarkdownPath = join(expectedPath, "SKILL.md");
       const skillMarkdown = await readFile(skillMarkdownPath, "utf8");

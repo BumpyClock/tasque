@@ -80,7 +80,9 @@ export function resolveInitPlan(
     throw new TsqError("VALIDATION_ERROR", "--preset is not supported with --json", 1);
   }
 
-  const wizardEnabled = !hasNoWizard && (hasWizard || (context.isTTY && !context.json));
+  const hasExplicitSkillAction = Boolean(options.installSkill || options.uninstallSkill);
+  const wizardEnabled =
+    !hasNoWizard && (hasWizard || (!hasExplicitSkillAction && context.isTTY && !context.json));
   if (!wizardEnabled) {
     return {
       mode: "non_interactive",

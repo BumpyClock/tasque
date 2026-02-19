@@ -5,7 +5,20 @@ description: Operational guide for Tasque (tsq) local task tracking and manageme
 
 <!-- tsq-managed-skill:v1 -->
 
+Graph-based issue tracker that survives conversation compaction. Provides persistent memory for multi-session work with complex dependencies.
 
+**When to use tsq**:
+- Work spans multiple sessions or days
+- Tasks have dependencies or blockers
+- Need to survive conversation compaction
+- Exploratory/research work with fuzzy boundaries
+- Collaboration with team (git sync)
+
+**When to use native task tool**:
+- Single-session linear tasks
+- Simple checklist for immediate work
+- All context is in current conversation
+- Will complete within current session
 
 Durable task tracking via `tsq`.
 

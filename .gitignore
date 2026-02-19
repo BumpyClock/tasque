@@ -8,3 +8,5 @@ dist/
 .tasque/specs/
 .ai_agents/
 .worktrees/
+target/
+test/

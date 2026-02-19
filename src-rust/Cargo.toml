@@ -1,0 +1,31 @@
+[package]
+name = "tasque"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "tasque"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tsq"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ulid = "1"
+chrono = { version = "0.4", features = ["serde"] }
+sha2 = "0.10"
+rand = "0.8"
+regex = "1"
+walkdir = "2"
+crossterm = "0.27"
+terminal_size = "0.3"
+sysinfo = "0.30"
+dirs = "5"
+once_cell = "1"
+
+[dev-dependencies]
+tempfile = "3"

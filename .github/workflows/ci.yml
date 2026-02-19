@@ -26,3 +26,16 @@ jobs:
       - run: bun install --frozen-lockfile
 
       - run: bun run doctor
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - run: cargo fmt --check
+        working-directory: src-rust
+
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+        working-directory: src-rust
+
+      - run: cargo test --quiet
+        working-directory: src-rust

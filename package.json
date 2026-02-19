@@ -16,6 +16,11 @@
     "typecheck": "bunx tsc --noEmit",
     "lint": "bunx @biomejs/biome check .",
     "fmt": "bunx @biomejs/biome format --write .",
+    "rust:fmt": "cd src-rust && cargo fmt",
+    "rust:fmt:check": "cd src-rust && cargo fmt -- --check",
+    "rust:lint": "cd src-rust && cargo clippy --all-targets --all-features -- -D warnings",
+    "rust:test": "cd src-rust && cargo test --quiet",
+    "doctor:rust": "bun run rust:fmt:check && bun run rust:lint && bun run rust:test",
     "test": "bun run build && bun test",
     "test:fast": "bun run build && bun run scripts/test-parallel.ts",
     "doctor": "bun run typecheck && bun run fmt && bun run lint && bun run build && bun test"

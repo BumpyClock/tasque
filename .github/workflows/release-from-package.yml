@@ -17,9 +17,30 @@ permissions:
   contents: write
 
 jobs:
+  rust-quality:
+    name: Rust Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Run Rust quality checks
+        run: bun run doctor:rust
+
   create-release:
     name: Create Release
     runs-on: ubuntu-latest
+    needs: rust-quality
     steps:
       - uses: actions/checkout@v4
         with:

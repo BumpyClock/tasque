@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { SCHEMA_VERSION } from "../src/types";
 import { cleanupRepos, makeRepo as makeRepoBase, okData, runJson as runJsonBase } from "./helpers";
 
 async function makeRepo(): Promise<string> {
@@ -184,7 +185,7 @@ describe("cli close and reopen", () => {
 
     const closed = await runJson(repo, ["close", created.id, "--reason", "roundtrip test"]);
     expect(closed.exitCode).toBe(0);
-    expect(closed.envelope.schema_version).toBe(1);
+    expect(closed.envelope.schema_version).toBe(SCHEMA_VERSION);
     expect(closed.envelope.command).toBe("tsq close");
     expect(closed.envelope.ok).toBe(true);
     const closedData = okData<{ tasks: Array<{ id: string; status: string; closed_at?: string }> }>(
@@ -199,7 +200,7 @@ describe("cli close and reopen", () => {
 
     const reopened = await runJson(repo, ["reopen", created.id]);
     expect(reopened.exitCode).toBe(0);
-    expect(reopened.envelope.schema_version).toBe(1);
+    expect(reopened.envelope.schema_version).toBe(SCHEMA_VERSION);
     expect(reopened.envelope.command).toBe("tsq reopen");
     expect(reopened.envelope.ok).toBe(true);
     const reopenedData = okData<{

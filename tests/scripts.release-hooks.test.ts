@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { SCHEMA_VERSION } from "../src/types";
 
 import {
   buildReleaseNotes,
@@ -202,7 +203,7 @@ describe("release hooks", () => {
 
     const json = renderReleaseNotesJson(notes);
     const parsed = JSON.parse(json) as Record<string, unknown>;
-    expect(parsed.schema_version).toBe(1);
+    expect(parsed.schema_version).toBe(SCHEMA_VERSION);
     expect(parsed.version).toBe("1.2.3");
     expect(parsed.generated_at).toBe("2026-02-13T00:00:00.000Z");
     expect(parsed.baseline).toEqual({ tag: "v1.2.2", ts: "2026-02-10T00:00:00.000Z" });

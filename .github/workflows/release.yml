@@ -23,6 +23,9 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
+      - name: Verify release tag matches package.json version
+        run: bun run release:verify-version -- --tag "${{ github.event.release.tag_name }}"
+
       - run: bun run doctor
 
       - run: bun run release

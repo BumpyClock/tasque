@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { persistProjection } from "../src/app/state";
-import type { State } from "../src/types";
+import { SCHEMA_VERSION, type State } from "../src/types";
 
 const repos: string[] = [];
 
@@ -36,7 +36,7 @@ describe("persistProjection clock injection", () => {
     await mkdir(tasqueDir, { recursive: true });
     await Bun.write(
       join(tasqueDir, "config.json"),
-      JSON.stringify({ schema_version: 1, snapshot_every: 2 }),
+      JSON.stringify({ schema_version: SCHEMA_VERSION, snapshot_every: 2 }),
     );
 
     const fixedDate = new Date("2026-01-15T12:00:00.000Z");
@@ -59,7 +59,7 @@ describe("persistProjection clock injection", () => {
     await mkdir(tasqueDir, { recursive: true });
     await Bun.write(
       join(tasqueDir, "config.json"),
-      JSON.stringify({ schema_version: 1, snapshot_every: 1 }),
+      JSON.stringify({ schema_version: SCHEMA_VERSION, snapshot_every: 1 }),
     );
 
     const before = new Date();

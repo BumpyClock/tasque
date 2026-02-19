@@ -11,6 +11,8 @@
     "dev": "bun run src/main.ts",
     "build": "bun build src/main.ts --compile --outfile dist/tsq",
     "release": "bun run scripts/release.ts",
+    "release:verify-version": "bun run scripts/release-version.ts",
+    "version:bump": "bun run scripts/version-bump.ts",
     "typecheck": "bunx tsc --noEmit",
     "lint": "bunx @biomejs/biome check .",
     "fmt": "bunx @biomejs/biome format --write .",

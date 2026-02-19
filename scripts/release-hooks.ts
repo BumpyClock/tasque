@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { SCHEMA_VERSION } from "../src/types";
 
 type TaskKind = "task" | "feature" | "epic";
 
@@ -51,7 +52,7 @@ export interface ReleaseTask {
 }
 
 export interface ReleaseNotes {
-  schema_version: 1;
+  schema_version: typeof SCHEMA_VERSION;
   version: string;
   generated_at: string;
   baseline: ReleaseBaseline | null;
@@ -199,7 +200,7 @@ export function buildReleaseNotes(
   }
 
   return {
-    schema_version: 1,
+    schema_version: SCHEMA_VERSION,
     version,
     generated_at: generatedAt,
     baseline,

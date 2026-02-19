@@ -1,0 +1,61 @@
+name: Release From Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Optional explicit version; must match package.json when provided
+        required: false
+        type: string
+      target:
+        description: Target branch or commit SHA for the tag
+        required: false
+        default: main
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      - name: Resolve version from package.json
+        id: version
+        env:
+          EXPECTED_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${EXPECTED_VERSION}" ]; then
+            bun run release:verify-version -- --expected-version "${EXPECTED_VERSION}"
+          else
+            bun run release:verify-version
+          fi
+
+      - name: Ensure release tag does not already exist
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          TAG="${{ steps.version.outputs.tag }}"
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "Tag ${TAG} already exists."
+            exit 1
+          fi
+
+      - name: Create GitHub release from package version
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ inputs.target }}
+          generate_release_notes: true

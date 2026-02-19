@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { SCHEMA_VERSION } from "../src/types";
 
 export interface JsonEnvelope {
   schema_version: number;
@@ -79,7 +80,7 @@ export async function cleanupRepos(): Promise<void> {
 export function assertEnvelopeShape(value: unknown): asserts value is JsonEnvelope {
   expect(value).toBeObject();
   const envelope = value as Record<string, unknown>;
-  expect(envelope.schema_version).toBe(1);
+  expect(envelope.schema_version).toBe(SCHEMA_VERSION);
   expect(typeof envelope.command).toBe("string");
   expect(typeof envelope.ok).toBe("boolean");
   if (envelope.ok === true) {

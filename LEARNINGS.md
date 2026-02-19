@@ -38,6 +38,10 @@
 - Release automation should pass the freshly built `dist/tsq(.exe)` path into release-note generation instead of relying on `tsq` from `PATH`; this keeps GitHub runners and local environments deterministic.
 - `tsq init` skill lifecycle for agents uses managed-marker semantics: install, uninstall, idempotent update, non-managed skip unless `--force`.
 - Versioning/release planning baseline: use `package.json` as version source, surface via CLI `-V/--version`, and automate release PR/tag flow with release-please + GitHub Actions artifact publishing.
+- Added `bun run version:bump` helper (`scripts/version-bump.ts`) to bump package semver (`--version` or `--bump`) plus optional schema version (`--schema`) and update schema-version examples in docs; supports `--dry-run`.
+- `release-please.yml` now supports `workflow_dispatch` for manual release-PR refresh from GitHub Actions.
+- Added `bun run release:verify-version` helper (`scripts/release-version.ts`) to enforce tag/version sync (`v<package.version>`) in CI and manual release workflows.
+- Added `release-from-package.yml` workflow: manual dispatch creates a GitHub release from `package.json` version and then the publish workflow handles artifact builds.
 
 ## Init UX
 - Wizard contract baseline: run `tsq init` wizard only on TTY by default; `--no-wizard` is authoritative; `--wizard` is TTY-only; non-interactive agent flows must remain fully deterministic via flags.

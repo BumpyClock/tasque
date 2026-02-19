@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { SCHEMA_VERSION } from "../src/types";
 import { cleanupRepos, makeRepo as makeRepoBase, okData, runJson as runJsonBase } from "./helpers";
 
 interface EventRecord {
@@ -210,7 +211,7 @@ describe("cli history e2e", () => {
     expect(result.exitCode).toBe(0);
 
     const envelope = result.envelope;
-    expect(envelope.schema_version).toBe(1);
+    expect(envelope.schema_version).toBe(SCHEMA_VERSION);
     expect(typeof envelope.command).toBe("string");
     expect(envelope.ok).toBe(true);
 

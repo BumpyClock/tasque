@@ -17,7 +17,7 @@ import {
 } from "../src/app/storage";
 import { applyEvents } from "../src/domain/projector";
 import { createEmptyState } from "../src/domain/state";
-import type { EventRecord, Task } from "../src/types";
+import { type EventRecord, SCHEMA_VERSION, type Task } from "../src/types";
 
 const repos: string[] = [];
 
@@ -103,7 +103,10 @@ describe("storage adapter: persistProjection writes cache and triggers snapshot"
     await ensureEventsFile(repo);
 
     const configPath = join(repo, ".tasque", "config.json");
-    await Bun.write(configPath, JSON.stringify({ schema_version: 1, snapshot_every: 2 }));
+    await Bun.write(
+      configPath,
+      JSON.stringify({ schema_version: SCHEMA_VERSION, snapshot_every: 2 }),
+    );
 
     const events: EventRecord[] = [
       ev("task.created", "tsq-ddd444", { title: "Snap A", kind: "task", priority: 1 }, 1),

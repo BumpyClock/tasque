@@ -33,10 +33,14 @@ Both print the current version from `package.json`.
 ```bash
 bun run build
 bun run release
+bun run version:bump -- --bump patch
 ```
 
 - `build` compiles single-file binary to `dist/tsq` (or `dist/tsq.exe` on Windows).
 - `release` rebuilds, writes platform artifact, generates task-derived release notes, then writes checksums under `dist/releases/`.
+- `version:bump` updates release versions in tracked files:
+  - package version: `bun run version:bump -- --bump patch` or `bun run version:bump -- --version 1.3.0`
+  - schema version (when needed): `bun run version:bump -- --schema 2`
 - release artifacts:
   - `tsq-v<version>-<platform>-<arch>[.exe]`
   - `RELEASE_NOTES.md`
@@ -69,6 +73,22 @@ Releases are automated via [release-please](https://github.com/googleapis/releas
 2. `release-please` opens a version-bump PR updating `package.json` and `CHANGELOG.md`.
 3. Merge the release PR — a GitHub Release is created automatically.
 4. The release workflow builds platform binaries (Linux, macOS, Windows) and uploads them with checksums.
+
+You can also trigger the release-planning workflow manually:
+
+1. Go to GitHub Actions.
+2. Run `Release Please` (`.github/workflows/release-please.yml`) via **Run workflow**.
+3. Merge or update the generated release PR.
+
+Detailed runbook: `docs/releasing.md`.
+
+Seamless manual release from `package.json`:
+
+1. Ensure `package.json` contains the target version.
+2. Run `Release From Package` (`.github/workflows/release-from-package.yml`) from GitHub Actions.
+3. Optional: set workflow input `version` to enforce an exact expected value.
+4. The workflow validates package version sync and publishes release tag `v<package.version>`.
+5. Publish then triggers `Release` workflow, which verifies tag/version sync again before uploading artifacts.
 
 ### Rollback
 

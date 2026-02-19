@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { SCHEMA_VERSION } from "../src/types";
 import {
   cleanupRepos,
   makeRepo as makeRepoBase,
@@ -213,7 +214,7 @@ describe("cli merge workflow", () => {
 
     const result = await runJson(repo, ["merge", src.id, "--into", target.id]);
     expect(result.exitCode).toBe(0);
-    expect(result.envelope.schema_version).toBe(1);
+    expect(result.envelope.schema_version).toBe(SCHEMA_VERSION);
     expect(result.envelope.command).toBe("tsq merge");
     expect(result.envelope.ok).toBe(true);
     expect(result.envelope.data).toBeDefined();

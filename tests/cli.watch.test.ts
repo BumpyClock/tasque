@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { SCHEMA_VERSION } from "../src/types";
 import {
   cleanupRepos,
   makeRepo as makeRepoBase,
@@ -69,7 +70,7 @@ describe("tsq watch", () => {
 
     const { exitCode, envelope } = await runJson(repo, ["watch", "--once"]);
     expect(exitCode).toBe(0);
-    expect(envelope.schema_version).toBe(1);
+    expect(envelope.schema_version).toBe(SCHEMA_VERSION);
     expect(envelope.command).toBe("tsq watch");
     expect(envelope.ok).toBe(true);
 

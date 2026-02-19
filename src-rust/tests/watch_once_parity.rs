@@ -136,6 +136,35 @@ fn watch_once_invalid_interval_returns_validation_error_envelope() {
 }
 
 #[test]
+fn watch_once_invalid_status_csv_returns_validation_error_envelope() {
+    let repo = common::make_repo();
+    init_repo(repo.path());
+    create_task(repo.path(), "Watch invalid status target");
+
+    let result = run_json(repo.path(), ["watch", "--once", "--status", "open,"]);
+
+    assert_eq!(result.cli.code, 1);
+    assert_eq!(
+        result
+            .envelope
+            .get("command")
+            .and_then(|value| value.as_str()),
+        Some("tsq watch")
+    );
+    assert_validation_error(&result);
+    assert_eq!(
+        result
+            .envelope
+            .get("error")
+            .and_then(|value| value.get("message"))
+            .and_then(|value| value.as_str()),
+        Some(
+            "status must be one of: open, todo, in_progress, blocked, closed, done, canceled, deferred"
+        )
+    );
+}
+
+#[test]
 fn watch_once_json_reports_events_corruption_with_error_envelope() {
     let repo = common::make_repo();
     init_repo(repo.path());

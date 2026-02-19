@@ -15,7 +15,7 @@ pub fn print_task_list(tasks: &[Task]) {
         return;
     }
 
-    let header = vec!["ID", "P", "KIND", "STATUS", "ASSIGNEE", "TITLE"];
+    let header = ["ID", "P", "KIND", "STATUS", "ASSIGNEE", "TITLE"];
     let rows: Vec<Vec<String>> = tasks
         .iter()
         .map(|task| {
@@ -242,17 +242,17 @@ fn render_tree_node(
     if density != Density::Narrow {
         primary_parts.push(format_meta_badge(&node.task));
     }
-    if density == Density::Wide {
-        if let Some(flow) = &flow {
-            primary_parts.push(flow.clone());
-        }
+    if density == Density::Wide
+        && let Some(flow) = &flow
+    {
+        primary_parts.push(flow.clone());
     }
 
     lines.push(format!("{}{}", line_prefix, primary_parts.join(" ")));
-    if density == Density::Medium {
-        if let Some(flow) = &flow {
-            lines.push(format!("{}{}", meta_prefix, flow));
-        }
+    if density == Density::Medium
+        && let Some(flow) = &flow
+    {
+        lines.push(format!("{}{}", meta_prefix, flow));
     }
     if density == Density::Narrow {
         lines.push(format!("{}{}", meta_prefix, format_meta_badge(&node.task)));

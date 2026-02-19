@@ -6,15 +6,15 @@ pub enum Density {
 }
 
 pub fn resolve_width(raw: Option<usize>) -> usize {
-    if let Some(width) = raw {
-        if width > 0 {
-            return width;
-        }
+    if let Some(width) = raw
+        && width > 0
+    {
+        return width;
     }
-    if let Some((terminal_size::Width(width), _)) = terminal_size::terminal_size() {
-        if width > 0 {
-            return width as usize;
-        }
+    if let Some((terminal_size::Width(width), _)) = terminal_size::terminal_size()
+        && width > 0
+    {
+        return width as usize;
     }
     120
 }

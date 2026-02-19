@@ -70,20 +70,20 @@ fn validate_event_payload(
         }
     }
 
-    if matches!(event_type, EventType::DepAdded | EventType::DepRemoved) {
-        if let Some(dep_type_value) = payload.get("dep_type") {
-            let dep_type_str = dep_type_value.as_str().unwrap_or("");
-            if dep_type_str != "blocks" && dep_type_str != "starts_after" {
-                return Err(TsqError::new(
-                    "EVENTS_CORRUPT",
-                    format!(
-                        "Invalid event at line {}: {} payload field \"dep_type\" must be blocks|starts_after",
-                        line,
-                        event_type_to_string(event_type)
-                    ),
-                    2,
-                ));
-            }
+    if matches!(event_type, EventType::DepAdded | EventType::DepRemoved)
+        && let Some(dep_type_value) = payload.get("dep_type")
+    {
+        let dep_type_str = dep_type_value.as_str().unwrap_or("");
+        if dep_type_str != "blocks" && dep_type_str != "starts_after" {
+            return Err(TsqError::new(
+                "EVENTS_CORRUPT",
+                format!(
+                    "Invalid event at line {}: {} payload field \"dep_type\" must be blocks|starts_after",
+                    line,
+                    event_type_to_string(event_type)
+                ),
+                2,
+            ));
         }
     }
 

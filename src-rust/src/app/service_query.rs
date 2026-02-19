@@ -81,10 +81,11 @@ pub fn show(ctx: &ServiceContext, id_raw: &str, exact_id: bool) -> Result<ShowRe
                 return true;
             }
             for value in evt.payload.values() {
-                if let Some(value) = value.as_str() {
-                    if value.starts_with("tsq-") && value == id {
-                        return true;
-                    }
+                if let Some(value) = value.as_str()
+                    && value.starts_with("tsq-")
+                    && value == id
+                {
+                    return true;
                 }
             }
             false
@@ -138,14 +139,14 @@ pub fn stale(ctx: &ServiceContext, input: &StaleInput) -> Result<StaleResult, Ts
             1,
         ));
     }
-    if let Some(limit) = input.limit {
-        if limit < 1 {
-            return Err(TsqError::new(
-                "VALIDATION_ERROR",
-                "limit must be an integer >= 1",
-                1,
-            ));
-        }
+    if let Some(limit) = input.limit
+        && limit < 1
+    {
+        return Err(TsqError::new(
+            "VALIDATION_ERROR",
+            "limit must be an integer >= 1",
+            1,
+        ));
     }
 
     let loaded = load_projected_state(&ctx.repo_root)?;
@@ -209,14 +210,14 @@ pub fn list_tree(ctx: &ServiceContext, filter: &ListFilter) -> Result<Vec<TaskTr
     let mut roots: Vec<Task> = Vec::new();
 
     for task in &filtered_tasks {
-        if let Some(parent_id) = task.parent_id.as_ref() {
-            if tasks_by_id.contains_key(parent_id) {
-                children_by_parent
-                    .entry(parent_id.clone())
-                    .or_default()
-                    .push(task.clone());
-                continue;
-            }
+        if let Some(parent_id) = task.parent_id.as_ref()
+            && tasks_by_id.contains_key(parent_id)
+        {
+            children_by_parent
+                .entry(parent_id.clone())
+                .or_default()
+                .push(task.clone());
+            continue;
         }
         roots.push(task.clone());
     }
@@ -355,10 +356,10 @@ pub fn history(ctx: &ServiceContext, input: &HistoryInput) -> Result<HistoryResu
                 return true;
             }
             for value in evt.payload.values() {
-                if let Some(value) = value.as_str() {
-                    if value == id {
-                        return true;
-                    }
+                if let Some(value) = value.as_str()
+                    && value == id
+                {
+                    return true;
                 }
             }
             false
@@ -366,22 +367,13 @@ pub fn history(ctx: &ServiceContext, input: &HistoryInput) -> Result<HistoryResu
         .collect();
 
     if let Some(event_type) = input.event_type.as_deref() {
-        events = events
-            .into_iter()
-            .filter(|evt| event_type_to_string(evt.event_type) == event_type)
-            .collect();
+        events.retain(|evt| event_type_to_string(evt.event_type) == event_type);
     }
     if let Some(actor) = input.actor.as_deref() {
-        events = events
-            .into_iter()
-            .filter(|evt| evt.actor == actor)
-            .collect();
+        events.retain(|evt| evt.actor == actor);
     }
     if let Some(since) = input.since.as_deref() {
-        events = events
-            .into_iter()
-            .filter(|evt| evt.ts.as_str() >= since)
-            .collect();
+        events.retain(|evt| evt.ts.as_str() >= since);
     }
 
     events.sort_by(|a, b| b.ts.cmp(&a.ts));

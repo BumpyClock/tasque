@@ -27,7 +27,7 @@ pub(crate) fn as_string_array(value: Option<&Value>) -> Option<Vec<String>> {
 
 pub(crate) fn as_priority(value: Option<&Value>) -> Option<Priority> {
     let raw = value?.as_i64()?;
-    if raw < 0 || raw > 3 {
+    if !(0..=3).contains(&raw) {
         return None;
     }
     Some(raw as Priority)
@@ -195,8 +195,8 @@ pub(crate) fn upsert_directed_link(
     dst: &str,
     rel_type: RelationType,
 ) {
-    let entry = links.entry(src.to_string()).or_insert_with(HashMap::new);
-    let targets = entry.entry(rel_type).or_insert_with(Vec::new);
+    let entry = links.entry(src.to_string()).or_default();
+    let targets = entry.entry(rel_type).or_default();
     if !targets.iter().any(|candidate| candidate == dst) {
         targets.push(dst.to_string());
     }

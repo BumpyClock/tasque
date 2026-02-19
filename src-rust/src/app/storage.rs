@@ -282,20 +282,20 @@ pub fn evaluate_task_spec(
     }
 
     if let Some(content_value) = content.as_ref() {
-        bytes = Some(content_value.as_bytes().len());
+        bytes = Some(content_value.len());
         let fingerprint = sha256(content_value);
         actual_fingerprint = Some(fingerprint.clone());
-        if let Some(expected) = expected_fingerprint.as_ref() {
-            if expected != &fingerprint {
-                diagnostics.push(SpecCheckDiagnostic {
-                    code: SpecCheckDiagnosticCode::SpecFingerprintDrift,
-                    message: "spec fingerprint drift detected".to_string(),
-                    details: Some(serde_json::json!({
-                      "expected_fingerprint": expected,
-                      "actual_fingerprint": fingerprint,
-                    })),
-                });
-            }
+        if let Some(expected) = expected_fingerprint.as_ref()
+            && expected != &fingerprint
+        {
+            diagnostics.push(SpecCheckDiagnostic {
+                code: SpecCheckDiagnosticCode::SpecFingerprintDrift,
+                message: "spec fingerprint drift detected".to_string(),
+                details: Some(serde_json::json!({
+                  "expected_fingerprint": expected,
+                  "actual_fingerprint": fingerprint,
+                })),
+            });
         }
 
         present_sections = extract_markdown_headings(content_value);

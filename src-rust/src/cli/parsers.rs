@@ -336,18 +336,8 @@ pub fn parse_status_csv(raw: &str) -> Result<Vec<TaskStatus>, TsqError> {
     let mut statuses = Vec::new();
     for token in raw.split(',') {
         let trimmed = token.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
         let status = normalize_status(trimmed)?;
         statuses.push(status);
-    }
-    if statuses.is_empty() {
-        return Err(TsqError::new(
-            "VALIDATION_ERROR",
-            "status must not be empty",
-            1,
-        ));
     }
     Ok(statuses)
 }

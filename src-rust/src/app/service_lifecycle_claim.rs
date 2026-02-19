@@ -59,7 +59,7 @@ pub fn claim(ctx: &ServiceContext, input: &ClaimInput) -> Result<Task, TsqError>
             &id,
             payload_map(serde_json::json!({"assignee": assignee})),
         );
-        let mut next_state = apply_events(&loaded.state, &[event.clone()])?;
+        let mut next_state = apply_events(&loaded.state, std::slice::from_ref(&event))?;
         append_events(&ctx.repo_root, &[event])?;
         persist_projection(
             &ctx.repo_root,
@@ -202,7 +202,7 @@ pub fn supersede(ctx: &ServiceContext, input: &SupersedeInput) -> Result<Task, T
             &source,
             payload,
         );
-        let mut next_state = apply_events(&loaded.state, &[event.clone()])?;
+        let mut next_state = apply_events(&loaded.state, std::slice::from_ref(&event))?;
         append_events(&ctx.repo_root, &[event])?;
         persist_projection(
             &ctx.repo_root,
@@ -243,17 +243,17 @@ pub fn duplicate(ctx: &ServiceContext, input: &DuplicateInput) -> Result<Task, T
                 1,
             ));
         }
-        if let Some(existing) = source_task.duplicate_of.as_ref() {
-            if existing != &canonical {
-                return Err(TsqError::new(
-                    "VALIDATION_ERROR",
-                    format!(
-                        "task {} is already marked as duplicate of {}",
-                        source, existing
-                    ),
-                    1,
-                ));
-            }
+        if let Some(existing) = source_task.duplicate_of.as_ref()
+            && existing != &canonical
+        {
+            return Err(TsqError::new(
+                "VALIDATION_ERROR",
+                format!(
+                    "task {} is already marked as duplicate of {}",
+                    source, existing
+                ),
+                1,
+            ));
         }
         if creates_duplicate_cycle(&loaded.state, &source, &canonical) {
             return Err(TsqError::new(

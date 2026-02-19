@@ -33,7 +33,7 @@ pub fn note_add(ctx: &ServiceContext, input: &NoteAddInput) -> Result<NoteAddRes
                 .cloned()
                 .unwrap_or_default(),
         );
-        let mut next_state = apply_events(&loaded.state, &[event.clone()])?;
+        let mut next_state = apply_events(&loaded.state, std::slice::from_ref(&event))?;
         append_events(&ctx.repo_root, &[event])?;
         persist_projection(
             &ctx.repo_root,

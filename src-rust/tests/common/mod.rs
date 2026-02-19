@@ -110,7 +110,7 @@ pub fn assert_validation_error(result: &JsonOutput) {
     );
 }
 
-pub fn ok_data<'a>(envelope: &'a Value) -> &'a Value {
+pub fn ok_data(envelope: &Value) -> &Value {
     assert_eq!(envelope.get("ok").and_then(Value::as_bool), Some(true));
     envelope
         .get("data")

@@ -36,7 +36,7 @@ pub fn dep_add(
             &child,
             payload_map(serde_json::json!({"blocker": blocker, "dep_type": dep_type})),
         );
-        let mut next_state = apply_events(&loaded.state, &[event.clone()])?;
+        let mut next_state = apply_events(&loaded.state, std::slice::from_ref(&event))?;
         append_events(&ctx.repo_root, &[event])?;
         persist_projection(
             &ctx.repo_root,
@@ -64,7 +64,7 @@ pub fn dep_remove(
             &child,
             payload_map(serde_json::json!({"blocker": blocker, "dep_type": dep_type})),
         );
-        let mut next_state = apply_events(&loaded.state, &[event.clone()])?;
+        let mut next_state = apply_events(&loaded.state, std::slice::from_ref(&event))?;
         append_events(&ctx.repo_root, &[event])?;
         persist_projection(
             &ctx.repo_root,
@@ -98,7 +98,7 @@ pub fn link_add(
             &src,
             payload_map(serde_json::json!({"type": input.rel_type, "target": dst})),
         );
-        let mut next_state = apply_events(&loaded.state, &[event.clone()])?;
+        let mut next_state = apply_events(&loaded.state, std::slice::from_ref(&event))?;
         append_events(&ctx.repo_root, &[event])?;
         persist_projection(
             &ctx.repo_root,
@@ -132,7 +132,7 @@ pub fn link_remove(
             &src,
             payload_map(serde_json::json!({"type": input.rel_type, "target": dst})),
         );
-        let mut next_state = apply_events(&loaded.state, &[event.clone()])?;
+        let mut next_state = apply_events(&loaded.state, std::slice::from_ref(&event))?;
         append_events(&ctx.repo_root, &[event])?;
         persist_projection(
             &ctx.repo_root,

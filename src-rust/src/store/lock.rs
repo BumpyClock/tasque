@@ -242,13 +242,13 @@ pub fn force_remove_lock(repo_root: impl AsRef<Path>) -> Result<Option<LockPaylo
     };
 
     let payload = parse_lock_payload(&raw);
-    if let Err(error) = remove_file(&paths.lock_file) {
-        if error.kind() != std::io::ErrorKind::NotFound {
-            return Err(
-                TsqError::new("LOCK_REMOVE_FAILED", "Failed removing lock file", 2)
-                    .with_details(io_error_value(&error)),
-            );
-        }
+    if let Err(error) = remove_file(&paths.lock_file)
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        return Err(
+            TsqError::new("LOCK_REMOVE_FAILED", "Failed removing lock file", 2)
+                .with_details(io_error_value(&error)),
+        );
     }
 
     Ok(payload)

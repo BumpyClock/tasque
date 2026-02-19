@@ -26,7 +26,7 @@ pub fn label_add(ctx: &ServiceContext, input: &LabelInput) -> Result<Task, TsqEr
                 .cloned()
                 .unwrap_or_default(),
         );
-        let mut next_state = apply_events(&loaded.state, &[event.clone()])?;
+        let mut next_state = apply_events(&loaded.state, std::slice::from_ref(&event))?;
         append_events(&ctx.repo_root, &[event])?;
         persist_projection(
             &ctx.repo_root,
@@ -54,7 +54,7 @@ pub fn label_remove(ctx: &ServiceContext, input: &LabelInput) -> Result<Task, Ts
                 .cloned()
                 .unwrap_or_default(),
         );
-        let mut next_state = apply_events(&loaded.state, &[event.clone()])?;
+        let mut next_state = apply_events(&loaded.state, std::slice::from_ref(&event))?;
         append_events(&ctx.repo_root, &[event])?;
         persist_projection(
             &ctx.repo_root,

@@ -96,7 +96,7 @@ pub fn create(ctx: &ServiceContext, input: &CreateInput) -> Result<Task, TsqErro
             })),
         );
 
-        let mut next_state = apply_events(&loaded.state, &[event.clone()])?;
+        let mut next_state = apply_events(&loaded.state, std::slice::from_ref(&event))?;
         append_events(&ctx.repo_root, &[event])?;
         persist_projection(
             &ctx.repo_root,

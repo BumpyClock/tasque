@@ -93,8 +93,8 @@ pub fn evaluate_query(tasks: &[Task], filter: &QueryFilter, state: &State) -> Ve
     }
     tasks
         .iter()
+        .filter(|&task| matches_all(task, &filter.terms, state))
         .cloned()
-        .filter(|task| matches_all(task, &filter.terms, state))
         .collect()
 }
 

@@ -39,22 +39,23 @@ pub fn spec_attach(
         let new_fingerprint = sha256(&source_content);
         let old_fingerprint = normalize_optional_input(existing.spec_fingerprint.as_deref());
 
-        if let Some(old) = old_fingerprint {
-            if old != new_fingerprint && !input.force {
-                return Err(TsqError::new(
-                    "SPEC_CONFLICT",
-                    format!(
-                        "task {} already has an attached spec with a different fingerprint",
-                        id
-                    ),
-                    1,
-                )
-                .with_details(serde_json::json!({
-                  "task_id": id,
-                  "old_fingerprint": old,
-                  "new_fingerprint": new_fingerprint,
-                })));
-            }
+        if let Some(old) = old_fingerprint
+            && old != new_fingerprint
+            && !input.force
+        {
+            return Err(TsqError::new(
+                "SPEC_CONFLICT",
+                format!(
+                    "task {} already has an attached spec with a different fingerprint",
+                    id
+                ),
+                1,
+            )
+            .with_details(serde_json::json!({
+              "task_id": id,
+              "old_fingerprint": old,
+              "new_fingerprint": new_fingerprint,
+            })));
         }
 
         let spec_file = write_task_spec_atomic(&ctx.repo_root, &id, &source_content)?;
@@ -77,7 +78,7 @@ pub fn spec_attach(
             .cloned()
             .unwrap_or_default(),
         );
-        let mut next_state = apply_events(&loaded.state, &[event.clone()])?;
+        let mut next_state = apply_events(&loaded.state, std::slice::from_ref(&event))?;
         append_events(&ctx.repo_root, &[event])?;
         persist_projection(
             &ctx.repo_root,

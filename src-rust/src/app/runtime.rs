@@ -58,7 +58,7 @@ pub fn parse_priority(raw: &str) -> Result<Priority, TsqError> {
     let value = raw
         .parse::<u8>()
         .map_err(|_| TsqError::new("VALIDATION_ERROR", "priority must be one of: 0, 1, 2, 3", 1))?;
-    if matches!(value, 0 | 1 | 2 | 3) {
+    if matches!(value, 0..=3) {
         return Ok(value);
     }
     Err(TsqError::new(

@@ -344,12 +344,12 @@ fn resolve_managed_skill_source_directory(
     if let Ok(cwd) = env::current_dir() {
         roots.push(cwd.join("SKILLS"));
     }
-    if let Ok(exe_path) = env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            roots.push(exe_dir.join("SKILLS"));
-            roots.push(exe_dir.join("..").join("SKILLS"));
-            roots.push(exe_dir.join("..").join("share").join("tsq").join("SKILLS"));
-        }
+    if let Ok(exe_path) = env::current_exe()
+        && let Some(exe_dir) = exe_path.parent()
+    {
+        roots.push(exe_dir.join("SKILLS"));
+        roots.push(exe_dir.join("..").join("SKILLS"));
+        roots.push(exe_dir.join("..").join("share").join("tsq").join("SKILLS"));
     }
 
     let mut unique_roots = Vec::new();

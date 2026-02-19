@@ -67,10 +67,10 @@ fn scan_filesystem(
 
     if let Ok(entries) = read_dir(&paths.tasque_dir) {
         for entry in entries.flatten() {
-            if let Some(name) = entry.file_name().to_str() {
-                if name.contains(".tmp") {
-                    stale_temps.push(name.to_string());
-                }
+            if let Some(name) = entry.file_name().to_str()
+                && name.contains(".tmp")
+            {
+                stale_temps.push(name.to_string());
             }
         }
     }
@@ -127,10 +127,8 @@ pub fn execute_repair(
         });
     }
 
-    if opts.force_unlock {
-        if lock_exists(&repo_root)? {
-            let _ = force_remove_lock(&repo_root)?;
-        }
+    if opts.force_unlock && lock_exists(&repo_root)? {
+        let _ = force_remove_lock(&repo_root)?;
     }
 
     with_write_lock(&repo_root, || {

@@ -45,10 +45,10 @@ pub fn load_latest_snapshot_with_warning(
 
     let mut candidates = Vec::new();
     for entry in entries.flatten() {
-        if let Some(name) = entry.file_name().to_str() {
-            if name.ends_with(".json") {
-                candidates.push(name.to_string());
-            }
+        if let Some(name) = entry.file_name().to_str()
+            && name.ends_with(".json")
+        {
+            candidates.push(name.to_string());
         }
     }
 
@@ -134,10 +134,10 @@ fn prune_snapshots(path: &Path) {
 
     let mut snapshots = Vec::new();
     for entry in entries.flatten() {
-        if let Some(name) = entry.file_name().to_str() {
-            if name.ends_with(".json") {
-                snapshots.push(name.to_string());
-            }
+        if let Some(name) = entry.file_name().to_str()
+            && name.ends_with(".json")
+        {
+            snapshots.push(name.to_string());
         }
     }
 

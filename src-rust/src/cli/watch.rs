@@ -190,10 +190,10 @@ fn refresh_frame(
             code,
             exit_code,
         } => {
-            if !options.json {
-                if let Some(previous) = last_good_frame.clone() {
-                    output_frame(&FrameResult::Ok(previous), options, clear_screen, paused);
-                }
+            if !options.json
+                && let Some(previous) = last_good_frame.clone()
+            {
+                output_frame(&FrameResult::Ok(previous), options, clear_screen, paused);
             }
             output_frame(
                 &FrameResult::Err {
@@ -513,14 +513,14 @@ fn build_watch_tree(tasks: &[Task]) -> Vec<TaskTreeNode> {
     let mut roots = Vec::new();
 
     for task in tasks {
-        if let Some(parent) = task.parent_id.as_ref() {
-            if by_id.contains_key(parent) {
-                children_by_parent
-                    .entry(parent.clone())
-                    .or_default()
-                    .push(task.clone());
-                continue;
-            }
+        if let Some(parent) = task.parent_id.as_ref()
+            && by_id.contains_key(parent)
+        {
+            children_by_parent
+                .entry(parent.clone())
+                .or_default()
+                .push(task.clone());
+            continue;
         }
         roots.push(task.clone());
     }

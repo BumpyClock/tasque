@@ -85,61 +85,60 @@ pub fn apply_list_filter(tasks: &[Task], filter: &ListFilter) -> Vec<Task> {
     tasks
         .iter()
         .filter(|task| {
-            if let Some(statuses) = &filter.statuses {
-                if !statuses.contains(&task.status) {
-                    return false;
-                }
+            if let Some(statuses) = &filter.statuses
+                && !statuses.contains(&task.status)
+            {
+                return false;
             }
-            if let Some(ids) = &filter.ids {
-                if !ids.contains(&task.id) {
-                    return false;
-                }
+            if let Some(ids) = &filter.ids
+                && !ids.contains(&task.id)
+            {
+                return false;
             }
-            if let Some(assignee) = &filter.assignee {
-                if task.assignee.as_deref() != Some(assignee.as_str()) {
-                    return false;
-                }
+            if let Some(assignee) = &filter.assignee
+                && task.assignee.as_deref() != Some(assignee.as_str())
+            {
+                return false;
             }
-            if let Some(external_ref) = &filter.external_ref {
-                if task.external_ref.as_deref() != Some(external_ref.as_str()) {
-                    return false;
-                }
+            if let Some(external_ref) = &filter.external_ref
+                && task.external_ref.as_deref() != Some(external_ref.as_str())
+            {
+                return false;
             }
-            if let Some(discovered_from) = &filter.discovered_from {
-                if task.discovered_from.as_deref() != Some(discovered_from.as_str()) {
-                    return false;
-                }
+            if let Some(discovered_from) = &filter.discovered_from
+                && task.discovered_from.as_deref() != Some(discovered_from.as_str())
+            {
+                return false;
             }
             if filter.unassigned && has_assignee(task.assignee.as_deref()) {
                 return false;
             }
-            if let Some(kind) = &filter.kind {
-                if &task.kind != kind {
-                    return false;
-                }
+            if let Some(kind) = &filter.kind
+                && &task.kind != kind
+            {
+                return false;
             }
-            if let Some(label) = &filter.label {
-                if !task.labels.iter().any(|value| value == label) {
-                    return false;
-                }
+            if let Some(label) = &filter.label
+                && !task.labels.iter().any(|value| value == label)
+            {
+                return false;
             }
-            if let Some(labels) = &filter.label_any {
-                if !labels
+            if let Some(labels) = &filter.label_any
+                && !labels
                     .iter()
                     .any(|label| task.labels.iter().any(|value| value == label))
-                {
-                    return false;
-                }
+            {
+                return false;
             }
-            if let Some(created_after) = &filter.created_after {
-                if task.created_at <= *created_after {
-                    return false;
-                }
+            if let Some(created_after) = &filter.created_after
+                && task.created_at <= *created_after
+            {
+                return false;
             }
-            if let Some(updated_after) = &filter.updated_after {
-                if task.updated_at <= *updated_after {
-                    return false;
-                }
+            if let Some(updated_after) = &filter.updated_after
+                && task.updated_at <= *updated_after
+            {
+                return false;
             }
             if let Some(closed_after) = &filter.closed_after {
                 if let Some(closed_at) = &task.closed_at {
@@ -150,10 +149,10 @@ pub fn apply_list_filter(tasks: &[Task], filter: &ListFilter) -> Vec<Task> {
                     return false;
                 }
             }
-            if let Some(planning_state) = &filter.planning_state {
-                if task.planning_state.as_ref() != Some(planning_state) {
-                    return false;
-                }
+            if let Some(planning_state) = &filter.planning_state
+                && task.planning_state.as_ref() != Some(planning_state)
+            {
+                return false;
             }
             true
         })

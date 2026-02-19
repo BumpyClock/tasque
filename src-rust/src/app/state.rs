@@ -21,26 +21,26 @@ pub fn load_projected_state(repo_root: impl AsRef<Path>) -> Result<LoadedState, 
     let events = read.events;
     let event_warning = read.warning;
 
-    if let Some(from_cache) = read_state_cache(&repo_root)? {
-        if from_cache.applied_events <= events.len() {
-            let offset = from_cache.applied_events;
-            if offset == events.len() {
-                return Ok(LoadedState {
-                    state: from_cache,
-                    all_events: events,
-                    warning: event_warning,
-                    snapshot: None,
-                });
-            }
-            let mut state = apply_events(&from_cache, &events[offset..])?;
-            state.applied_events = events.len();
+    if let Some(from_cache) = read_state_cache(&repo_root)?
+        && from_cache.applied_events <= events.len()
+    {
+        let offset = from_cache.applied_events;
+        if offset == events.len() {
             return Ok(LoadedState {
-                state,
+                state: from_cache,
                 all_events: events,
                 warning: event_warning,
                 snapshot: None,
             });
         }
+        let mut state = apply_events(&from_cache, &events[offset..])?;
+        state.applied_events = events.len();
+        return Ok(LoadedState {
+            state,
+            all_events: events,
+            warning: event_warning,
+            snapshot: None,
+        });
     }
 
     let loaded = load_latest_snapshot_with_warning(&repo_root)?;
@@ -79,7 +79,7 @@ pub fn persist_projection(
         return Ok(());
     }
 
-    if event_count > 0 && event_count % config.snapshot_every == 0 {
+    if event_count > 0 && event_count.is_multiple_of(config.snapshot_every) {
         let taken_at = match now {
             Some(clock) => clock(),
             None => Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
@@ -97,15 +97,15 @@ pub fn persist_projection(
 
 fn combine_warnings(warnings: Option<String>, other: Option<String>) -> Option<String> {
     let mut combined = Vec::new();
-    if let Some(value) = warnings {
-        if !value.is_empty() {
-            combined.push(value);
-        }
+    if let Some(value) = warnings
+        && !value.is_empty()
+    {
+        combined.push(value);
     }
-    if let Some(value) = other {
-        if !value.is_empty() {
-            combined.push(value);
-        }
+    if let Some(value) = other
+        && !value.is_empty()
+    {
+        combined.push(value);
     }
     if combined.is_empty() {
         None

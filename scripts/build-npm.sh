@@ -4,6 +4,33 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 NPM_DIR="$REPO_ROOT/npm"
 
+SKILLS_SRC="$REPO_ROOT/SKILLS"
+if [[ -d "$SKILLS_SRC" ]]; then
+  rm -rf "$NPM_DIR/SKILLS"
+  cp -R "$SKILLS_SRC" "$NPM_DIR/SKILLS"
+
+  for platform_dir in "$NPM_DIR/platforms"/*; do
+    if [[ -d "$platform_dir" ]]; then
+      rm -rf "$platform_dir/SKILLS"
+      cp -R "$SKILLS_SRC" "$platform_dir/SKILLS"
+    fi
+  done
+
+  if [[ ! -f "$NPM_DIR/SKILLS/tasque/SKILL.md" ]]; then
+    echo "Error: missing npm SKILLS/tasque/SKILL.md after copy" >&2
+    exit 1
+  fi
+
+  for platform_dir in "$NPM_DIR/platforms"/*; do
+    if [[ -d "$platform_dir" && ! -f "$platform_dir/SKILLS/tasque/SKILL.md" ]]; then
+      echo "Error: missing SKILLS/tasque/SKILL.md in $platform_dir" >&2
+      exit 1
+    fi
+  done
+else
+  echo "Warning: SKILLS directory not found at $SKILLS_SRC" >&2
+fi
+
 # Read version from Cargo.toml
 VERSION=$(grep '^version' "$REPO_ROOT/Cargo.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/')
 echo "Version: $VERSION"

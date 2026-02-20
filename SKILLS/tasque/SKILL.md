@@ -52,3 +52,4 @@ Durable task tracking via `tsq`.
 - Full CLI command catalog and option matrix: `references/command-reference.md`
 - Task authoring checklist and naming/labeling standards: `references/task-authoring-checklist.md`
 - JSON schema and storage/durability model: `references/machine-output-and-durability.md`
+- Install tasque if it's not available : `npm install -g @bumpyclock/tasque`

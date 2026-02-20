@@ -30,7 +30,7 @@ jobs:
 
       - name: Rust tests
         run: cargo test --all-targets --all-features
-      
+
       - name: Build release binary
         run: cargo build --release --locked
 
@@ -44,10 +44,25 @@ jobs:
           ARCH="$(uname -m)"
           mkdir -p dist/releases
           BIN="target/release/tsq"
-          OUT="dist/releases/tsq-v${VERSION}-${OS}-${ARCH}"
-          cp "${BIN}" "${OUT}"
-          chmod +x "${OUT}"
-          shasum -a 256 "${OUT}" > dist/releases/SHA256SUMS.txt
+          BUNDLE_DIR="dist/releases/tsq-v${VERSION}-${OS}-${ARCH}"
+          rm -rf "${BUNDLE_DIR}"
+          mkdir -p "${BUNDLE_DIR}"
+          cp "${BIN}" "${BUNDLE_DIR}/tsq"
+          chmod +x "${BUNDLE_DIR}/tsq"
+          if [[ -d "SKILLS" ]]; then
+            cp -R "SKILLS" "${BUNDLE_DIR}/SKILLS"
+          else
+            echo "Error: SKILLS directory missing from repo root" >&2
+            exit 1
+          fi
+          if [[ ! -f "${BUNDLE_DIR}/SKILLS/tasque/SKILL.md" ]]; then
+            echo "Error: SKILLS bundle missing SKILLS/tasque/SKILL.md" >&2
+            exit 1
+          fi
+          TARBALL="${BUNDLE_DIR}.tar.gz"
+          tar -czf "${TARBALL}" -C dist/releases "tsq-v${VERSION}-${OS}-${ARCH}"
+          rm -rf "${BUNDLE_DIR}"
+          shasum -a 256 "${TARBALL}" > dist/releases/SHA256SUMS.txt
 
       - name: Package artifact (Windows)
         if: runner.os == 'Windows'
@@ -58,10 +73,18 @@ jobs:
           $arch = $env:PROCESSOR_ARCHITECTURE.ToLower()
           New-Item -ItemType Directory -Force dist/releases | Out-Null
           $bin = 'target/release/tsq.exe'
-          $out = \"dist/releases/tsq-v$version-windows-$arch.exe\"
-          Copy-Item $bin $out -Force
-          $hash = Get-FileHash $out -Algorithm SHA256
-          \"{0}  {1}\" -f $hash.Hash.ToLower(), (Split-Path $out -Leaf) | Set-Content dist/releases/SHA256SUMS.txt
+          $bundle = "dist/releases/tsq-v$version-windows-$arch"
+          if (Test-Path $bundle) { Remove-Item $bundle -Recurse -Force }
+          New-Item -ItemType Directory -Force $bundle | Out-Null
+          Copy-Item $bin (Join-Path $bundle 'tsq.exe') -Force
+          if (Test-Path 'SKILLS') { Copy-Item 'SKILLS' (Join-Path $bundle 'SKILLS') -Recurse -Force } else { Write-Error 'SKILLS directory missing from repo root'; exit 1 }
+          if (-not (Test-Path (Join-Path $bundle 'SKILLS/tasque/SKILL.md'))) { Write-Error 'SKILLS bundle missing SKILLS/tasque/SKILL.md'; exit 1 }
+          $zip = "$bundle.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path $bundle -DestinationPath $zip -Force
+          Remove-Item $bundle -Recurse -Force
+          $hash = Get-FileHash $zip -Algorithm SHA256
+          "{0}  {1}" -f $hash.Hash.ToLower(), (Split-Path $zip -Leaf) | Set-Content dist/releases/SHA256SUMS.txt
 
       - name: Upload release artifacts
         uses: softprops/action-gh-release@v2

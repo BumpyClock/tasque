@@ -14,7 +14,8 @@
     "arm64"
   ],
   "files": [
-    "tsq.exe"
+    "tsq.exe",
+    "SKILLS/**"
   ],
   "publishConfig": {
     "access": "public",

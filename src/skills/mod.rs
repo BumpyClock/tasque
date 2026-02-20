@@ -1,7 +1,9 @@
 pub mod managed;
 pub mod types;
+pub mod embedded;
 
 use crate::errors::TsqError;
+use crate::skills::embedded::materialize_embedded_skill;
 use crate::skills::managed::MANAGED_MARKER;
 use crate::skills::types::{
     SkillAction, SkillOperationOptions, SkillOperationResult, SkillOperationSummary,
@@ -23,11 +25,33 @@ pub fn apply_skill_operation(
     options: SkillOperationOptions,
 ) -> Result<SkillOperationSummary, TsqError> {
     let target_directories = resolve_target_directories(&options)?;
+    let mut embedded_temp_root: Option<PathBuf> = None;
     let skill_source_directory = match options.action {
-        SkillAction::Install => Some(resolve_managed_skill_source_directory(
-            &options.skill_name,
-            options.source_root_dir.as_deref(),
-        )?),
+        SkillAction::Install => {
+            match resolve_managed_skill_source_directory(
+                &options.skill_name,
+                options.source_root_dir.as_deref(),
+            ) {
+                Ok(path) => Some(path),
+                Err(error) => {
+                    if error.code != "VALIDATION_ERROR" {
+                        return Err(error);
+                    }
+                    let searched_details = error.details.clone();
+                    let materialized = match materialize_embedded_skill(&options.skill_name) {
+                        Ok(materialized) => materialized,
+                        Err(embed_error) => {
+                            if let Some(details) = searched_details {
+                                return Err(embed_error.with_details(details));
+                            }
+                            return Err(embed_error);
+                        }
+                    };
+                    embedded_temp_root = Some(materialized.temp_root.clone());
+                    Some(materialized.skill_root)
+                }
+            }
+        }
         SkillAction::Uninstall => None,
     };
 
@@ -56,6 +80,10 @@ pub fn apply_skill_operation(
                 results.push(result);
             }
         }
+    }
+
+    if let Some(temp_root) = embedded_temp_root {
+        let _ = fs::remove_dir_all(temp_root);
     }
 
     Ok(SkillOperationSummary {

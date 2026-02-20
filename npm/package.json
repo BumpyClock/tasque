@@ -12,7 +12,8 @@
   },
   "files": [
     "bin/tsq.js",
-    "scripts/postinstall.js"
+    "scripts/postinstall.js",
+    "SKILLS/**"
   ],
   "scripts": {
     "postinstall": "node scripts/postinstall.js",

@@ -30,6 +30,7 @@
 - Projector validates dep/link targets with `requireTask()` — repair tests must inject orphans via state cache, not raw events, to bypass this validation.
 - `repair --fix` computes plan inside write lock using locked snapshot to prevent plan/apply drift.
 - `process.exitCode` is sticky within a long-lived process. Reset at command entry (`preAction`) so a prior failing command does not cause later successful commands to exit non-zero.
+- `clap` may report no-subcommand cases as `DisplayHelpOnMissingArgumentOrSubcommand` (not only `MissingSubcommand`); for hard default no-arg behavior (like TUI entry), prefer an explicit pre-parse `args.len()==1` TTY check and then handle both error kinds in fallback parsing paths.
 - Under `bun test` on Windows, piping stdin into compiled `dist/tsq.exe` can be flaky; stdin-focused tests are more reliable when they feed stdin from a file descriptor (e.g., `stdin: Bun.file(path)`) or run via source entry.
 - Test helpers default to compiled `dist/tsq.exe` when present; for new CLI-option coverage before a fresh build, run those tests against `bun run src/main.ts` to avoid stale-binary false failures.
 - `bun run build` can fail with `EPERM` on Windows if `dist/tsq.exe` is still in use by a running test process; retry build after tests complete.

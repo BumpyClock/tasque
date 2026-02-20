@@ -6,6 +6,7 @@ pub mod program;
 pub mod render;
 pub mod style;
 pub mod terminal;
+pub mod tui;
 pub mod watch;
 
 pub use program::run_cli;

@@ -89,6 +89,7 @@ Global options:
 
 Commands:
 
+- `tsq` (no args, TTY): open read-only TUI (List/Board views)
 - `tsq init`
 - `tsq init --install-skill|--uninstall-skill [--skill-targets ...]`
 - `tsq create "Title" [--kind ...] [-p ...] [--parent <id>] [--external-ref <ref>] [--discovered-from <id>] [--planning <needs_planning|planned>] [--needs-planning] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
@@ -96,6 +97,7 @@ Commands:
 - `tsq list [--status ...] [--assignee ...] [--external-ref <ref>] [--discovered-from <id>] [--kind ...] [--planning <needs_planning|planned>] [--dep-type <blocks|starts_after>] [--dep-direction <in|out|any>] [--tree]`
 - `tsq ready [--lane <planning|coding>]`
 - `tsq watch [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--tree]`
+- `tsq tui [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--board]`
 - `tsq stale [--days <n>] [--status <status>] [--assignee <name>] [--limit <n>]`
 - `tsq doctor`
 - `tsq update <id> [--title ...] [--status ...] [--priority ...] [--external-ref <ref>] [--clear-external-ref] [--discovered-from <id>] [--clear-discovered-from] [--planning <needs_planning|planned>]`

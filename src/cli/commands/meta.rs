@@ -6,6 +6,7 @@ use crate::cli::init_flow::{
 };
 use crate::cli::parsers::{as_optional_string, parse_positive_int, parse_status_csv};
 use crate::cli::render::{print_history, print_orphans_result, print_repair_result};
+use crate::cli::tui::{TuiOptions, TuiView, start_tui};
 use crate::cli::watch::{WatchOptions, start_watch};
 use crate::errors::TsqError;
 use crate::output::err_envelope;
@@ -75,6 +76,32 @@ pub struct WatchArgs {
     pub tree: bool,
     #[arg(long, default_value_t = false)]
     pub once: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct TuiArgs {
+    #[arg(long, default_value = "2")]
+    pub interval: String,
+    #[arg(long, default_value = "open,in_progress")]
+    pub status: String,
+    #[arg(long)]
+    pub assignee: Option<String>,
+    #[arg(long, default_value_t = false)]
+    pub board: bool,
+    #[arg(long, default_value_t = false)]
+    pub once: bool,
+}
+
+impl Default for TuiArgs {
+    fn default() -> Self {
+        Self {
+            interval: "2".to_string(),
+            status: "open,in_progress".to_string(),
+            assignee: None,
+            board: false,
+            once: false,
+        }
+    }
 }
 
 pub fn execute_init(service: &TasqueService, args: InitArgs, opts: GlobalOpts) -> i32 {
@@ -244,6 +271,30 @@ pub fn execute_watch(service: &TasqueService, args: WatchArgs, opts: GlobalOpts)
     start_watch(service, watch_options)
 }
 
+pub fn execute_tui(service: &TasqueService, args: TuiArgs, opts: GlobalOpts) -> i32 {
+    let tui_options = match build_tui_options(args, opts.json) {
+        Ok(options) => options,
+        Err(error) => {
+            if opts.json {
+                let envelope = err_envelope(
+                    "tsq tui",
+                    error.code.clone(),
+                    error.message.clone(),
+                    error.details.clone(),
+                );
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&envelope).unwrap_or_else(|_| "{}".to_string())
+                );
+            } else {
+                eprintln!("{}: {}", error.code, error.message);
+            }
+            return error.exit_code;
+        }
+    };
+    start_tui(service, tui_options)
+}
+
 fn build_watch_options(args: WatchArgs, json: bool) -> Result<WatchOptions, TsqError> {
     let interval = parse_positive_int(&args.interval, "interval", 1, 60)?;
     let statuses = parse_status_csv(&args.status)?;
@@ -254,6 +305,23 @@ fn build_watch_options(args: WatchArgs, json: bool) -> Result<WatchOptions, TsqE
         tree: args.tree,
         once: args.once,
         json,
+    })
+}
+
+fn build_tui_options(args: TuiArgs, json: bool) -> Result<TuiOptions, TsqError> {
+    let interval = parse_positive_int(&args.interval, "interval", 1, 60)?;
+    let statuses = parse_status_csv(&args.status)?;
+    Ok(TuiOptions {
+        interval,
+        statuses,
+        assignee: as_optional_string(args.assignee.as_deref()),
+        once: args.once,
+        json,
+        view: if args.board {
+            TuiView::Board
+        } else {
+            TuiView::List
+        },
     })
 }
 

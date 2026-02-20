@@ -7,7 +7,9 @@ use crate::cli::commands::{
 };
 use crate::cli::commands::{meta, task};
 use crate::output::err_envelope;
+use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
+use std::io::IsTerminal;
 
 #[derive(Debug, Parser)]
 #[command(name = "tsq")]
@@ -30,6 +32,7 @@ pub enum CommandKind {
     Orphans,
     History(meta::HistoryArgs),
     Watch(meta::WatchArgs),
+    Tui(meta::TuiArgs),
     Create(task::CreateArgs),
     Show(task::ShowArgs),
     List(task::ListArgs),
@@ -66,17 +69,37 @@ pub enum CommandKind {
 }
 
 pub fn run_cli(service: &TasqueService) -> i32 {
-    let cli = Cli::parse();
+    if std::env::args_os().count() == 1
+        && std::io::stdin().is_terminal()
+        && std::io::stdout().is_terminal()
+    {
+        return execute_command(
+            service,
+            CommandKind::Tui(meta::TuiArgs::default()),
+            GlobalOpts {
+                json: false,
+                exact_id: false,
+            },
+        );
+    }
+
+    let cli = match Cli::try_parse() {
+        Ok(parsed) => parsed,
+        Err(error) => return handle_parse_error(service, error),
+    };
     let opts = GlobalOpts {
         json: cli.json,
         exact_id: cli.exact_id,
     };
+    execute_command(service, cli.command, opts)
+}
 
-    if !is_init_safe_command(&cli.command) && find_tasque_root().is_none() {
+fn execute_command(service: &TasqueService, command: CommandKind, opts: GlobalOpts) -> i32 {
+    if !is_init_safe_command(&command) && find_tasque_root().is_none() {
         let code = "NOT_INITIALIZED";
         let message = "No .tasque directory found. Run 'tsq init' first.";
         if opts.json {
-            let command_line = format!("tsq {}", root_command_name(&cli.command));
+            let command_line = format!("tsq {}", root_command_name(&command));
             let envelope = err_envelope(
                 command_line,
                 code,
@@ -93,13 +116,14 @@ pub fn run_cli(service: &TasqueService) -> i32 {
         return 2;
     }
 
-    match cli.command {
+    match command {
         CommandKind::Init(args) => meta::execute_init(service, args, opts),
         CommandKind::Doctor => meta::execute_doctor(service, opts),
         CommandKind::Repair(args) => meta::execute_repair(service, args, opts),
         CommandKind::Orphans => meta::execute_orphans(service, opts),
         CommandKind::History(args) => meta::execute_history(service, args, opts),
         CommandKind::Watch(args) => meta::execute_watch(service, args, opts),
+        CommandKind::Tui(args) => meta::execute_tui(service, args, opts),
         CommandKind::Create(args) => task::execute_create(service, args, opts),
         CommandKind::Show(args) => task::execute_show(service, args, opts),
         CommandKind::List(args) => task::execute_list(service, args, opts),
@@ -121,6 +145,58 @@ pub fn run_cli(service: &TasqueService) -> i32 {
     }
 }
 
+fn handle_parse_error(service: &TasqueService, error: clap::Error) -> i32 {
+    if is_missing_subcommand_error(error.kind()) {
+        let opts = parse_global_opts_from_env();
+        if opts.json {
+            let envelope = err_envelope(
+                "tsq",
+                "VALIDATION_ERROR",
+                "command is required when using --json",
+                Option::<serde_json::Value>::None,
+            );
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&envelope).unwrap_or_else(|_| "{}".to_string())
+            );
+            return 1;
+        }
+        if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+            return execute_command(service, CommandKind::Tui(meta::TuiArgs::default()), opts);
+        }
+    }
+
+    let exit_code = clap_error_exit_code(error.kind());
+    let _ = error.print();
+    exit_code
+}
+
+fn parse_global_opts_from_env() -> GlobalOpts {
+    let mut json = false;
+    let mut exact_id = false;
+    for arg in std::env::args() {
+        match arg.as_str() {
+            "--json" => json = true,
+            "--exact-id" => exact_id = true,
+            _ => {}
+        }
+    }
+    GlobalOpts { json, exact_id }
+}
+
+fn is_missing_subcommand_error(kind: ErrorKind) -> bool {
+    kind == ErrorKind::MissingSubcommand
+        || kind == ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+}
+
+fn clap_error_exit_code(kind: ErrorKind) -> i32 {
+    if kind == ErrorKind::DisplayHelp || kind == ErrorKind::DisplayVersion {
+        0
+    } else {
+        2
+    }
+}
+
 fn is_init_safe_command(command: &CommandKind) -> bool {
     matches!(command, CommandKind::Init(_) | CommandKind::Doctor)
 }
@@ -133,6 +209,7 @@ fn root_command_name(command: &CommandKind) -> &'static str {
         CommandKind::Orphans => "orphans",
         CommandKind::History(_) => "history",
         CommandKind::Watch(_) => "watch",
+        CommandKind::Tui(_) => "tui",
         CommandKind::Create(_) => "create",
         CommandKind::Show(_) => "show",
         CommandKind::List(_) => "list",

@@ -5,12 +5,20 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/BumpyClock/tasque.git"
+    "url": "git+https://github.com/BumpyClock/tasque.git"
   },
-  "os": ["linux"],
-  "cpu": ["x64"],
-  "libc": ["glibc"],
-  "files": ["tsq"],
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "libc": [
+    "glibc"
+  ],
+  "files": [
+    "tsq"
+  ],
   "publishConfig": {
     "access": "public",
     "provenance": true

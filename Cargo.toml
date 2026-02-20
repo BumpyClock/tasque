@@ -2,7 +2,7 @@
 name = "tasque"
 version = "0.2.0"
 edition = "2024"
-author = "Aditya Sharma"
+authors = ["Aditya Sharma"]
 
 [lib]
 name = "tasque"

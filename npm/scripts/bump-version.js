@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 
 const CARGO_TOML = path.join(__dirname, "..", "..", "Cargo.toml");
+const CARGO_LOCK = path.join(__dirname, "..", "..", "Cargo.lock");
 const ROOT_PKG = path.join(__dirname, "..", "package.json");
 const PLATFORM_PKGS = [
   path.join(__dirname, "..", "platforms", "darwin-arm64", "package.json"),
@@ -114,6 +115,16 @@ function main() {
     `version = "${next}"`
   );
 
+  const cargoLock = readText(CARGO_LOCK);
+  const lockPattern =
+    /(\[\[package\]\]\r?\nname = "tasque"\r?\nversion = ")([^"]+)(")/;
+  const lockMatch = cargoLock.match(lockPattern);
+  if (!lockMatch) {
+    throw new Error(`Could not find tasque package entry in ${CARGO_LOCK}`);
+  }
+  const lockCurrent = lockMatch[2];
+  const cargoNextLock = cargoLock.replace(lockPattern, `$1${next}$3`);
+
   if (dryRun) {
     console.log(`[dry-run] ${current} -> ${next}`);
     for (const update of updates) {
@@ -121,6 +132,9 @@ function main() {
     }
     console.log(
       `[dry-run] ${path.relative(process.cwd(), CARGO_TOML)}: ${cargoCurrent} -> ${next}`
+    );
+    console.log(
+      `[dry-run] ${path.relative(process.cwd(), CARGO_LOCK)}: ${lockCurrent} -> ${next}`
     );
     return;
   }
@@ -132,6 +146,10 @@ function main() {
   writeText(CARGO_TOML, cargoNextToml);
   console.log(
     `${path.relative(process.cwd(), CARGO_TOML)}: ${cargoCurrent} -> ${next}`
+  );
+  writeText(CARGO_LOCK, cargoNextLock);
+  console.log(
+    `${path.relative(process.cwd(), CARGO_LOCK)}: ${lockCurrent} -> ${next}`
   );
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "@bumpyclock/tasque",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Simple local-first task tracker. Git-friendly. No DB.",
   "license": "MIT",
   "repository": {
@@ -15,16 +15,20 @@
     "scripts/postinstall.js"
   ],
   "scripts": {
-    "postinstall": "node scripts/postinstall.js"
+    "postinstall": "node scripts/postinstall.js",
+    "bump:patch": "node scripts/bump-version.js patch",
+    "bump:minor": "node scripts/bump-version.js minor",
+    "bump:major": "node scripts/bump-version.js major",
+    "bump:set": "node scripts/bump-version.js"
   },
   "preferUnplugged": true,
   "optionalDependencies": {
-    "@bumpyclock/tasque-darwin-arm64": "0.1.0",
-    "@bumpyclock/tasque-darwin-x64": "0.1.0",
-    "@bumpyclock/tasque-linux-x64-gnu": "0.1.0",
-    "@bumpyclock/tasque-linux-arm64-gnu": "0.1.0",
-    "@bumpyclock/tasque-win32-x64-msvc": "0.1.0",
-    "@bumpyclock/tasque-win32-arm64-msvc": "0.1.0"
+    "@bumpyclock/tasque-darwin-arm64": "0.2.0",
+    "@bumpyclock/tasque-darwin-x64": "0.2.0",
+    "@bumpyclock/tasque-linux-x64-gnu": "0.2.0",
+    "@bumpyclock/tasque-linux-arm64-gnu": "0.2.0",
+    "@bumpyclock/tasque-win32-x64-msvc": "0.2.0",
+    "@bumpyclock/tasque-win32-arm64-msvc": "0.2.0"
   },
   "publishConfig": {
     "access": "public",

@@ -4,6 +4,7 @@ use crate::cli::action::{GlobalOpts, run_action};
 use crate::cli::init_flow::{
     InitCommandOptions, InitPlan, InitResolutionContext, resolve_init_plan, run_init_wizard,
 };
+use crate::cli::opentui::{launch_opentui, should_launch_opentui};
 use crate::cli::parsers::{as_optional_string, parse_positive_int, parse_status_csv};
 use crate::cli::render::{print_history, print_orphans_result, print_repair_result};
 use crate::cli::tui::{TuiOptions, TuiView, start_tui};
@@ -89,6 +90,8 @@ pub struct TuiArgs {
     #[arg(long, default_value_t = false)]
     pub board: bool,
     #[arg(long, default_value_t = false)]
+    pub epics: bool,
+    #[arg(long, default_value_t = false)]
     pub once: bool,
 }
 
@@ -99,6 +102,7 @@ impl Default for TuiArgs {
             status: "open,in_progress".to_string(),
             assignee: None,
             board: false,
+            epics: false,
             once: false,
         }
     }
@@ -292,6 +296,16 @@ pub fn execute_tui(service: &TasqueService, args: TuiArgs, opts: GlobalOpts) -> 
             return error.exit_code;
         }
     };
+
+    if should_launch_opentui(&tui_options) {
+        match launch_opentui(&tui_options) {
+            Ok(exit_code) => return exit_code,
+            Err(error) => {
+                eprintln!("WARN: {}. Falling back to built-in TUI renderer.", error);
+            }
+        }
+    }
+
     start_tui(service, tui_options)
 }
 
@@ -309,19 +323,29 @@ fn build_watch_options(args: WatchArgs, json: bool) -> Result<WatchOptions, TsqE
 }
 
 fn build_tui_options(args: TuiArgs, json: bool) -> Result<TuiOptions, TsqError> {
+    if args.board && args.epics {
+        return Err(TsqError::new(
+            "VALIDATION_ERROR",
+            "--board and --epics cannot be used together",
+            1,
+        ));
+    }
     let interval = parse_positive_int(&args.interval, "interval", 1, 60)?;
     let statuses = parse_status_csv(&args.status)?;
+    let view = if args.board {
+        TuiView::Board
+    } else if args.epics {
+        TuiView::Epics
+    } else {
+        TuiView::List
+    };
     Ok(TuiOptions {
         interval,
         statuses,
         assignee: as_optional_string(args.assignee.as_deref()),
         once: args.once,
         json,
-        view: if args.board {
-            TuiView::Board
-        } else {
-            TuiView::List
-        },
+        view,
     })
 }
 
@@ -341,5 +365,44 @@ fn skill_result_status_to_string(status: crate::skills::types::SkillResultStatus
         crate::skills::types::SkillResultStatus::Skipped => "skipped",
         crate::skills::types::SkillResultStatus::Removed => "removed",
         crate::skills::types::SkillResultStatus::NotFound => "not_found",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tui_options_default_to_list_view() {
+        let options = build_tui_options(TuiArgs::default(), false).expect("build_tui_options");
+        assert_eq!(options.view, TuiView::List);
+    }
+
+    #[test]
+    fn tui_options_select_board_view_when_board_flag_is_set() {
+        let options = build_tui_options(
+            TuiArgs {
+                board: true,
+                ..TuiArgs::default()
+            },
+            false,
+        )
+        .expect("build_tui_options");
+        assert_eq!(options.view, TuiView::Board);
+    }
+
+    #[test]
+    fn tui_options_reject_board_and_epics_flags_together() {
+        let error = build_tui_options(
+            TuiArgs {
+                board: true,
+                epics: true,
+                ..TuiArgs::default()
+            },
+            false,
+        )
+        .expect_err("build_tui_options should reject conflicting view flags");
+        assert_eq!(error.code, "VALIDATION_ERROR");
+        assert_eq!(error.message, "--board and --epics cannot be used together");
     }
 }

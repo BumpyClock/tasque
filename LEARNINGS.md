@@ -17,6 +17,7 @@
 - Spec required sections: `Overview`, `Constraints / Non-goals`, `Interfaces (CLI/API)`, `Data model / schema changes`, `Acceptance criteria`, `Test plan`.
 - Timestamp filters (`--created-after`, `--updated-after`, `--closed-after`) require strict ISO timestamps; reject natural-language dates.
 - There is no task re-parent command; to split/move a subtree, create a new epic/feature branch and use `supersede` links from old tasks to new IDs for durable traceability.
+- TUI v2 visual baseline is Beads-inspired but Tasque-native: dark navy shell, top tabs `Tasks|Epics|Board` (optional `Ready|History`), dense pill tables, fixed 3-column board, and explicit `Spec` state (`attached|missing|invalid`) visible in table rows, board cards, and inspector.
 
 ## Pitfalls
 - Human-readable CLI color/styling must stay TTY-aware and honor `NO_COLOR`/`CLICOLOR=0` (with optional `CLICOLOR_FORCE`) so automation/tests remain plain-text stable while interactive shells get richer output.

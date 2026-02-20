@@ -27,8 +27,8 @@ jobs:
             method: native
           - platform: darwin-x64
             target: x86_64-apple-darwin
-            runner: macos-13
-            method: native
+            runner: macos-14
+            method: cross
           - platform: linux-x64-gnu
             target: x86_64-unknown-linux-gnu
             runner: ubuntu-latest

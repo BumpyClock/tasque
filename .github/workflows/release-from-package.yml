@@ -1,10 +1,10 @@
-name: Release From Package
+name: Release From Cargo
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: Optional explicit version; must match package.json when provided
+        description: Optional explicit version; must match Cargo.toml when provided
         required: false
         type: string
       target:
@@ -23,19 +23,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - run: bun install --frozen-lockfile
-
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
-      - name: Run Rust quality checks
-        run: bun run doctor:rust
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: cargo test --quiet
 
   create-release:
     name: Create Release
@@ -46,23 +41,21 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - run: bun install --frozen-lockfile
-
-      - name: Resolve version from package.json
+      - name: Resolve version from Cargo.toml
         id: version
         env:
           EXPECTED_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
+          VERSION="$(grep '^version = ' Cargo.toml | head -n1 | cut -d'\"' -f2)"
           if [ -n "${EXPECTED_VERSION}" ]; then
-            bun run release:verify-version -- --expected-version "${EXPECTED_VERSION}"
-          else
-            bun run release:verify-version
+            if [ "${EXPECTED_VERSION}" != "${VERSION}" ]; then
+              echo "provided version ${EXPECTED_VERSION} does not match Cargo.toml version ${VERSION}"
+              exit 1
+            fi
           fi
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "tag=v${VERSION}" >> "${GITHUB_OUTPUT}"
 
       - name: Ensure release tag does not already exist
         run: |
@@ -74,7 +67,7 @@ jobs:
             exit 1
           fi
 
-      - name: Create GitHub release from package version
+      - name: Create GitHub release from Cargo version
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}

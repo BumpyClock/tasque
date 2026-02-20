@@ -1,0 +1,18 @@
+{
+  "name": "@bumpyclock/tasque-linux-arm64-gnu",
+  "version": "0.1.0",
+  "description": "Tasque binary for Linux ARM64 (glibc)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BumpyClock/tasque.git"
+  },
+  "os": ["linux"],
+  "cpu": ["arm64"],
+  "libc": ["glibc"],
+  "files": ["tsq"],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

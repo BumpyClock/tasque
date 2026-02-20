@@ -38,11 +38,11 @@ Durable across restarts and context compaction.
 - multi-machine consistency
 
 ## Stack
-- Runtime: Bun
-- Language: TypeScript (`strict`)
-- CLI: `commander`
-- Validation: `zod`
-- Output: `picocolors`
+- Runtime: Rust
+- Language: Rust
+- CLI: `clap`
+- Validation: strongly typed domain + parser checks
+- Output: JSON envelopes + terminal rendering
 
 ## Storage Model
 Repo-local `.tasque/`:
@@ -203,12 +203,12 @@ Error:
 - no plugin system
 - no backend interface layer until second backend exists
 - target file size < 500 LOC
-- use Biome for format/lint
+- use `cargo fmt` and `cargo clippy`
 - keep strict typing
 
 ## Finishing tasks
 - build the binary and place it in `~/.local/bin` so that it is available in the cli as tsq.
-- run `bun run doctor` to ensure lint and formatting pass. Fix any issues that arise.
+- run `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --quiet`. Fix any issues that arise.
 - use a fix forward approach and avoid unnecessary complexity of backward compatibility in mind. We are in active development.
 - keep the codebase organized and modular. Refactor as needed to improve readability and maintainability. 
   - Lookup if a refactor task already exists before creating a new one. If it doesn't create one so we can track it.

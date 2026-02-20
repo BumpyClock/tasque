@@ -1,0 +1,17 @@
+{
+  "name": "@bumpyclock/tasque-win32-arm64-msvc",
+  "version": "0.1.0",
+  "description": "Tasque binary for Windows ARM64",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BumpyClock/tasque.git"
+  },
+  "os": ["win32"],
+  "cpu": ["arm64"],
+  "files": ["tsq.exe"],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

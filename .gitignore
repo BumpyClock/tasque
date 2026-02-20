@@ -10,3 +10,10 @@ dist/
 .worktrees/
 target/
 test/
+
+# npm distribution (binaries copied at build time)
+npm/platforms/*/tsq
+npm/platforms/*/tsq.exe
+npm/bin/tsq
+npm/bin/tsq.exe
+artifacts/

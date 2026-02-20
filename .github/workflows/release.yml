@@ -17,12 +17,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - run: bun install --frozen-lockfile
-
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -30,22 +24,44 @@ jobs:
 
       - name: Rust format check
         run: cargo fmt --check
-        working-directory: src-rust
 
       - name: Rust lint
         run: cargo clippy --all-targets --all-features -- -D warnings
-        working-directory: src-rust
 
       - name: Rust tests
         run: cargo test --all-targets --all-features
-        working-directory: src-rust
+      
+      - name: Build release binary
+        run: cargo build --release --locked
 
-      - name: Verify release tag matches package.json version
-        run: bun run release:verify-version -- --tag "${{ github.event.release.tag_name }}"
+      - name: Package artifact (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(grep '^version = ' Cargo.toml | head -n1 | cut -d'\"' -f2)"
+          OS="$(uname | tr '[:upper:]' '[:lower:]')"
+          ARCH="$(uname -m)"
+          mkdir -p dist/releases
+          BIN="target/release/tsq"
+          OUT="dist/releases/tsq-v${VERSION}-${OS}-${ARCH}"
+          cp "${BIN}" "${OUT}"
+          chmod +x "${OUT}"
+          shasum -a 256 "${OUT}" > dist/releases/SHA256SUMS.txt
 
-      - run: bun run doctor
-
-      - run: bun run release
+      - name: Package artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $versionLine = Get-Content Cargo.toml | Where-Object { $_ -match '^version = ' } | Select-Object -First 1
+          $version = $versionLine -replace '^version = \"([^\"]+)\"$', '$1'
+          $arch = $env:PROCESSOR_ARCHITECTURE.ToLower()
+          New-Item -ItemType Directory -Force dist/releases | Out-Null
+          $bin = 'target/release/tsq.exe'
+          $out = \"dist/releases/tsq-v$version-windows-$arch.exe\"
+          Copy-Item $bin $out -Force
+          $hash = Get-FileHash $out -Algorithm SHA256
+          \"{0}  {1}\" -f $hash.Hash.ToLower(), (Split-Path $out -Leaf) | Set-Content dist/releases/SHA256SUMS.txt
 
       - name: Upload release artifacts
         uses: softprops/action-gh-release@v2

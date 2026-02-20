@@ -19,6 +19,7 @@
 - There is no task re-parent command; to split/move a subtree, create a new epic/feature branch and use `supersede` links from old tasks to new IDs for durable traceability.
 
 ## Pitfalls
+- Human-readable CLI color/styling must stay TTY-aware and honor `NO_COLOR`/`CLICOLOR=0` (with optional `CLICOLOR_FORCE`) so automation/tests remain plain-text stable while interactive shells get richer output.
 - `resolveTaskId` throws `TASK_NOT_FOUND`, not `NOT_FOUND`.
 - Negated search queries (`-field:value`) need a `--` separator before them due to commander treating leading `-` as option flags.
 - Commander option conflict detection (e.g. `--assignee` vs `--unassigned`) must use option events, not just value checks, to handle both `--flag value` and `--flag=value` forms consistently.
@@ -54,8 +55,8 @@
 - 2026-02-18: Planned workflow model approved: keep lifecycle `status` separate from new `planning_state`; add `deferred` lifecycle status; `ready` should surface both planning and coding lanes with optional lane filter; create defaults to `planning_state=needs_planning`; add `--body-file`, strict `--id` regex, and deferred follow-up tasks for `discovered-from` + typed dependency model expansion.
 - 2026-02-18: Implemented `discovered_from` provenance metadata end-to-end (`create/update/list/search/show`) and typed dependency edges (`blocks|starts_after`) with directional filters/search (`--dep-type/--dep-direction`, `dep_type_in/out`); only `blocks` affect ready/cycle checks.
 - 2026-02-18: Skill installer now sources managed skill content from on-disk packages under `SKILLS/<name>/` and recursively copies package contents (including references/scripts) to target agent skill directories.
-- 2026-02-19: In Rust file-based parent modules (e.g. `src-rust/src/app/service.rs`, `src-rust/src/domain/projector.rs`), sibling module splits need explicit `#[path = "..."] mod ...;` to prevent Rust from resolving into implicit subdirectories (`service/...`, `projector/...`).
+- 2026-02-19: In Rust file-based parent modules (e.g. `src/app/service.rs`, `src/domain/projector.rs`), sibling module splits need explicit `#[path = "..."] mod ...;` to prevent Rust from resolving into implicit subdirectories (`service/...`, `projector/...`).
 - 2026-02-19: Rust 2024 edition treats `gen` as a reserved keyword; calls like `rand::thread_rng().gen::<u8>()` must use raw identifier syntax (`r#gen`) or an alternate API.
 - 2026-02-19: `clap` repeatable CSV options with `value_delimiter=','` can silently admit empty tokens unless validated explicitly; parity with TS requires rejecting `--id ""`/`--label-any ""` as `--<field> must not be empty` and inputs like `a,,b` as `--<field> values must not be empty`.
 - 2026-02-19: Rust watch parity with TS requires non-fatal refresh failures in loop mode (keep last good frame + print refresh error) and TTY-gated clear-screen/interactive controls; exiting on first refresh error is a behavioral regression.
-- 2026-02-19: Stable Rust hygiene baseline for this repo: pin toolchain components (`rustfmt`, `clippy`), keep `src-rust/rustfmt.toml` aligned to `style_edition=2024`, and enforce `cargo fmt --check` + `cargo clippy --all-targets --all-features -- -D warnings` in CI to prevent drift.
+- 2026-02-19: Stable Rust hygiene baseline for this repo: pin toolchain components (`rustfmt`, `clippy`), keep `rustfmt.toml` aligned to `style_edition=2024`, and enforce `cargo fmt --check` + `cargo clippy --all-targets --all-features -- -D warnings` in CI to prevent drift.

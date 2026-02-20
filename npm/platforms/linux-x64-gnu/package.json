@@ -1,0 +1,18 @@
+{
+  "name": "@bumpyclock/tasque-linux-x64-gnu",
+  "version": "0.1.0",
+  "description": "Tasque binary for Linux x64 (glibc)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BumpyClock/tasque.git"
+  },
+  "os": ["linux"],
+  "cpu": ["x64"],
+  "libc": ["glibc"],
+  "files": ["tsq"],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

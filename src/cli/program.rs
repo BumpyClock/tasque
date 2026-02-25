@@ -5,7 +5,7 @@ use crate::cli::commands::{
     DepCommand, LabelCommand, LinkCommand, NoteCommand, SpecCommand, execute_dep, execute_label,
     execute_link, execute_note, execute_spec,
 };
-use crate::cli::commands::{meta, task};
+use crate::cli::commands::{meta, sync, task};
 use crate::output::err_envelope;
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
@@ -66,6 +66,10 @@ pub enum CommandKind {
         #[command(subcommand)]
         command: SpecCommand,
     },
+    /// Migrate existing events into a sync branch
+    Migrate(sync::MigrateArgs),
+    /// JSONL merge driver for git (invoked as: tsq merge-driver %O %A %B)
+    MergeDriver(sync::MergeDriverArgs),
 }
 
 pub fn run_cli(service: &TasqueService) -> i32 {
@@ -142,6 +146,8 @@ fn execute_command(service: &TasqueService, command: CommandKind, opts: GlobalOp
         CommandKind::Label { command } => execute_label(service, command, opts),
         CommandKind::Note { command } => execute_note(service, command, opts),
         CommandKind::Spec { command } => execute_spec(service, command, opts),
+        CommandKind::Migrate(args) => sync::execute_migrate(service, args, opts),
+        CommandKind::MergeDriver(args) => sync::execute_merge_driver(args),
     }
 }
 
@@ -198,7 +204,10 @@ fn clap_error_exit_code(kind: ErrorKind) -> i32 {
 }
 
 fn is_init_safe_command(command: &CommandKind) -> bool {
-    matches!(command, CommandKind::Init(_) | CommandKind::Doctor)
+    matches!(
+        command,
+        CommandKind::Init(_) | CommandKind::Doctor | CommandKind::MergeDriver(_)
+    )
 }
 
 fn root_command_name(command: &CommandKind) -> &'static str {
@@ -228,5 +237,7 @@ fn root_command_name(command: &CommandKind) -> &'static str {
         CommandKind::Label { .. } => "label",
         CommandKind::Note { .. } => "note",
         CommandKind::Spec { .. } => "spec",
+        CommandKind::Migrate(_) => "migrate",
+        CommandKind::MergeDriver(_) => "merge-driver",
     }
 }

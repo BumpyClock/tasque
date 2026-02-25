@@ -214,6 +214,23 @@ pub struct Snapshot {
 pub struct Config {
     pub schema_version: u32,
     pub snapshot_every: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_branch: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SyncSetupResult {
+    pub branch: String,
+    pub worktree_path: String,
+    pub created_branch: bool,
+    pub merge_driver_configured: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MigrateResult {
+    pub events_migrated: usize,
+    pub branch: String,
+    pub worktree_path: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -283,4 +300,12 @@ pub struct RepairResult {
 pub struct RuntimeOptions {
     pub repo_root: String,
     pub actor: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MergeDriverOutcome {
+    pub total_events: usize,
+    pub duplicates_removed: usize,
+    pub conflict: bool,
+    pub conflicting_ids: Vec<String>,
 }

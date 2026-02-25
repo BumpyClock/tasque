@@ -40,6 +40,7 @@ pub struct InitCommandOptions {
     pub skill_dir_codex: Option<String>,
     pub skill_dir_copilot: Option<String>,
     pub skill_dir_opencode: Option<String>,
+    pub sync_branch: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -374,6 +375,7 @@ fn resolve_non_interactive_input(options: &InitCommandOptions) -> Result<InitInp
         skill_dir_codex: as_optional_string(options.skill_dir_codex.as_deref()),
         skill_dir_copilot: as_optional_string(options.skill_dir_copilot.as_deref()),
         skill_dir_opencode: as_optional_string(options.skill_dir_opencode.as_deref()),
+        sync_branch: as_optional_string(options.sync_branch.as_deref()),
     })
 }
 
@@ -479,6 +481,7 @@ fn build_init_input_from_seed(seed: &WizardSeed) -> InitInput {
         skill_dir_codex: seed.skill_dir_codex.clone(),
         skill_dir_copilot: seed.skill_dir_copilot.clone(),
         skill_dir_opencode: seed.skill_dir_opencode.clone(),
+        sync_branch: None,
     }
 }
 

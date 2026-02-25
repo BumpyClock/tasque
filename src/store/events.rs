@@ -277,10 +277,8 @@ pub fn append_events(repo_root: impl AsRef<Path>, events: &[EventRecord]) -> Res
     Ok(())
 }
 
-pub fn read_events(repo_root: impl AsRef<Path>) -> Result<ReadEventsResult, TsqError> {
-    let paths = get_paths(repo_root);
-
-    let raw = match read_to_string(&paths.events_file) {
+pub fn read_events_from_path(path: &Path) -> Result<ReadEventsResult, TsqError> {
+    let raw = match read_to_string(path) {
         Ok(raw) => raw,
         Err(error) => {
             if error.kind() == std::io::ErrorKind::NotFound {
@@ -319,7 +317,7 @@ pub fn read_events(repo_root: impl AsRef<Path>) -> Result<ReadEventsResult, TsqE
                 if index == lines.len() - 1 {
                     warning = Some(format!(
                         "Ignored malformed trailing JSONL line in {}",
-                        paths.events_file.display()
+                        path.display()
                     ));
                     break;
                 }
@@ -333,6 +331,11 @@ pub fn read_events(repo_root: impl AsRef<Path>) -> Result<ReadEventsResult, TsqE
     }
 
     Ok(ReadEventsResult { events, warning })
+}
+
+pub fn read_events(repo_root: impl AsRef<Path>) -> Result<ReadEventsResult, TsqError> {
+    let paths = get_paths(repo_root);
+    read_events_from_path(&paths.events_file)
 }
 
 fn io_error_value(error: &std::io::Error) -> Value {

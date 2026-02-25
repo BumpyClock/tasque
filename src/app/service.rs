@@ -64,6 +64,16 @@ impl TasqueService {
             ".tasque/.gitignore".to_string(),
         ];
 
+        let sync_setup = if let Some(ref branch) = input.sync_branch {
+            Some(crate::app::sync::setup_sync_branch(
+                &self.ctx.repo_root,
+                branch,
+                &self.ctx.actor,
+            )?)
+        } else {
+            None
+        };
+
         let action = if input.install_skill {
             Some(SkillAction::Install)
         } else if input.uninstall_skill {
@@ -98,6 +108,7 @@ impl TasqueService {
                 initialized: true,
                 files,
                 skill_operation: Some(skill_operation),
+                sync_setup,
             });
         }
 
@@ -105,6 +116,7 @@ impl TasqueService {
             initialized: true,
             files,
             skill_operation: None,
+            sync_setup,
         })
     }
 
@@ -259,6 +271,14 @@ impl TasqueService {
 
     pub fn search(&self, input: &SearchInput) -> Result<Vec<Task>, TsqError> {
         service_query::search(&self.ctx, input)
+    }
+
+    pub fn migrate(&self, branch: &str) -> Result<crate::types::MigrateResult, TsqError> {
+        crate::app::sync::migrate_to_sync_branch(
+            &self.ctx.repo_root,
+            branch,
+            &self.ctx.actor,
+        )
     }
 }
 

@@ -42,6 +42,8 @@ pub struct InitArgs {
     pub skill_dir_copilot: Option<String>,
     #[arg(long = "skill-dir-opencode")]
     pub skill_dir_opencode: Option<String>,
+    #[arg(long = "sync-branch")]
+    pub sync_branch: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -127,6 +129,7 @@ pub fn execute_init(service: &TasqueService, args: InitArgs, opts: GlobalOpts) -
                 skill_dir_codex: args.skill_dir_codex.clone(),
                 skill_dir_copilot: args.skill_dir_copilot.clone(),
                 skill_dir_opencode: args.skill_dir_opencode.clone(),
+                sync_branch: args.sync_branch.clone(),
             };
             let raw_args: Vec<String> = std::env::args().skip(1).collect();
             let plan = resolve_init_plan(
@@ -164,6 +167,18 @@ pub fn execute_init(service: &TasqueService, args: InitArgs, opts: GlobalOpts) -
                         result.path,
                         message
                     );
+                }
+            }
+            if let Some(sync) = &data.sync_setup {
+                println!(
+                    "sync branch '{}' configured (worktree: {})",
+                    sync.branch, sync.worktree_path
+                );
+                if sync.created_branch {
+                    println!("  created orphan branch '{}'", sync.branch);
+                }
+                if sync.merge_driver_configured {
+                    println!("  configured merge driver");
                 }
             }
             Ok(())

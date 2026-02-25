@@ -16,6 +16,8 @@ pub struct InitResult {
     pub files: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skill_operation: Option<SkillOperationSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_setup: Option<crate::types::SyncSetupResult>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -29,6 +31,7 @@ pub struct InitInput {
     pub skill_dir_codex: Option<String>,
     pub skill_dir_copilot: Option<String>,
     pub skill_dir_opencode: Option<String>,
+    pub sync_branch: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

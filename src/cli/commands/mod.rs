@@ -4,6 +4,7 @@ pub mod link;
 pub mod meta;
 pub mod note;
 pub mod spec;
+pub mod sync;
 pub mod task;
 
 pub use dep::{DepCommand, execute_dep};

@@ -8,6 +8,7 @@ pub mod service_utils;
 pub mod state;
 pub mod stdin;
 pub mod storage;
+pub mod sync;
 
 pub use service::TasqueService;
 pub use service_types::*;

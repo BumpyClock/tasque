@@ -276,6 +276,18 @@ impl TasqueService {
     pub fn migrate(&self, branch: &str) -> Result<crate::types::MigrateResult, TsqError> {
         crate::app::sync::migrate_to_sync_branch(&self.ctx.repo_root, branch, &self.ctx.actor)
     }
+
+    pub fn sync(&self, push: bool) -> Result<crate::types::SyncRunResult, TsqError> {
+        crate::app::sync::sync_worktree(&self.ctx.repo_root, push)
+    }
+
+    pub fn hooks_install(&self, force: bool) -> Result<crate::types::HookInstallResult, TsqError> {
+        crate::app::sync::install_hooks(&self.ctx.repo_root, force)
+    }
+
+    pub fn hooks_uninstall(&self) -> Result<crate::types::HookUninstallResult, TsqError> {
+        crate::app::sync::uninstall_hooks(&self.ctx.repo_root)
+    }
 }
 
 fn build_target_overrides(

@@ -26,3 +26,4 @@
 *.pdf binary
 *.zip binary
 *.exe binary
+.tasque/events.jsonl merge=tasque-events

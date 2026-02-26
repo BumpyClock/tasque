@@ -120,15 +120,68 @@ pub fn branch_exists(repo_root: &Path, name: &str) -> Result<bool, TsqError> {
     run_git_status(repo_root, &["show-ref", "--verify", "--quiet", &refspec])
 }
 
+pub fn has_upstream(repo_root: &Path) -> Result<bool, TsqError> {
+    run_git_status(
+        repo_root,
+        &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+    )
+}
+
+pub fn push_current(repo_root: &Path) -> Result<(), TsqError> {
+    run_git(repo_root, &["push"])?;
+    Ok(())
+}
+
 /// Returns true if the path is inside a git working tree.
 pub fn is_git_repo(repo_root: &Path) -> bool {
     run_git_status(repo_root, &["rev-parse", "--is-inside-work-tree"]).unwrap_or(false)
 }
 
+pub fn git_common_dir(repo_root: &Path) -> Result<PathBuf, TsqError> {
+    if let Some(path) = fast_git_common_dir(repo_root) {
+        return Ok(path);
+    }
+    let out = run_git(repo_root, &["rev-parse", "--git-common-dir"])?;
+    let path = Path::new(&out);
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        Ok(repo_root.join(path))
+    }
+}
+
+pub fn hooks_dir(repo_root: &Path) -> Result<PathBuf, TsqError> {
+    Ok(git_common_dir(repo_root)?.join("hooks"))
+}
+
+pub fn is_sync_worktree_path(repo_root: &Path) -> bool {
+    repo_root
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(|value| value == "tasque-sync-worktree")
+        .unwrap_or(false)
+}
+
+pub fn quick_worktree_path(repo_root: &Path) -> Option<PathBuf> {
+    fast_git_common_dir(repo_root).map(|path| path.join("tasque-sync-worktree"))
+}
+
+pub fn worktree_is_valid(worktree_path: &Path, expected_branch: &str) -> bool {
+    if !worktree_path.join(".git").exists() {
+        return false;
+    }
+    if !worktree_path.join(".tasque").join("events.jsonl").exists() {
+        return false;
+    }
+    read_worktree_branch(worktree_path)
+        .map(|branch| branch == expected_branch)
+        .unwrap_or(false)
+}
+
 /// Derive the worktree path for the sync branch.
 /// Located at `<git_dir>/tasque-sync-worktree`.
 pub fn worktree_path(repo_root: &Path, _branch: &str) -> Result<PathBuf, TsqError> {
-    let gd = git_dir(repo_root)?;
+    let gd = git_common_dir(repo_root)?;
     Ok(gd.join("tasque-sync-worktree"))
 }
 
@@ -140,17 +193,19 @@ pub fn ensure_worktree(repo_root: &Path, branch: &str) -> Result<PathBuf, TsqErr
     let wt = worktree_path(repo_root, branch)?;
 
     if wt.exists() {
-        let dot_git = wt.join(".git");
-        if dot_git.exists() {
-            configure_sparse_checkout(&wt)?;
+        if worktree_is_valid(&wt, branch) {
             return Ok(wt);
         }
-        std::fs::remove_dir_all(&wt).map_err(|e| {
-            git_error(
-                format!("Failed removing stale worktree at {}", wt.display()),
-                e.to_string(),
-            )
-        })?;
+        let wt_str = wt.to_string_lossy().to_string();
+        let _ = run_git_status(repo_root, &["worktree", "remove", "--force", &wt_str]);
+        if wt.exists() {
+            std::fs::remove_dir_all(&wt).map_err(|e| {
+                git_error(
+                    format!("Failed removing stale worktree at {}", wt.display()),
+                    e.to_string(),
+                )
+            })?;
+        }
     }
 
     // Create the worktree
@@ -166,8 +221,72 @@ pub fn ensure_worktree(repo_root: &Path, branch: &str) -> Result<PathBuf, TsqErr
 
 fn configure_sparse_checkout(wt: &Path) -> Result<(), TsqError> {
     run_git(wt, &["sparse-checkout", "init", "--no-cone"])?;
-    run_git(wt, &["sparse-checkout", "set", ".tasque", ".gitattributes"])?;
+    run_git(wt, &["sparse-checkout", "set", "/.tasque", "/.gitattributes"])?;
     Ok(())
+}
+
+fn fast_git_common_dir(repo_root: &Path) -> Option<PathBuf> {
+    let dot_git = repo_root.join(".git");
+    if dot_git.is_dir() {
+        return Some(dot_git);
+    }
+    if !dot_git.is_file() {
+        return None;
+    }
+    let raw = std::fs::read_to_string(&dot_git).ok()?;
+    let raw = raw.trim();
+    let prefix = "gitdir:";
+    if !raw.starts_with(prefix) {
+        return None;
+    }
+    let gitdir_raw = raw[prefix.len()..].trim();
+    let gitdir_path = if Path::new(gitdir_raw).is_absolute() {
+        PathBuf::from(gitdir_raw)
+    } else {
+        repo_root.join(gitdir_raw)
+    };
+    let common_dir_file = gitdir_path.join("commondir");
+    if !common_dir_file.exists() {
+        return Some(gitdir_path);
+    }
+    let common_raw = std::fs::read_to_string(common_dir_file).ok()?;
+    let common_raw = common_raw.trim();
+    if common_raw.is_empty() {
+        return Some(gitdir_path);
+    }
+    let common_path = if Path::new(common_raw).is_absolute() {
+        PathBuf::from(common_raw)
+    } else {
+        gitdir_path.join(common_raw)
+    };
+    Some(common_path)
+}
+
+fn read_worktree_branch(worktree_path: &Path) -> Option<String> {
+    let dot_git_path = worktree_path.join(".git");
+    let gitdir = if dot_git_path.is_file() {
+        let raw = std::fs::read_to_string(&dot_git_path).ok()?;
+        let raw = raw.trim();
+        let prefix = "gitdir:";
+        if !raw.starts_with(prefix) {
+            return None;
+        }
+        let value = raw[prefix.len()..].trim();
+        let parsed = Path::new(value);
+        if parsed.is_absolute() {
+            parsed.to_path_buf()
+        } else {
+            worktree_path.join(parsed)
+        }
+    } else if dot_git_path.is_dir() {
+        dot_git_path
+    } else {
+        return None;
+    };
+    let head = std::fs::read_to_string(gitdir.join("HEAD")).ok()?;
+    let head = head.trim();
+    let ref_prefix = "ref: refs/heads/";
+    head.strip_prefix(ref_prefix).map(|value| value.to_string())
 }
 
 /// Create an orphan branch containing only `.tasque/` and `.gitattributes`.
@@ -220,17 +339,18 @@ pub fn create_orphan_branch(
 }
 
 /// Stage all changes in a worktree and commit with the given message.
-pub fn commit_worktree(wt_path: &Path, message: &str) -> Result<(), TsqError> {
+/// Returns true when a commit was created.
+pub fn commit_worktree(wt_path: &Path, message: &str) -> Result<bool, TsqError> {
     run_git(wt_path, &["add", "."])?;
 
     // Check if there are staged changes
     let has_changes = !run_git_status(wt_path, &["diff", "--cached", "--quiet"])?;
     if !has_changes {
-        return Ok(()); // Nothing to commit
+        return Ok(false); // Nothing to commit
     }
 
     run_git(wt_path, &["commit", "-m", message])?;
-    Ok(())
+    Ok(true)
 }
 
 pub fn ensure_gitattributes_entry(repo_root: &Path) -> Result<bool, TsqError> {
@@ -487,5 +607,84 @@ mod tests {
         assert!(gitattributes.exists());
         let content = std::fs::read_to_string(gitattributes).unwrap();
         assert!(content.contains(".tasque/events.jsonl merge=tasque-events"));
+    }
+
+    #[test]
+    fn test_fast_git_common_dir_with_git_file_and_commondir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let meta = repo.join(".git-meta");
+        let common = repo.join(".git-common");
+        std::fs::create_dir_all(&meta).unwrap();
+        std::fs::create_dir_all(&common).unwrap();
+        std::fs::write(repo.join(".git"), "gitdir: .git-meta\n").unwrap();
+        std::fs::write(meta.join("commondir"), "../.git-common\n").unwrap();
+
+        let resolved = git_common_dir(&repo).unwrap();
+        assert!(resolved.ends_with(".git-common"));
+        assert_eq!(resolved.canonicalize().unwrap(), common.canonicalize().unwrap());
+    }
+
+    #[test]
+    fn test_ensure_worktree_repairs_wrong_branch_state() {
+        unsafe {
+            std::env::set_var("GIT_AUTHOR_NAME", "tasque-test");
+            std::env::set_var("GIT_AUTHOR_EMAIL", "tasque@example.com");
+            std::env::set_var("GIT_COMMITTER_NAME", "tasque-test");
+            std::env::set_var("GIT_COMMITTER_EMAIL", "tasque@example.com");
+        }
+
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path();
+        Command::new("git")
+            .args(["init"])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "tasque-test"])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.email", "tasque@example.com"])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        std::fs::create_dir_all(repo.join(".tasque")).unwrap();
+        std::fs::write(repo.join(".tasque").join("events.jsonl"), "").unwrap();
+        std::fs::write(
+            repo.join(".gitattributes"),
+            ".tasque/events.jsonl merge=tasque-events\n",
+        )
+        .unwrap();
+        std::fs::write(repo.join("README.md"), "seed\n").unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "seed"])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["branch", "tasque-sync"])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+
+        let wt = ensure_worktree(repo, "tasque-sync").unwrap();
+        Command::new("git")
+            .args(["checkout", "-b", "wrong-branch"])
+            .current_dir(&wt)
+            .output()
+            .unwrap();
+        assert!(!worktree_is_valid(&wt, "tasque-sync"));
+
+        let repaired = ensure_worktree(repo, "tasque-sync").unwrap();
+        assert!(worktree_is_valid(&repaired, "tasque-sync"));
     }
 }

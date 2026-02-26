@@ -1,6 +1,7 @@
 use crate::domain::projector::apply_events;
 use crate::domain::state::create_empty_state;
 use crate::errors::TsqError;
+use crate::app::sync;
 use crate::store::config::read_config;
 use crate::store::events::read_events;
 use crate::store::snapshots::{load_latest_snapshot_with_warning, write_snapshot};
@@ -71,11 +72,13 @@ pub fn persist_projection(
     event_count: usize,
     now: Option<&dyn Fn() -> String>,
 ) -> Result<(), TsqError> {
+    let repo_path = repo_root.as_ref();
     state.applied_events = event_count;
-    write_state_cache(&repo_root, state)?;
+    write_state_cache(repo_path, state)?;
 
-    let config = read_config(&repo_root)?;
+    let config = read_config(repo_path)?;
     if config.snapshot_every == 0 {
+        sync::auto_commit_if_sync_worktree(repo_path)?;
         return Ok(());
     }
 
@@ -89,9 +92,10 @@ pub fn persist_projection(
             event_count,
             state: state.clone(),
         };
-        write_snapshot(&repo_root, &snapshot)?;
+        write_snapshot(repo_path, &snapshot)?;
     }
 
+    sync::auto_commit_if_sync_worktree(repo_path)?;
     Ok(())
 }
 

@@ -3,9 +3,14 @@ use crate::store::config::{read_config, write_config};
 use crate::store::events::{append_events, read_events};
 use crate::store::git;
 use crate::store::paths::get_paths;
-use crate::types::{MigrateResult, SyncSetupResult};
+use crate::types::{HookInstallResult, HookUninstallResult, MigrateResult, SyncRunResult, SyncSetupResult};
 use std::collections::HashSet;
 use std::path::Path;
+use std::time::{Duration, Instant};
+
+const SYNC_COMMIT_MESSAGE: &str = "chore(tsq): sync task updates";
+const HOOK_MARKER: &str = "tsq-sync-pre-push-hook";
+const SETUP_LOCK_TIMEOUT_MS: u64 = 120_000;
 
 /// Resolve the effective root directory for data operations.
 ///
@@ -20,6 +25,12 @@ pub fn resolve_effective_root(repo_root: &str) -> Result<String, TsqError> {
     };
 
     let repo_path = Path::new(repo_root);
+    if let Some(quick_path) = git::quick_worktree_path(repo_path)
+        && git::worktree_is_valid(&quick_path, &branch)
+    {
+        return Ok(quick_path.to_string_lossy().to_string());
+    }
+
     if !git::is_git_repo(repo_path) {
         return Err(TsqError::new(
             "GIT_NOT_AVAILABLE",
@@ -28,7 +39,7 @@ pub fn resolve_effective_root(repo_root: &str) -> Result<String, TsqError> {
         ));
     }
 
-    let worktree = git::ensure_worktree(repo_path, &branch)?;
+    let worktree = with_setup_lock(repo_root, || git::ensure_worktree(repo_path, &branch))?;
     Ok(worktree.to_string_lossy().to_string())
 }
 
@@ -42,6 +53,10 @@ pub fn setup_sync_branch(
     branch: &str,
     _actor: &str,
 ) -> Result<SyncSetupResult, TsqError> {
+    with_setup_lock(repo_root, || setup_sync_branch_locked(repo_root, branch))
+}
+
+fn setup_sync_branch_locked(repo_root: &str, branch: &str) -> Result<SyncSetupResult, TsqError> {
     let repo_path = Path::new(repo_root);
 
     if !git::is_git_repo(repo_path) {
@@ -131,13 +146,157 @@ pub fn migrate_to_sync_branch(
     }
 
     let wt_path = Path::new(&setup.worktree_path);
-    git::commit_worktree(wt_path, "chore: migrate tasque events to sync branch")?;
+    let _ = git::commit_worktree(wt_path, "chore: migrate tasque events to sync branch")?;
     clear_repo_events(repo_root)?;
 
     Ok(MigrateResult {
         events_migrated: to_append.len(),
         branch: setup.branch,
         worktree_path: setup.worktree_path,
+    })
+}
+
+pub fn sync_worktree(repo_root: &str, push: bool) -> Result<SyncRunResult, TsqError> {
+    let path = Path::new(repo_root);
+    if !git::is_git_repo(path) {
+        return Err(TsqError::new(
+            "GIT_NOT_AVAILABLE",
+            "sync requires a git repository",
+            2,
+        ));
+    }
+    if !git::is_sync_worktree_path(path) {
+        return Err(TsqError::new(
+            "SYNC_NOT_CONFIGURED",
+            "sync branch is not configured for this repository",
+            1,
+        ));
+    }
+
+    let branch = git::current_branch(path)?
+        .ok_or_else(|| TsqError::new("GIT_ERROR", "failed determining current branch", 2))?;
+    let committed = git::commit_worktree(path, SYNC_COMMIT_MESSAGE)?;
+    let has_upstream = git::has_upstream(path)?;
+    let pushed = if push && has_upstream {
+        git::push_current(path)?;
+        true
+    } else {
+        false
+    };
+    Ok(SyncRunResult {
+        branch,
+        worktree_path: path.to_string_lossy().to_string(),
+        committed,
+        pushed,
+        has_upstream,
+    })
+}
+
+pub fn auto_commit_if_sync_worktree(repo_root: impl AsRef<Path>) -> Result<(), TsqError> {
+    let path = repo_root.as_ref();
+    if !git::is_sync_worktree_path(path) {
+        return Ok(());
+    }
+    let _ = git::commit_worktree(path, SYNC_COMMIT_MESSAGE)?;
+    Ok(())
+}
+
+pub fn install_hooks(repo_root: &str, force: bool) -> Result<HookInstallResult, TsqError> {
+    with_setup_lock(repo_root, || install_hooks_locked(repo_root, force))
+}
+
+fn install_hooks_locked(repo_root: &str, force: bool) -> Result<HookInstallResult, TsqError> {
+    let repo = Path::new(repo_root);
+    if !git::is_git_repo(repo) {
+        return Err(TsqError::new(
+            "GIT_NOT_AVAILABLE",
+            "hook installation requires a git repository",
+            2,
+        ));
+    }
+
+    let hooks_dir = git::hooks_dir(repo)?;
+    std::fs::create_dir_all(&hooks_dir).map_err(|error| {
+        TsqError::new("HOOK_INSTALL_FAILED", "failed creating hooks directory", 2)
+            .with_details(serde_json::json!({"message": error.to_string()}))
+    })?;
+    let pre_push = hooks_dir.join("pre-push");
+    let hook_path = pre_push.to_string_lossy().to_string();
+    let desired = hook_script();
+
+    if pre_push.exists() {
+        let existing = std::fs::read_to_string(&pre_push).map_err(|error| {
+            TsqError::new("HOOK_INSTALL_FAILED", "failed reading existing pre-push hook", 2)
+                .with_details(serde_json::json!({"message": error.to_string()}))
+        })?;
+        if existing.contains(HOOK_MARKER) {
+            return Ok(HookInstallResult {
+                hook_path,
+                installed: true,
+            });
+        }
+        if !force {
+            return Err(TsqError::new(
+                "VALIDATION_ERROR",
+                "pre-push hook already exists; rerun with --force to overwrite",
+                1,
+            )
+            .with_details(serde_json::json!({ "path": pre_push.display().to_string() })));
+        }
+    }
+
+    std::fs::write(&pre_push, desired).map_err(|error| {
+        TsqError::new("HOOK_INSTALL_FAILED", "failed writing pre-push hook", 2)
+            .with_details(serde_json::json!({"message": error.to_string()}))
+    })?;
+    set_hook_permissions(&pre_push)?;
+    Ok(HookInstallResult {
+        hook_path,
+        installed: true,
+    })
+}
+
+pub fn uninstall_hooks(repo_root: &str) -> Result<HookUninstallResult, TsqError> {
+    with_setup_lock(repo_root, || uninstall_hooks_locked(repo_root))
+}
+
+fn uninstall_hooks_locked(repo_root: &str) -> Result<HookUninstallResult, TsqError> {
+    let repo = Path::new(repo_root);
+    if !git::is_git_repo(repo) {
+        return Err(TsqError::new(
+            "GIT_NOT_AVAILABLE",
+            "hook uninstall requires a git repository",
+            2,
+        ));
+    }
+
+    let pre_push = git::hooks_dir(repo)?.join("pre-push");
+    let hook_path = pre_push.to_string_lossy().to_string();
+    if !pre_push.exists() {
+        return Ok(HookUninstallResult {
+            hook_path,
+            removed: false,
+        });
+    }
+
+    let content = std::fs::read_to_string(&pre_push).map_err(|error| {
+        TsqError::new("HOOK_UNINSTALL_FAILED", "failed reading pre-push hook", 2)
+            .with_details(serde_json::json!({"message": error.to_string()}))
+    })?;
+    if !content.contains(HOOK_MARKER) {
+        return Ok(HookUninstallResult {
+            hook_path,
+            removed: false,
+        });
+    }
+
+    std::fs::remove_file(&pre_push).map_err(|error| {
+        TsqError::new("HOOK_UNINSTALL_FAILED", "failed removing pre-push hook", 2)
+            .with_details(serde_json::json!({"message": error.to_string()}))
+    })?;
+    Ok(HookUninstallResult {
+        hook_path,
+        removed: true,
     })
 }
 
@@ -193,9 +352,72 @@ fn clear_repo_events(repo_root: &str) -> Result<(), TsqError> {
     Ok(())
 }
 
+fn hook_script() -> String {
+    format!(
+        "#!/bin/sh\n# {}\nset -e\ntsq sync --no-push\n",
+        HOOK_MARKER
+    )
+}
+
+fn with_setup_lock<T, F>(repo_root: &str, f: F) -> Result<T, TsqError>
+where
+    F: FnOnce() -> Result<T, TsqError>,
+{
+    let paths = get_paths(repo_root);
+    std::fs::create_dir_all(&paths.tasque_dir).map_err(|error| {
+        TsqError::new("SYNC_SETUP_FAILED", "failed creating .tasque directory", 2)
+            .with_details(serde_json::json!({"message": error.to_string()}))
+    })?;
+    let lock_file = paths.tasque_dir.join(".setup.lock");
+    let deadline = Instant::now() + Duration::from_millis(SETUP_LOCK_TIMEOUT_MS);
+
+    loop {
+        let opened = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&lock_file);
+        match opened {
+            Ok(_) => break,
+            Err(error) => {
+                if error.kind() != std::io::ErrorKind::AlreadyExists {
+                    return Err(TsqError::new("SYNC_SETUP_FAILED", "failed acquiring setup lock", 2)
+                        .with_details(serde_json::json!({"message": error.to_string()})));
+                }
+                if Instant::now() >= deadline {
+                    return Err(
+                        TsqError::new("SYNC_SETUP_TIMEOUT", "timed out waiting for setup lock", 3)
+                            .with_details(serde_json::json!({"lockFile": lock_file.display().to_string()})),
+                    );
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        }
+    }
+
+    let result = f();
+    let _ = std::fs::remove_file(&lock_file);
+    result
+}
+
+#[cfg(unix)]
+fn set_hook_permissions(path: &Path) -> Result<(), TsqError> {
+    use std::os::unix::fs::PermissionsExt;
+    let permissions = std::fs::Permissions::from_mode(0o755);
+    std::fs::set_permissions(path, permissions).map_err(|error| {
+        TsqError::new("HOOK_INSTALL_FAILED", "failed setting pre-push hook permissions", 2)
+            .with_details(serde_json::json!({"message": error.to_string()}))
+    })
+}
+
+#[cfg(not(unix))]
+fn set_hook_permissions(_path: &Path) -> Result<(), TsqError> {
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn resolve_effective_root_returns_repo_root_when_no_sync_branch() {
@@ -358,5 +580,66 @@ mod tests {
 
         let root_events = read_events(repo).expect("read_events");
         assert_eq!(root_events.events.len(), 0);
+    }
+
+    #[test]
+    fn setup_sync_branch_is_safe_under_parallel_calls() {
+        unsafe {
+            std::env::set_var("GIT_AUTHOR_NAME", "tasque-test");
+            std::env::set_var("GIT_AUTHOR_EMAIL", "tasque@example.com");
+            std::env::set_var("GIT_COMMITTER_NAME", "tasque-test");
+            std::env::set_var("GIT_COMMITTER_EMAIL", "tasque@example.com");
+        }
+
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let repo = dir.path().to_path_buf();
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(&repo)
+            .output()
+            .expect("git init");
+        std::process::Command::new("git")
+            .args(["config", "user.name", "tasque-test"])
+            .current_dir(&repo)
+            .output()
+            .expect("git config");
+        std::process::Command::new("git")
+            .args(["config", "user.email", "tasque@example.com"])
+            .current_dir(&repo)
+            .output()
+            .expect("git config");
+        std::fs::write(repo.join("README.md"), "seed\n").expect("write");
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(&repo)
+            .output()
+            .expect("git add");
+        std::process::Command::new("git")
+            .args(["commit", "-m", "seed"])
+            .current_dir(&repo)
+            .output()
+            .expect("git commit");
+
+        std::fs::create_dir_all(repo.join(".tasque")).expect("mkdir");
+        let config = crate::types::Config {
+            schema_version: 1,
+            snapshot_every: 200,
+            sync_branch: None,
+        };
+        write_config(&repo, &config).expect("write_config");
+
+        let repo1 = Arc::new(repo);
+        let repo2 = repo1.clone();
+        let t1 = std::thread::spawn(move || {
+            setup_sync_branch(&repo1.to_string_lossy(), "tasque-sync", "test")
+        });
+        let t2 = std::thread::spawn(move || {
+            setup_sync_branch(&repo2.to_string_lossy(), "tasque-sync", "test")
+        });
+
+        let r1 = t1.join().expect("thread1");
+        let r2 = t2.join().expect("thread2");
+        assert!(r1.is_ok(), "thread1 failed: {:?}", r1.err());
+        assert!(r2.is_ok(), "thread2 failed: {:?}", r2.err());
     }
 }

@@ -234,6 +234,27 @@ pub struct MigrateResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SyncRunResult {
+    pub branch: String,
+    pub worktree_path: String,
+    pub committed: bool,
+    pub pushed: bool,
+    pub has_upstream: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HookInstallResult {
+    pub hook_path: String,
+    pub installed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HookUninstallResult {
+    pub hook_path: String,
+    pub removed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EnvelopeOk<T> {
     pub schema_version: u32,
     pub command: String,

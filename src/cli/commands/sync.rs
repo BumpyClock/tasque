@@ -21,6 +21,13 @@ pub struct MigrateArgs {
     pub sync_branch: String,
 }
 
+#[derive(Debug, Args)]
+pub struct SyncArgs {
+    /// Commit changes but skip pushing to upstream
+    #[arg(long = "no-push")]
+    pub no_push: bool,
+}
+
 /// Execute the merge-driver command.
 ///
 /// This is invoked by git during a merge when the `.gitattributes` file
@@ -73,6 +80,34 @@ pub fn execute_migrate(service: &TasqueService, args: MigrateArgs, opts: GlobalO
                 "Migrated {} events to branch '{}' (worktree: {})",
                 data.events_migrated, data.branch, data.worktree_path
             );
+            Ok(())
+        },
+    )
+}
+
+pub fn execute_sync(service: &TasqueService, args: SyncArgs, opts: GlobalOpts) -> i32 {
+    run_action(
+        "tsq sync",
+        opts,
+        || service.sync(!args.no_push),
+        |data| data.clone(),
+        |data| {
+            if data.committed {
+                println!(
+                    "Committed task updates on '{}' (worktree: {})",
+                    data.branch, data.worktree_path
+                );
+            } else {
+                println!("No task updates to commit");
+            }
+
+            if data.pushed {
+                println!("Pushed '{}' to upstream", data.branch);
+            } else if data.has_upstream {
+                println!("Skipped push");
+            } else {
+                println!("No upstream configured; skipped push");
+            }
             Ok(())
         },
     )

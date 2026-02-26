@@ -5,7 +5,7 @@ use crate::cli::commands::{
     DepCommand, LabelCommand, LinkCommand, NoteCommand, SpecCommand, execute_dep, execute_label,
     execute_link, execute_note, execute_spec,
 };
-use crate::cli::commands::{meta, sync, task};
+use crate::cli::commands::{hooks, meta, sync, task};
 use crate::output::err_envelope;
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
@@ -65,6 +65,11 @@ pub enum CommandKind {
     Spec {
         #[command(subcommand)]
         command: SpecCommand,
+    },
+    Sync(sync::SyncArgs),
+    Hooks {
+        #[command(subcommand)]
+        command: hooks::HooksCommand,
     },
     /// Migrate existing events into a sync branch
     Migrate(sync::MigrateArgs),
@@ -146,6 +151,8 @@ fn execute_command(service: &TasqueService, command: CommandKind, opts: GlobalOp
         CommandKind::Label { command } => execute_label(service, command, opts),
         CommandKind::Note { command } => execute_note(service, command, opts),
         CommandKind::Spec { command } => execute_spec(service, command, opts),
+        CommandKind::Sync(args) => sync::execute_sync(service, args, opts),
+        CommandKind::Hooks { command } => hooks::execute_hooks(service, command, opts),
         CommandKind::Migrate(args) => sync::execute_migrate(service, args, opts),
         CommandKind::MergeDriver(args) => sync::execute_merge_driver(args),
     }
@@ -237,6 +244,8 @@ fn root_command_name(command: &CommandKind) -> &'static str {
         CommandKind::Label { .. } => "label",
         CommandKind::Note { .. } => "note",
         CommandKind::Spec { .. } => "spec",
+        CommandKind::Sync(_) => "sync",
+        CommandKind::Hooks { .. } => "hooks",
         CommandKind::Migrate(_) => "migrate",
         CommandKind::MergeDriver(_) => "merge-driver",
     }

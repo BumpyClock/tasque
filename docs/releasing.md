@@ -60,6 +60,23 @@ Validation helper:
   - With `--tag <tag>`: fails when tag != `v<package.version>`.
   - With `--expected-version <semver>`: fails when provided version != `package.json`.
 
+Use workflow_dispatch on npm-publish.yml:
+
+  # dry run
+  gh workflow run npm-publish.yml --ref main -f dry_run=true
+
+  # actual publish
+  gh workflow run npm-publish.yml --ref main -f dry_run=false
+
+  Watch it:
+
+  gh run list --workflow "npm-publish" --limit 5
+  gh run watch $(gh run list --workflow "npm-publish" --limit 1 --json databaseId --jq '.[0].databaseId')
+
+  You can also run against a tag ref (example):
+
+  gh workflow run npm-publish.yml --ref v0.4.0 -f dry_run=false
+
 ## Verification Checklist
 
 Before merging a release PR:

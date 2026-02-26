@@ -1,6 +1,6 @@
 use crate::errors::TsqError;
 use crate::store::config::{read_config, write_config};
-use crate::store::events::{read_events, append_events};
+use crate::store::events::{append_events, read_events};
 use crate::store::git;
 use crate::store::paths::get_paths;
 use crate::types::{MigrateResult, SyncSetupResult};
@@ -226,8 +226,7 @@ mod tests {
         };
         write_config(repo, &config).expect("write_config");
 
-        let err =
-            resolve_effective_root(&repo.to_string_lossy()).expect_err("expected error");
+        let err = resolve_effective_root(&repo.to_string_lossy()).expect_err("expected error");
         assert_eq!(err.code, "GIT_NOT_AVAILABLE");
     }
 

@@ -9,10 +9,7 @@ use tasque::types::{EventRecord, EventType};
 
 fn make_event(id: &str, title: &str) -> EventRecord {
     let mut payload = Map::new();
-    payload.insert(
-        "title".to_string(),
-        Value::String(title.to_string()),
-    );
+    payload.insert("title".to_string(), Value::String(title.to_string()));
     EventRecord {
         id: Some(id.to_string()),
         event_id: Some(id.to_string()),
@@ -26,10 +23,7 @@ fn make_event(id: &str, title: &str) -> EventRecord {
 
 fn make_status_event(id: &str, task_id: &str, status: &str) -> EventRecord {
     let mut payload = Map::new();
-    payload.insert(
-        "status".to_string(),
-        Value::String(status.to_string()),
-    );
+    payload.insert("status".to_string(), Value::String(status.to_string()));
     EventRecord {
         id: Some(id.to_string()),
         event_id: Some(id.to_string()),
@@ -97,7 +91,12 @@ fn test_merge_driver_disjoint_events() {
 
     // Verify the merged file (ours) has all 7 unique events
     let merged = read_jsonl(&ours_path);
-    assert_eq!(merged.len(), 7, "Expected 7 merged events, got {}", merged.len());
+    assert_eq!(
+        merged.len(),
+        7,
+        "Expected 7 merged events, got {}",
+        merged.len()
+    );
 
     // Verify sorted by event ID
     let ids: Vec<&str> = merged
@@ -150,7 +149,12 @@ fn test_merge_driver_duplicate_events() {
 
     // 5 unique: 01AAA, 01AAB, 01AAC, 01BBB, 01BBC, 01CCC = 6 unique
     let merged = read_jsonl(&ours_path);
-    assert_eq!(merged.len(), 6, "Expected 6 deduplicated events, got {}", merged.len());
+    assert_eq!(
+        merged.len(),
+        6,
+        "Expected 6 deduplicated events, got {}",
+        merged.len()
+    );
 
     // stderr should mention duplicates removed
     assert!(
@@ -189,7 +193,11 @@ fn test_merge_driver_conflict_on_divergent_payload() {
             theirs_path.to_str().unwrap(),
         ],
     );
-    assert_eq!(result.code, 1, "Expected conflict exit code 1, got {}", result.code);
+    assert_eq!(
+        result.code, 1,
+        "Expected conflict exit code 1, got {}",
+        result.code
+    );
     assert!(
         result.stderr.contains("01AAA"),
         "Expected conflicting ID in stderr: {}",
@@ -214,7 +222,10 @@ fn test_merge_driver_empty_ancestor() {
     // Empty ancestor
     write_jsonl(&ancestor_path, &[]);
     // Ours and theirs each have unique events
-    write_jsonl(&ours_path, &[make_event("01AAA", "a"), make_event("01AAB", "b")]);
+    write_jsonl(
+        &ours_path,
+        &[make_event("01AAA", "a"), make_event("01AAB", "b")],
+    );
     write_jsonl(
         &theirs_path,
         &[make_event("01CCC", "c"), make_event("01CCD", "d")],
@@ -232,7 +243,11 @@ fn test_merge_driver_empty_ancestor() {
     assert_eq!(result.code, 0, "stderr: {}", result.stderr);
 
     let merged = read_jsonl(&ours_path);
-    assert_eq!(merged.len(), 4, "Expected 4 events from empty ancestor merge");
+    assert_eq!(
+        merged.len(),
+        4,
+        "Expected 4 events from empty ancestor merge"
+    );
 
     // Verify sorted
     let ids: Vec<&str> = merged

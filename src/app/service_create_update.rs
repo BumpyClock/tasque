@@ -7,7 +7,7 @@ use crate::domain::events::make_event;
 use crate::domain::ids::next_child_id;
 use crate::domain::projector::apply_events;
 use crate::errors::TsqError;
-use crate::types::{EventRecord, EventType, PlanningState, Task, TaskStatus};
+use crate::types::{EventRecord, EventType, PlanningState, State, Task, TaskStatus};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::{Map, Value};
@@ -21,6 +21,13 @@ pub fn create(ctx: &ServiceContext, input: &CreateInput) -> Result<Task, TsqErro
         return Err(TsqError::new(
             "VALIDATION_ERROR",
             "cannot combine --id with --parent",
+            1,
+        ));
+    }
+    if input.ensure && input.explicit_id.is_some() {
+        return Err(TsqError::new(
+            "VALIDATION_ERROR",
+            "cannot combine --ensure with --id",
             1,
         ));
     }
@@ -57,6 +64,15 @@ pub fn create(ctx: &ServiceContext, input: &CreateInput) -> Result<Task, TsqErro
                 .as_ref()
                 .map(|raw| must_resolve_existing(&loaded.state, raw, input.exact_id))
                 .transpose()?;
+            if input.ensure
+                && let Some(existing) = find_existing_by_parent_and_title(
+                    &loaded.state,
+                    parent_id.as_deref(),
+                    &input.title,
+                )
+            {
+                return Ok(existing);
+            }
             let id = if let Some(parent) = parent_id.as_ref() {
                 next_child_id(&loaded.state, parent)
             } else {
@@ -240,4 +256,26 @@ pub fn update(ctx: &ServiceContext, input: &UpdateInput) -> Result<Task, TsqErro
 
 fn payload_map(value: Value) -> Map<String, Value> {
     value.as_object().cloned().unwrap_or_default()
+}
+
+fn find_existing_by_parent_and_title(
+    state: &State,
+    parent_id: Option<&str>,
+    title: &str,
+) -> Option<Task> {
+    let normalized_title = crate::app::service_utils::normalize_duplicate_title(title);
+    let mut matches: Vec<&Task> = state
+        .tasks
+        .values()
+        .filter(|task| task.parent_id.as_deref() == parent_id)
+        .filter(|task| {
+            crate::app::service_utils::normalize_duplicate_title(&task.title) == normalized_title
+        })
+        .collect();
+    matches.sort_by(|left, right| {
+        left.created_at
+            .cmp(&right.created_at)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    matches.first().map(|task| (*task).clone())
 }

@@ -9,10 +9,7 @@ use std::path::Path;
 /// Extract the canonical event ID from an EventRecord.
 /// Prefers `id`, falls back to `event_id`.
 fn event_id(record: &EventRecord) -> Option<&str> {
-    record
-        .id
-        .as_deref()
-        .or(record.event_id.as_deref())
+    record.id.as_deref().or(record.event_id.as_deref())
 }
 
 /// Serialize an EventRecord to its canonical JSON string for comparison.
@@ -119,10 +116,7 @@ pub fn merge_events_files(
 }
 
 /// Write a sorted list of events to a file as JSONL.
-fn write_events_to_path(
-    path: &Path,
-    events: &[(String, EventRecord)],
-) -> Result<(), TsqError> {
+fn write_events_to_path(path: &Path, events: &[(String, EventRecord)]) -> Result<(), TsqError> {
     let mut file = fs::File::create(path).map_err(|e| {
         TsqError::new(
             "MERGE_WRITE_FAILED",
@@ -168,7 +162,10 @@ mod tests {
 
     fn make_event(id: &str, title: &str) -> EventRecord {
         let mut payload = Map::new();
-        payload.insert("title".to_string(), serde_json::Value::String(title.to_string()));
+        payload.insert(
+            "title".to_string(),
+            serde_json::Value::String(title.to_string()),
+        );
         EventRecord {
             id: Some(id.to_string()),
             event_id: Some(id.to_string()),
@@ -209,7 +206,11 @@ mod tests {
         let merged = read_events_from_path(&ours).unwrap();
         assert_eq!(merged.events.len(), 3);
         // Should be sorted by ID
-        let ids: Vec<&str> = merged.events.iter().map(|e| e.id.as_deref().unwrap()).collect();
+        let ids: Vec<&str> = merged
+            .events
+            .iter()
+            .map(|e| e.id.as_deref().unwrap())
+            .collect();
         assert_eq!(ids, vec!["01A", "01B", "01C"]);
     }
 

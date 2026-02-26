@@ -1,8 +1,8 @@
 use tasque::app::TasqueService;
 use tasque::app::runtime::{get_actor, get_repo_root, now_iso};
 use tasque::app::sync;
+use tasque::cli::action::{GlobalOpts, emit_error};
 use tasque::cli::run_cli;
-use tasque::cli::action::{emit_error, GlobalOpts};
 
 fn main() {
     let repo_root = get_repo_root();

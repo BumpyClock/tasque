@@ -232,7 +232,8 @@ mod tests {
             "snapshot_every": 200,
             "sync_branch": 42
         });
-        let config = is_config(&value).expect("should parse config, ignoring non-string sync_branch");
+        let config =
+            is_config(&value).expect("should parse config, ignoring non-string sync_branch");
         assert_eq!(config.sync_branch, None);
     }
 

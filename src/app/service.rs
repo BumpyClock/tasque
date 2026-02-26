@@ -274,11 +274,7 @@ impl TasqueService {
     }
 
     pub fn migrate(&self, branch: &str) -> Result<crate::types::MigrateResult, TsqError> {
-        crate::app::sync::migrate_to_sync_branch(
-            &self.ctx.repo_root,
-            branch,
-            &self.ctx.actor,
-        )
+        crate::app::sync::migrate_to_sync_branch(&self.ctx.repo_root, branch, &self.ctx.actor)
     }
 }
 

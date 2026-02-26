@@ -1,6 +1,6 @@
+pub mod embedded;
 pub mod managed;
 pub mod types;
-pub mod embedded;
 
 use crate::errors::TsqError;
 use crate::skills::embedded::materialize_embedded_skill;

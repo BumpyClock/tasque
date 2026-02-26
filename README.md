@@ -92,7 +92,7 @@ Commands:
 - `tsq` (no args, TTY): open read-only TUI (List/Board views)
 - `tsq init`
 - `tsq init --install-skill|--uninstall-skill [--skill-targets ...]`
-- `tsq create "Title" [--kind ...] [-p ...] [--parent <id>] [--external-ref <ref>] [--discovered-from <id>] [--planning <needs_planning|planned>] [--needs-planning] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
+- `tsq create [<title>] [--child <title> ...] [--kind ...] [-p ...] [--parent <id>] [--external-ref <ref>] [--discovered-from <id>] [--planning <needs_planning|planned>] [--needs-planning] [--ensure] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
 - `tsq show <id>`
 - `tsq list [--status ...] [--assignee ...] [--external-ref <ref>] [--discovered-from <id>] [--kind ...] [--planning <needs_planning|planned>] [--dep-type <blocks|starts_after>] [--dep-direction <in|out|any>] [--tree]`
 - `tsq ready [--lane <planning|coding>]`

@@ -47,6 +47,7 @@ pub struct CreateInput {
     pub planning_state: Option<PlanningState>,
     pub explicit_id: Option<String>,
     pub body_file: Option<String>,
+    pub ensure: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -34,9 +34,7 @@ fn run_git(repo: &Path, args: &[&str]) -> Result<String, TsqError> {
         ));
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .to_string())
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 fn run_git_status(repo: &Path, args: &[&str]) -> Result<bool, TsqError> {
@@ -167,11 +165,8 @@ pub fn ensure_worktree(repo_root: &Path, branch: &str) -> Result<PathBuf, TsqErr
 }
 
 fn configure_sparse_checkout(wt: &Path) -> Result<(), TsqError> {
-    run_git(&wt, &["sparse-checkout", "init", "--no-cone"])?;
-    run_git(
-        &wt,
-        &["sparse-checkout", "set", ".tasque", ".gitattributes"],
-    )?;
+    run_git(wt, &["sparse-checkout", "init", "--no-cone"])?;
+    run_git(wt, &["sparse-checkout", "set", ".tasque", ".gitattributes"])?;
     Ok(())
 }
 
@@ -192,9 +187,8 @@ pub fn create_orphan_branch(
 ) -> Result<(), TsqError> {
     validate_branch_name(branch)?;
 
-    let tmp = tempfile::tempdir().map_err(|e| {
-        git_error("Failed creating temp dir for orphan branch", e.to_string())
-    })?;
+    let tmp = tempfile::tempdir()
+        .map_err(|e| git_error("Failed creating temp dir for orphan branch", e.to_string()))?;
     let tmp_path = tmp.path();
 
     // Init temp repo
@@ -206,18 +200,12 @@ pub fn create_orphan_branch(
 
     // Create .gitattributes
     let gitattributes = tmp_path.join(".gitattributes");
-    std::fs::write(
-        &gitattributes,
-        ".tasque/events.jsonl merge=tasque-events\n",
-    )
-    .map_err(|e| git_error("Failed writing .gitattributes", e.to_string()))?;
+    std::fs::write(&gitattributes, ".tasque/events.jsonl merge=tasque-events\n")
+        .map_err(|e| git_error("Failed writing .gitattributes", e.to_string()))?;
 
     // Stage and commit
     run_git(tmp_path, &["add", "."])?;
-    run_git(
-        tmp_path,
-        &["commit", "-m", "Initial tasque sync branch"],
-    )?;
+    run_git(tmp_path, &["commit", "-m", "Initial tasque sync branch"])?;
 
     // Rename the default branch to match the desired name
     run_git(tmp_path, &["branch", "-M", branch])?;
@@ -254,7 +242,10 @@ pub fn ensure_gitattributes_entry(repo_root: &Path) -> Result<bool, TsqError> {
             if error.kind() == std::io::ErrorKind::NotFound {
                 String::new()
             } else {
-                return Err(git_error("Failed reading .gitattributes", error.to_string()));
+                return Err(git_error(
+                    "Failed reading .gitattributes",
+                    error.to_string(),
+                ));
             }
         }
     };
@@ -462,11 +453,7 @@ mod tests {
     fn test_ensure_gitattributes_entry_is_idempotent() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join(".gitattributes");
-        std::fs::write(
-            &path,
-            ".tasque/events.jsonl merge=tasque-events\n",
-        )
-        .unwrap();
+        std::fs::write(&path, ".tasque/events.jsonl merge=tasque-events\n").unwrap();
         let updated = ensure_gitattributes_entry(tmp.path()).unwrap();
         assert!(!updated);
         let content = std::fs::read_to_string(path).unwrap();

@@ -87,7 +87,7 @@ Open blocker:
 
 ## CLI Contract (V1)
 - `tsq init`
-- `tsq create "Title" [-p 0..3] [--parent <id>] [--json]`
+- `tsq create [<title>] [--child <title> ...] [-p 0..3] [--parent <id>] [--ensure] [--json]`
 - `tsq show <id> [--json]`
 - `tsq list [--status <s>] [--assignee <a>] [--json]`
 - `tsq ready [--json]`

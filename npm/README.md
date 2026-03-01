@@ -7,6 +7,50 @@ Local-first task tracker for coding agents.
 - No DB/service
 - Durable restart + replay
 
+
+## Command List
+
+Global options:
+
+- `--json`: JSON envelope output
+- `--exact-id`: disable partial ID resolution
+
+Commands:
+
+- `tsq` (no args, TTY): open read-only TUI (List/Board views)
+- `tsq init`
+- `tsq init --install-skill|--uninstall-skill [--skill-targets ...]`
+- `tsq create [<title>] [--child <title> ...] [--kind ...] [-p ...] [--parent <id>] [--external-ref <ref>] [--discovered-from <id>] [--planning <needs_planning|planned>] [--needs-planning] [--ensure] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
+- `tsq show <id>`
+- `tsq list [--status ...] [--assignee ...] [--external-ref <ref>] [--discovered-from <id>] [--kind ...] [--planning <needs_planning|planned>] [--dep-type <blocks|starts_after>] [--dep-direction <in|out|any>] [--tree]`
+- `tsq ready [--lane <planning|coding>]`
+- `tsq watch [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--tree]`
+- `tsq tui [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--board]`
+- `tsq stale [--days <n>] [--status <status>] [--assignee <name>] [--limit <n>]`
+- `tsq doctor`
+- `tsq update <id> [--title ...] [--status ...] [--priority ...] [--external-ref <ref>] [--clear-external-ref] [--discovered-from <id>] [--clear-discovered-from] [--planning <needs_planning|planned>]`
+- `tsq update <id> --claim [--assignee <a>] [--require-spec]`
+- `tsq orphans`
+- `tsq spec attach <id> [source] [--file <path> | --stdin | --text <markdown>]`
+- `tsq spec check <id>`
+- `tsq dep add <child> <blocker> [--type <blocks|starts_after>]`
+- `tsq dep tree <id> [--direction <up|down|both>] [--depth <n>]`
+- `tsq dep remove <child> <blocker> [--type <blocks|starts_after>]`
+- `tsq link add <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
+- `tsq link remove <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
+- `tsq duplicate <id> --of <canonical-id> [--reason <text>]`
+- `tsq duplicates [--limit <n>]`
+- `tsq merge <source-id...> --into <target-id> [--reason <text>] [--force] [--dry-run]`
+- `tsq supersede <old-id> --with <new-id> [--reason <text>]`
+- `tsq note add <id> <text>`
+- `tsq note list <id>`
+- `tsq label add <id> <label>`
+- `tsq label remove <id> <label>`
+- `tsq label list`
+- `tsq history <id> [--limit <n>] [--type <event-type>] [--actor <name>] [--since <iso>]`
+
+
+
 ## Quickstart
 
 ```bash
@@ -79,42 +123,3 @@ Recommended commit policy:
 
 - Commit `.tasque/events.jsonl` and `.tasque/config.json`
 - Do not commit `.tasque/state.json`
-
-## Command List
-
-Global options:
-
-- `--json`: JSON envelope output
-- `--exact-id`: disable partial ID resolution
-
-Commands:
-
-- `tsq init`
-- `tsq init --install-skill|--uninstall-skill [--skill-targets ...]`
-- `tsq create [<title>] [--child <title> ...] [--kind ...] [-p ...] [--parent <id>] [--external-ref <ref>] [--discovered-from <id>] [--planning <needs_planning|planned>] [--needs-planning] [--ensure] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
-- `tsq show <id>`
-- `tsq list [--status ...] [--assignee ...] [--external-ref <ref>] [--discovered-from <id>] [--kind ...] [--planning <needs_planning|planned>] [--dep-type <blocks|starts_after>] [--dep-direction <in|out|any>] [--tree]`
-- `tsq ready [--lane <planning|coding>]`
-- `tsq watch [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--tree]`
-- `tsq stale [--days <n>] [--status <status>] [--assignee <name>] [--limit <n>]`
-- `tsq doctor`
-- `tsq update <id> [--title ...] [--status ...] [--priority ...] [--external-ref <ref>] [--clear-external-ref] [--discovered-from <id>] [--clear-discovered-from] [--planning <needs_planning|planned>]`
-- `tsq update <id> --claim [--assignee <a>] [--require-spec]`
-- `tsq orphans`
-- `tsq spec attach <id> [source] [--file <path> | --stdin | --text <markdown>]`
-- `tsq spec check <id>`
-- `tsq dep add <child> <blocker> [--type <blocks|starts_after>]`
-- `tsq dep tree <id> [--direction <up|down|both>] [--depth <n>]`
-- `tsq dep remove <child> <blocker> [--type <blocks|starts_after>]`
-- `tsq link add <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
-- `tsq link remove <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
-- `tsq duplicate <id> --of <canonical-id> [--reason <text>]`
-- `tsq duplicates [--limit <n>]`
-- `tsq merge <source-id...> --into <target-id> [--reason <text>] [--force] [--dry-run]`
-- `tsq supersede <old-id> --with <new-id> [--reason <text>]`
-- `tsq note add <id> <text>`
-- `tsq note list <id>`
-- `tsq label add <id> <label>`
-- `tsq label remove <id> <label>`
-- `tsq label list`
-- `tsq history <id> [--limit <n>] [--type <event-type>] [--actor <name>] [--since <iso>]`

@@ -121,3 +121,90 @@ fn list_csv_validation_error_envelope_keeps_stable_shape() {
     );
     assert_validation_error(&invalid);
 }
+
+#[test]
+fn update_claim_rejects_planning_flag() {
+    let repo = common::make_repo();
+    init_repo(repo.path());
+
+    let id = create_task(repo.path(), "Claim planning conflict");
+    let invalid = run_json(
+        repo.path(),
+        ["update", &id, "--claim", "--planning", "planned"],
+    );
+
+    assert_eq!(invalid.cli.code, 1);
+    assert_eq!(
+        invalid
+            .envelope
+            .get("command")
+            .and_then(|value| value.as_str()),
+        Some("tsq update")
+    );
+    assert_eq!(
+        invalid
+            .envelope
+            .get("error")
+            .and_then(|value| value.get("message"))
+            .and_then(|value| value.as_str()),
+        Some(
+            "cannot combine --claim with --title/--description/--clear-description/--external-ref/--clear-external-ref/--discovered-from/--clear-discovered-from/--status/--priority/--planning"
+        )
+    );
+    assert_validation_error(&invalid);
+}
+
+#[test]
+fn update_assignee_requires_claim() {
+    let repo = common::make_repo();
+    init_repo(repo.path());
+
+    let id = create_task(repo.path(), "Assignee conflict");
+    let invalid = run_json(repo.path(), ["update", &id, "--assignee", "alice"]);
+
+    assert_eq!(invalid.cli.code, 1);
+    assert_eq!(
+        invalid
+            .envelope
+            .get("command")
+            .and_then(|value| value.as_str()),
+        Some("tsq update")
+    );
+    assert_eq!(
+        invalid
+            .envelope
+            .get("error")
+            .and_then(|value| value.get("message"))
+            .and_then(|value| value.as_str()),
+        Some("--assignee requires --claim")
+    );
+    assert_validation_error(&invalid);
+}
+
+#[test]
+fn close_and_reopen_require_ids() {
+    let repo = common::make_repo();
+    init_repo(repo.path());
+
+    for command in ["close", "reopen"] {
+        let invalid = run_json(repo.path(), [command]);
+
+        assert_eq!(invalid.cli.code, 1);
+        assert_eq!(
+            invalid
+                .envelope
+                .get("command")
+                .and_then(|value| value.as_str()),
+            Some(format!("tsq {command}").as_str())
+        );
+        assert_eq!(
+            invalid
+                .envelope
+                .get("error")
+                .and_then(|value| value.get("message"))
+                .and_then(|value| value.as_str()),
+            Some("at least one id is required")
+        );
+        assert_validation_error(&invalid);
+    }
+}

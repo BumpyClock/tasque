@@ -39,7 +39,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="$(grep '^version = ' Cargo.toml | head -n1 | cut -d'\"' -f2)"
+          VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
           OS="$(uname | tr '[:upper:]' '[:lower:]')"
           ARCH="$(uname -m)"
           mkdir -p dist/releases

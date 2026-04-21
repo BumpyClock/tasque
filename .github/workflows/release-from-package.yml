@@ -47,7 +47,7 @@ jobs:
           EXPECTED_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          VERSION="$(grep '^version = ' Cargo.toml | head -n1 | cut -d'\"' -f2)"
+          VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
           if [ -n "${EXPECTED_VERSION}" ]; then
             if [ "${EXPECTED_VERSION}" != "${VERSION}" ]; then
               echo "provided version ${EXPECTED_VERSION} does not match Cargo.toml version ${VERSION}"

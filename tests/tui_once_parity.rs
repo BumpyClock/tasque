@@ -299,6 +299,7 @@ fn normalize_for_match(value: &str) -> String {
         .join(" ")
 }
 
+#[allow(clippy::while_let_on_iterator)]
 fn strip_ansi(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     let mut chars = value.chars().peekable();
@@ -307,10 +308,7 @@ fn strip_ansi(value: &str) -> String {
             match chars.peek().copied() {
                 Some('[') => {
                     chars.next();
-                    loop {
-                        let Some(control) = chars.next() else {
-                            break;
-                        };
+                    while let Some(control) = chars.next() {
                         if ('@'..='~').contains(&control) {
                             break;
                         }
@@ -318,10 +316,7 @@ fn strip_ansi(value: &str) -> String {
                 }
                 Some(']') => {
                     chars.next();
-                    loop {
-                        let Some(control) = chars.next() else {
-                            break;
-                        };
+                    while let Some(control) = chars.next() {
                         if control == '\u{7}' {
                             break;
                         }
@@ -333,10 +328,7 @@ fn strip_ansi(value: &str) -> String {
                 }
                 Some('P' | 'X' | '^' | '_') => {
                     chars.next();
-                    loop {
-                        let Some(control) = chars.next() else {
-                            break;
-                        };
+                    while let Some(control) = chars.next() {
                         if control == '\u{1b}' && matches!(chars.peek(), Some('\\')) {
                             chars.next();
                             break;

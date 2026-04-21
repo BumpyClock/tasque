@@ -6,12 +6,12 @@ const fs = require("fs");
 const path = require("path");
 
 const PLATFORMS = {
-  "darwin arm64": { pkg: "@bumpyclock/tasque-darwin-arm64", bin: "tsq" },
-  "darwin x64": { pkg: "@bumpyclock/tasque-darwin-x64", bin: "tsq" },
-  "linux x64": { pkg: "@bumpyclock/tasque-linux-x64-gnu", bin: "tsq" },
-  "linux arm64": { pkg: "@bumpyclock/tasque-linux-arm64-gnu", bin: "tsq" },
-  "win32 x64": { pkg: "@bumpyclock/tasque-win32-x64-msvc", bin: "tsq.exe" },
-  "win32 arm64": { pkg: "@bumpyclock/tasque-win32-arm64-msvc", bin: "tsq.exe" },
+  "darwin arm64": { pkg: "@bumpyclock/tasque-darwin-arm64", bin: "tsq", tuiBin: "tsq-tui" },
+  "darwin x64": { pkg: "@bumpyclock/tasque-darwin-x64", bin: "tsq", tuiBin: "tsq-tui" },
+  "linux x64": { pkg: "@bumpyclock/tasque-linux-x64-gnu", bin: "tsq", tuiBin: "tsq-tui" },
+  "linux arm64": { pkg: "@bumpyclock/tasque-linux-arm64-gnu", bin: "tsq", tuiBin: "tsq-tui" },
+  "win32 x64": { pkg: "@bumpyclock/tasque-win32-x64-msvc", bin: "tsq.exe", tuiBin: "tsq-tui.exe" },
+  "win32 arm64": { pkg: "@bumpyclock/tasque-win32-arm64-msvc", bin: "tsq.exe", tuiBin: "tsq-tui.exe" },
 };
 
 function tryResolveBinary() {
@@ -22,7 +22,8 @@ function tryResolveBinary() {
   try {
     const pkgJson = require.resolve(`${info.pkg}/package.json`);
     const binPath = path.join(path.dirname(pkgJson), info.bin);
-    return fs.existsSync(binPath);
+    const tuiBinPath = path.join(path.dirname(pkgJson), info.tuiBin);
+    return fs.existsSync(binPath) && fs.existsSync(tuiBinPath);
   } catch {
     return false;
   }
@@ -168,6 +169,8 @@ async function main() {
   try {
     const dest = await downloadBinary(info.pkg, info.bin, version);
     console.log(`tasque: downloaded ${info.bin} to ${dest}`);
+    const tuiDest = await downloadBinary(info.pkg, info.tuiBin, version);
+    console.log(`tasque: downloaded ${info.tuiBin} to ${tuiDest}`);
   } catch (err) {
     console.error(
       `Error: Failed to download tsq binary for ${process.platform}-${process.arch}.\n` +

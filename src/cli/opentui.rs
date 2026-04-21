@@ -6,6 +6,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 const DEFAULT_RUNTIME: &str = "bun";
+#[cfg(windows)]
+const BUNDLED_TUI_BINARY: &str = "tsq-tui.exe";
+#[cfg(not(windows))]
+const BUNDLED_TUI_BINARY: &str = "tsq-tui";
 
 pub fn should_launch_opentui(options: &TuiOptions) -> bool {
     if std::env::var("TSQ_OPENTUI_DISABLE")
@@ -23,7 +27,15 @@ pub fn should_launch_opentui(options: &TuiOptions) -> bool {
         return false;
     }
 
+    if explicit_bundled_tui_path().is_some() && resolve_bundled_tui_path().is_some() {
+        return true;
+    }
+
     if explicit_entry_path().is_some() {
+        return true;
+    }
+
+    if resolve_bundled_tui_path().is_some() {
         return true;
     }
 
@@ -34,14 +46,22 @@ pub fn should_launch_opentui(options: &TuiOptions) -> bool {
 }
 
 pub fn launch_opentui(options: &TuiOptions) -> Result<i32, String> {
-    let entry = resolve_entry_path().ok_or_else(|| {
-        "OpenTUI entrypoint not found (expected tui-opentui/src/index.tsx)".to_string()
-    })?;
-
-    let runtime = resolve_runtime();
-
-    let mut command = Command::new(&runtime);
-    command.arg("run").arg(&entry);
+    let prefer_bundle = explicit_bundled_tui_path().is_some() || explicit_entry_path().is_none();
+    let mut command = if let Some(bundle) = if prefer_bundle {
+        resolve_bundled_tui_path()
+    } else {
+        None
+    } {
+        Command::new(bundle)
+    } else {
+        let entry = resolve_entry_path().ok_or_else(|| {
+            "OpenTUI entrypoint not found (expected tui-opentui/src/index.tsx)".to_string()
+        })?;
+        let runtime = resolve_runtime();
+        let mut command = Command::new(&runtime);
+        command.arg("run").arg(&entry);
+        command
+    };
 
     if let Ok(bin) = std::env::current_exe() {
         command.env("TSQ_TUI_BIN", bin);
@@ -61,8 +81,28 @@ pub fn launch_opentui(options: &TuiOptions) -> Result<i32, String> {
 
     let status = command
         .status()
-        .map_err(|error| format!("failed launching OpenTUI with `{runtime}`: {error}"))?;
+        .map_err(|error| format!("failed launching OpenTUI: {error}"))?;
     Ok(status.code().unwrap_or(1))
+}
+
+fn resolve_bundled_tui_path() -> Option<PathBuf> {
+    if let Some(value) = explicit_bundled_tui_path() {
+        let path = PathBuf::from(value);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+
+    let current_exe = std::env::current_exe().ok()?;
+    let candidate = current_exe.parent()?.join(BUNDLED_TUI_BINARY);
+    candidate.is_file().then_some(candidate)
+}
+
+fn explicit_bundled_tui_path() -> Option<String> {
+    std::env::var("TSQ_OPENTUI_BIN")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 fn resolve_entry_path() -> Option<PathBuf> {
@@ -190,5 +230,22 @@ mod tests {
         std::fs::write(&entry, "").expect("entry");
 
         assert!(!dependencies_are_available(&entry));
+    }
+
+    #[test]
+    fn resolves_explicit_bundled_tui_binary() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let binary = temp.path().join(BUNDLED_TUI_BINARY);
+        std::fs::write(&binary, "").expect("binary");
+
+        unsafe {
+            std::env::set_var("TSQ_OPENTUI_BIN", &binary);
+        }
+        let resolved = resolve_bundled_tui_path();
+        unsafe {
+            std::env::remove_var("TSQ_OPENTUI_BIN");
+        }
+
+        assert_eq!(resolved.as_deref(), Some(binary.as_path()));
     }
 }

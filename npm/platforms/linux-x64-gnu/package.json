@@ -18,6 +18,7 @@
   ],
   "files": [
     "tsq",
+    "tsq-tui",
     "SKILLS/**"
   ],
   "publishConfig": {

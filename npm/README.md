@@ -86,6 +86,11 @@ Binary output:
 - Linux/macOS: `target/release/tsq`
 - Windows: `target/release/tsq.exe`
 
+Release and npm packages also include a bundled OpenTUI executable:
+
+- Linux/macOS: `tsq-tui`
+- Windows: `tsq-tui.exe`
+
 ## Test + Lint + Format
 
 ```bash
@@ -114,9 +119,11 @@ All steps must pass before merging.
   - Optional `version` input must match Cargo version
 - `Release` (`.github/workflows/release.yml`)
   - On published GitHub release, builds matrix binaries (Linux/macOS/Windows)
+  - Bundles the OpenTUI frontend as a standalone executable next to `tsq`
   - Uploads release artifacts + checksums
 - `npm-publish` (`.github/workflows/npm-publish.yml`)
   - On published GitHub release, builds platform npm packages
+  - Packages `tsq` and `tsq-tui` together for each platform
   - Publishes platform packages, then `@bumpyclock/tasque`
 
 ## Storage Layout

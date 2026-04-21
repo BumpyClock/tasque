@@ -78,8 +78,10 @@ for platform in "${!TARGETS[@]}"; do
 
   if [[ "$platform" == win32-* ]]; then
     bin_name="tsq.exe"
+    tui_bin_name="tsq-tui.exe"
   else
     bin_name="tsq"
+    tui_bin_name="tsq-tui"
   fi
 
   if [[ -f "$src_dir/$bin_name" ]]; then
@@ -88,6 +90,14 @@ for platform in "${!TARGETS[@]}"; do
     echo "Copied $target/$bin_name -> platforms/$platform/"
   else
     missing_binaries+=("$platform:$src_dir/$bin_name")
+  fi
+
+  if [[ -f "$src_dir/$tui_bin_name" ]]; then
+    cp "$src_dir/$tui_bin_name" "$dst_dir/$tui_bin_name"
+    chmod 755 "$dst_dir/$tui_bin_name"
+    echo "Copied $target/$tui_bin_name -> platforms/$platform/"
+  else
+    missing_binaries+=("$platform:$src_dir/$tui_bin_name")
   fi
 done
 

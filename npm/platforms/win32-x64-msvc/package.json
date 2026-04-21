@@ -15,6 +15,7 @@
   ],
   "files": [
     "tsq.exe",
+    "tsq-tui.exe",
     "SKILLS/**"
   ],
   "publishConfig": {

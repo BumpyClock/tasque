@@ -55,7 +55,7 @@ jobs:
             method: zigbuild
           - platform: win32-x64-msvc
             target: x86_64-pc-windows-msvc
-            bun_target: bun-windows-x64-baseline
+            bun_target: bun-windows-x64
             bun_os: win32
             bun_cpu: x64
             tui_bin: tsq-tui.exe

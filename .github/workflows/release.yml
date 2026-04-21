@@ -56,9 +56,17 @@ jobs:
             darwin-arm64) BUN_TARGET="bun-darwin-arm64" ;;
             *) echo "Unsupported OpenTUI build host: $(uname)-$(uname -m)" >&2; exit 1 ;;
           esac
+          case "$(uname | tr '[:upper:]' '[:lower:]')" in
+            linux) BUN_OS="linux" ;;
+            darwin) BUN_OS="darwin" ;;
+          esac
+          case "$(uname -m)" in
+            x86_64) BUN_CPU="x64" ;;
+            aarch64|arm64) BUN_CPU="arm64" ;;
+          esac
           mkdir -p dist/tui
           cd tui-opentui
-          bun install --frozen-lockfile
+          bun install --frozen-lockfile --os "${BUN_OS}" --cpu "${BUN_CPU}"
           bun build --compile --target="${BUN_TARGET}" src/index.tsx --outfile ../dist/tui/tsq-tui
           chmod +x ../dist/tui/tsq-tui
 
@@ -66,10 +74,11 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $bunTarget = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'bun-windows-arm64' } else { 'bun-windows-x64-baseline' }
+          $bunTarget = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'bun-windows-arm64' } else { 'bun-windows-x64' }
+          $bunCpu = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
           New-Item -ItemType Directory -Force dist/tui | Out-Null
           Push-Location tui-opentui
-          bun install --frozen-lockfile
+          bun install --frozen-lockfile --os win32 --cpu $bunCpu
           bun build --compile "--target=$bunTarget" src/index.tsx --outfile ../dist/tui/tsq-tui.exe
           Pop-Location
 

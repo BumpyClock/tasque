@@ -104,9 +104,51 @@ jobs:
         working-directory: tui-opentui
         run: bun install --frozen-lockfile --os ${{ matrix.bun_os }} --cpu ${{ matrix.bun_cpu }}
 
+      - name: Download Bun compiler runtime (Windows ARM64)
+        if: matrix.bun_target == 'bun-windows-arm64'
+        id: bun-compiler-runtime
+        shell: pwsh
+        run: |
+          $version = bun --version
+          $asset = 'bun-windows-aarch64'
+          $url = "https://github.com/oven-sh/bun/releases/download/bun-v$version/$asset.zip"
+          $zip = Join-Path $env:RUNNER_TEMP "$asset.zip"
+          $outDir = Join-Path $env:RUNNER_TEMP $asset
+
+          for ($attempt = 1; $attempt -le 5; $attempt++) {
+            try {
+              Invoke-WebRequest -Uri $url -OutFile $zip
+              if ((Get-Item $zip).Length -lt 10000000) {
+                throw "Downloaded archive is unexpectedly small: $((Get-Item $zip).Length) bytes"
+              }
+              break
+            } catch {
+              if ($attempt -eq 5) { throw }
+              Start-Sleep -Seconds ($attempt * 2)
+            }
+          }
+
+          if (Test-Path $outDir) {
+            Remove-Item $outDir -Recurse -Force
+          }
+          Expand-Archive -Path $zip -DestinationPath $outDir -Force
+          $exe = Get-ChildItem -Path $outDir -Recurse -Filter bun.exe | Select-Object -First 1
+          if (-not $exe) {
+            throw "Missing bun.exe in $zip"
+          }
+
+          "path=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
       - name: Build bundled OpenTUI
+        if: matrix.bun_target != 'bun-windows-arm64'
         working-directory: tui-opentui
         run: bun build --compile --target=${{ matrix.bun_target }} src/index.tsx --outfile ../target/${{ matrix.target }}/release/${{ matrix.tui_bin }}
+
+      - name: Build bundled OpenTUI (Windows ARM64)
+        if: matrix.bun_target == 'bun-windows-arm64'
+        working-directory: tui-opentui
+        shell: pwsh
+        run: bun build --compile "--compile-executable-path=${{ steps.bun-compiler-runtime.outputs.path }}" --target=${{ matrix.bun_target }} src/index.tsx --outfile ../target/${{ matrix.target }}/release/${{ matrix.tui_bin }}
 
       - name: Upload binary (unix)
         if: runner.os != 'Windows'

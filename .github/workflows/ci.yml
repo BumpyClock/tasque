@@ -26,3 +26,11 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test --quiet
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install --frozen-lockfile
+        working-directory: tui-opentui
+
+      - run: bun run typecheck
+        working-directory: tui-opentui

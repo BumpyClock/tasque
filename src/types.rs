@@ -203,10 +203,27 @@ pub struct State {
     pub applied_events: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventLogMetadata {
+    pub event_count: usize,
+    pub byte_len: u64,
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StateCache {
+    pub schema_version: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_log: Option<EventLogMetadata>,
+    pub state: State,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Snapshot {
     pub taken_at: String,
     pub event_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_log: Option<EventLogMetadata>,
     pub state: State,
 }
 

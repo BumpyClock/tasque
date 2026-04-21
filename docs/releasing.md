@@ -1,90 +1,112 @@
 # Releasing
 
-Read when: preparing a new `tsq` release, forcing release workflow runs, or bumping schema/version values.
+Read when: preparing a new `tsq` release, forcing release workflow runs, or bumping release versions.
+
+## Source Of Version Truth
+
+- `Cargo.toml` is the release version source.
+- `npm/package.json` and every `npm/platforms/*/package.json` must match it.
+- `npm/scripts/bump-version.js` updates `Cargo.toml`, `Cargo.lock`, root npm package, platform packages, and optional dependency pins.
+
+```bash
+node npm/scripts/bump-version.js patch
+node npm/scripts/bump-version.js minor
+node npm/scripts/bump-version.js major
+node npm/scripts/bump-version.js 0.5.0
+node npm/scripts/bump-version.js patch --dry-run
+```
+
+Package aliases:
+
+```bash
+cd npm
+npm run bump:patch
+npm run bump:minor
+npm run bump:major
+npm run bump:set -- 0.5.0
+```
 
 ## GitHub Workflows
 
-Release automation uses two workflows:
+Release automation uses these workflows:
 
 - `/.github/workflows/release-please.yml`
   - Trigger: push to `main` or manual `workflow_dispatch`.
-  - Action: opens/updates the release PR from Conventional Commits.
+  - Action: runs Rust quality checks, then opens/updates the release PR from Conventional Commits using Rust release type.
 - `/.github/workflows/release-from-package.yml`
   - Trigger: manual `workflow_dispatch`.
-  - Action: validates `package.json` version, creates release tag `v<package.version>`, publishes GitHub Release.
+  - Action: validates optional `version` input against `Cargo.toml`, creates tag `v<Cargo.toml version>`, publishes GitHub Release.
 - `/.github/workflows/release.yml`
   - Trigger: GitHub Release `published`.
-  - Action: validates release tag/version sync, runs `bun run doctor`, builds release artifacts on Linux/macOS/Windows, uploads `dist/releases/*` to the release.
+  - Action: runs Rust format/lint/tests, builds release artifacts on Linux/macOS/Windows, bundles `SKILLS`, uploads `dist/releases/*`.
+- `/.github/workflows/npm-publish.yml`
+  - Trigger: GitHub Release `published` or manual `workflow_dispatch`.
+  - Action: builds target binaries, runs `scripts/build-npm.sh`, publishes platform packages, then publishes `@bumpyclock/tasque`.
 
 ## Standard Release Path
 
 1. Merge feature/fix PRs to `main` with Conventional Commit titles.
 2. Wait for (or manually run) `Release Please`.
 3. Review the generated release PR and merge it.
-4. Confirm `Release` workflow succeeds for all matrix jobs.
-5. Verify release assets and `SHA256SUMS.txt` on the published release.
+4. Confirm `Release` succeeds for all matrix jobs.
+5. Confirm `npm-publish` succeeds after the GitHub Release is published.
+6. Verify release assets, `SHA256SUMS.txt`, and npm packages.
 
-## Seamless Manual Path
+## Manual Release Path
 
-Use this when you want to release directly from the current `package.json` version:
+Use this when releasing directly from the current `Cargo.toml` version:
 
-1. Ensure target version is in `package.json`.
-2. Open GitHub Actions and run `Release From Package`.
-3. Optional input: `version` (must match `package.json` if provided).
-4. Workflow creates and publishes tag `v<package.version>`.
-5. Published release triggers `Release` build/upload workflow automatically.
+1. Ensure target version is in `Cargo.toml`, `Cargo.lock`, and npm package files.
+2. Open GitHub Actions and run `Release From Cargo`.
+3. Optional input: `version` (must match `Cargo.toml` if provided).
+4. Optional input: `target` (branch or commit SHA; default `main`).
+5. Workflow creates and publishes tag `v<Cargo.toml version>`.
+6. Published release triggers `Release` and `npm-publish` automatically.
 
-## Version And Schema Bumps
+## npm Package Flow
 
-Use the local helper:
+`npm-publish.yml` builds six platform packages:
+
+- `@bumpyclock/tasque-darwin-arm64`
+- `@bumpyclock/tasque-darwin-x64`
+- `@bumpyclock/tasque-linux-x64-gnu`
+- `@bumpyclock/tasque-linux-arm64-gnu`
+- `@bumpyclock/tasque-win32-x64-msvc`
+- `@bumpyclock/tasque-win32-arm64-msvc`
+
+Then it publishes root package `@bumpyclock/tasque`, whose optional dependencies point at those platform packages.
+
+`scripts/build-npm.sh`:
+
+- reads version from `Cargo.toml`
+- patches root + platform `package.json` versions
+- copies `SKILLS/` into npm packages
+- copies built binaries from `artifacts/<rust-target>/`
+
+Manual npm dry run:
 
 ```bash
-bun run version:bump -- --bump patch
-bun run version:bump -- --version 1.4.0
-bun run version:bump -- --schema 2
-bun run version:bump -- --bump minor --schema 2 --dry-run
-bun run release:verify-version -- --tag v1.4.0
+gh workflow run npm-publish.yml --ref main -f dry_run=true
+gh run list --workflow "npm-publish" --limit 5
+gh run watch "$(gh run list --workflow "npm-publish" --limit 1 --json databaseId --jq '.[0].databaseId')"
 ```
 
-What it updates:
+Manual npm publish:
 
-- `package.json` (`version`) when `--version` or `--bump` is provided.
-- `src/types.ts` (`SCHEMA_VERSION`) when `--schema` is provided.
-- schema-version examples in:
-  - `README.md`
-  - `SKILLS/tasque/references/machine-output-and-durability.md`
-
-Validation helper:
-
-- `bun run release:verify-version`
-  - With `--tag <tag>`: fails when tag != `v<package.version>`.
-  - With `--expected-version <semver>`: fails when provided version != `package.json`.
-
-Use workflow_dispatch on npm-publish.yml:
-
-  # dry run
-  gh workflow run npm-publish.yml --ref main -f dry_run=true
-
-  # actual publish
-  gh workflow run npm-publish.yml --ref main -f dry_run=false
-
-  Watch it:
-
-  gh run list --workflow "npm-publish" --limit 5
-  gh run watch $(gh run list --workflow "npm-publish" --limit 1 --json databaseId --jq '.[0].databaseId')
-
-  You can also run against a tag ref (example):
-
-  gh workflow run npm-publish.yml --ref v0.4.0 -f dry_run=false
+```bash
+gh workflow run npm-publish.yml --ref v0.4.0 -f dry_run=false
+```
 
 ## Verification Checklist
 
 Before merging a release PR:
 
-1. `bun run doctor`
-2. `bun run build`
-3. `bun run release` (local artifact sanity check)
-4. Confirm `tsq --version` matches expected release version
+1. `cargo fmt --check`
+2. `cargo clippy --all-targets --all-features -- -D warnings`
+3. `cargo test --quiet`
+4. `cargo build --release --locked`
+5. Confirm `target/release/tsq --version` matches `Cargo.toml`
+6. Confirm npm package versions match `Cargo.toml`
 
 ## Rollback
 

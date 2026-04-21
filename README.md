@@ -18,18 +18,22 @@ Global options:
 Commands:
 
 - `tsq` (no args, TTY): open read-only TUI (List/Board views)
-- `tsq init`
-- `tsq init --install-skill|--uninstall-skill [--skill-targets ...]`
-- `tsq create [<title>] [--child <title> ...] [--kind ...] [-p ...] [--parent <id>] [--external-ref <ref>] [--discovered-from <id>] [--planning <needs_planning|planned>] [--needs-planning] [--ensure] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
+- `tsq init [--wizard|--no-wizard] [--yes] [--preset <name>] [--sync-branch <branch>]`
+- `tsq init --install-skill|--uninstall-skill [--skill-targets ...] [--skill-name <name>] [--force-skill-overwrite]`
+- `tsq create [<title>] [--child <title> ...] [--kind ...] [-p ...] [--parent <id>] [--description <text>] [--external-ref <ref>] [--discovered-from <id>] [--planning <needs_planning|planned>] [--needs-planning] [--ensure] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
 - `tsq show <id>`
-- `tsq list [--status ...] [--assignee ...] [--external-ref <ref>] [--discovered-from <id>] [--kind ...] [--planning <needs_planning|planned>] [--dep-type <blocks|starts_after>] [--dep-direction <in|out|any>] [--tree]`
+- `tsq list [--status ...] [--assignee ...] [--unassigned] [--external-ref <ref>] [--discovered-from <id>] [--kind ...] [--label ...] [--label-any ...] [--created-after <iso>] [--updated-after <iso>] [--closed-after <iso>] [--id <id,...>] [--planning <needs_planning|planned>] [--dep-type <blocks|starts_after>] [--dep-direction <in|out|any>] [--tree] [--full]`
+- `tsq search <query>`
 - `tsq ready [--lane <planning|coding>]`
 - `tsq watch [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--tree]`
-- `tsq tui [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--board]`
+- `tsq tui [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--board|--epics]`
 - `tsq stale [--days <n>] [--status <status>] [--assignee <name>] [--limit <n>]`
 - `tsq doctor`
-- `tsq update <id> [--title ...] [--status ...] [--priority ...] [--external-ref <ref>] [--clear-external-ref] [--discovered-from <id>] [--clear-discovered-from] [--planning <needs_planning|planned>]`
+- `tsq repair [--fix] [--force-unlock]`
+- `tsq update <id> [--title ...] [--description ...] [--clear-description] [--status ...] [--priority ...] [--external-ref <ref>] [--clear-external-ref] [--discovered-from <id>] [--clear-discovered-from] [--planning <needs_planning|planned>]`
 - `tsq update <id> --claim [--assignee <a>] [--require-spec]`
+- `tsq close <id...> [--reason <text>]`
+- `tsq reopen <id...>`
 - `tsq orphans`
 - `tsq spec attach <id> [source] [--file <path> | --stdin | --text <markdown>]`
 - `tsq spec check <id>`
@@ -48,6 +52,11 @@ Commands:
 - `tsq label remove <id> <label>`
 - `tsq label list`
 - `tsq history <id> [--limit <n>] [--type <event-type>] [--actor <name>] [--since <iso>]`
+- `tsq sync [--no-push]`
+- `tsq hooks install [--force]`
+- `tsq hooks uninstall`
+- `tsq migrate --sync-branch <branch>`
+- `tsq merge-driver <ancestor> <ours> <theirs>`
 
 
 
@@ -106,6 +115,9 @@ All steps must pass before merging.
 - `Release` (`.github/workflows/release.yml`)
   - On published GitHub release, builds matrix binaries (Linux/macOS/Windows)
   - Uploads release artifacts + checksums
+- `npm-publish` (`.github/workflows/npm-publish.yml`)
+  - On published GitHub release, builds platform npm packages
+  - Publishes platform packages, then `@bumpyclock/tasque`
 
 ## Storage Layout
 
@@ -118,8 +130,10 @@ Repo-local `.tasque/`:
 - `config.json`: config (`snapshot_every` default `200`)
 - `.lock`: ephemeral write lock
 - `.gitignore`: local-only artifacts (`state.json`, `.lock`, `snapshots/`, temp files)
+- `tasks.jsonl`: legacy state-cache name; read-only fallback when `state.json` is absent, removal target
 
 Recommended commit policy:
 
 - Commit `.tasque/events.jsonl` and `.tasque/config.json`
 - Do not commit `.tasque/state.json`
+- Do not create or edit `.tasque/tasks.jsonl`

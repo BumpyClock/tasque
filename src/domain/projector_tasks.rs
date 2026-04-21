@@ -1,10 +1,11 @@
 use super::projector_helpers::{
-    as_bool, as_planning_state, as_priority, as_string, as_string_array, as_task_kind,
-    as_task_status, event_id_value, event_identifier, require_task, set_child_counter,
-    set_task_closed_state, task_status_to_string,
+    as_bool, as_string, as_task_status, event_id_value, event_identifier,
+    optional_planning_state_field, optional_priority_field, optional_string_array_field,
+    optional_task_kind_field, optional_task_ref_field, optional_task_status_field, require_task,
+    set_child_counter, set_task_closed_state, task_status_to_string,
 };
 use crate::errors::TsqError;
-use crate::types::{EventRecord, PlanningState, Task, TaskNote, TaskStatus};
+use crate::types::{EventRecord, PlanningState, Task, TaskKind, TaskNote, TaskStatus};
 
 pub(crate) fn apply_task_created(
     state: &mut crate::types::State,
@@ -35,13 +36,23 @@ pub(crate) fn apply_task_created(
         );
     }
 
-    let kind = as_task_kind(payload.get("kind")).unwrap_or(crate::types::TaskKind::Task);
-    let priority = as_priority(payload.get("priority")).unwrap_or(1);
-    let status = as_task_status(payload.get("status")).unwrap_or(TaskStatus::Open);
-    let labels = as_string_array(payload.get("labels")).unwrap_or_default();
-    let parent_id = as_string(payload.get("parent_id"));
+    let kind =
+        optional_task_kind_field(payload, "kind", event, "task.created")?.unwrap_or(TaskKind::Task);
+    let priority =
+        optional_priority_field(payload, "priority", event, "task.created")?.unwrap_or(1);
+    let status = optional_task_status_field(payload, "status", event, "task.created")?
+        .unwrap_or(TaskStatus::Open);
+    let labels =
+        optional_string_array_field(payload, "labels", event, "task.created")?.unwrap_or_default();
+    let parent_id = optional_task_ref_field(state, payload, "parent_id", event, "task.created")?;
     let planning_state =
-        as_planning_state(payload.get("planning_state")).unwrap_or(PlanningState::NeedsPlanning);
+        optional_planning_state_field(payload, "planning_state", event, "task.created")?
+            .unwrap_or(PlanningState::NeedsPlanning);
+    let superseded_by =
+        optional_task_ref_field(state, payload, "superseded_by", event, "task.created")?;
+    let duplicate_of =
+        optional_task_ref_field(state, payload, "duplicate_of", event, "task.created")?;
+    let replies_to = optional_task_ref_field(state, payload, "replies_to", event, "task.created")?;
     let discovered_from = as_string(payload.get("discovered_from"));
     if let Some(ref discovered_from) = discovered_from {
         if discovered_from == &event.task_id {
@@ -73,10 +84,10 @@ pub(crate) fn apply_task_created(
         external_ref: as_string(payload.get("external_ref")),
         discovered_from,
         parent_id: parent_id.clone(),
-        superseded_by: as_string(payload.get("superseded_by")),
-        duplicate_of: as_string(payload.get("duplicate_of")),
+        superseded_by,
+        duplicate_of,
         planning_state: Some(planning_state),
-        replies_to: as_string(payload.get("replies_to")),
+        replies_to,
         labels,
         created_at: event.ts.clone(),
         updated_at: event.ts.clone(),
@@ -118,37 +129,48 @@ pub(crate) fn apply_task_updated(
         next.title = title;
     }
 
-    if let Some(kind) = as_task_kind(payload.get("kind")) {
+    if let Some(kind) = optional_task_kind_field(payload, "kind", event, "task.updated")? {
         next.kind = kind;
     }
 
-    if let Some(priority) = as_priority(payload.get("priority")) {
+    if let Some(priority) = optional_priority_field(payload, "priority", event, "task.updated")? {
         next.priority = priority;
     }
+
+    let _ = optional_task_status_field(payload, "status", event, "task.updated")?;
 
     let assignee = as_string(payload.get("assignee"));
     if let Some(assignee) = assignee {
         next.assignee = Some(assignee);
     }
 
-    let labels = as_string_array(payload.get("labels"));
-    if let Some(labels) = labels {
+    if let Some(labels) = optional_string_array_field(payload, "labels", event, "task.updated")? {
         next.labels = labels;
     }
 
-    let duplicate_of = as_string(payload.get("duplicate_of"));
-    if let Some(duplicate_of) = duplicate_of {
-        if duplicate_of == event.task_id {
-            return Err(TsqError::new(
-                "INVALID_EVENT",
-                "task.updated duplicate_of cannot reference itself",
-                1,
-            )
-            .with_details(serde_json::json!({
-              "event_id": event_id_value(event),
-            })));
-        }
+    if let Some(parent_id) =
+        optional_task_ref_field(state, payload, "parent_id", event, "task.updated")?
+    {
+        next.parent_id = Some(parent_id.clone());
+        set_child_counter(state, &parent_id, &event.task_id);
+    }
+
+    if let Some(duplicate_of) =
+        optional_task_ref_field(state, payload, "duplicate_of", event, "task.updated")?
+    {
         next.duplicate_of = Some(duplicate_of);
+    }
+
+    if let Some(superseded_by) =
+        optional_task_ref_field(state, payload, "superseded_by", event, "task.updated")?
+    {
+        next.superseded_by = Some(superseded_by);
+    }
+
+    if let Some(replies_to) =
+        optional_task_ref_field(state, payload, "replies_to", event, "task.updated")?
+    {
+        next.replies_to = Some(replies_to);
     }
 
     let description = as_string(payload.get("description"));
@@ -189,7 +211,9 @@ pub(crate) fn apply_task_updated(
         next.external_ref = None;
     }
 
-    if let Some(planning_state) = as_planning_state(payload.get("planning_state")) {
+    if let Some(planning_state) =
+        optional_planning_state_field(payload, "planning_state", event, "task.updated")?
+    {
         next.planning_state = Some(planning_state);
     }
 

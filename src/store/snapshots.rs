@@ -96,6 +96,10 @@ pub fn load_latest_snapshot_with_warning(
 
 fn is_snapshot(snapshot: &Snapshot) -> bool {
     !snapshot.taken_at.is_empty()
+        && snapshot.event_log.as_ref().is_some_and(|event_log| {
+            event_log.event_count == snapshot.event_count
+                && event_log.event_count == snapshot.state.applied_events
+        })
 }
 
 fn invalid_snapshot_warning(invalid: &[String]) -> String {

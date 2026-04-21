@@ -1,14 +1,16 @@
 use crate::errors::TsqError;
 use crate::store::paths::get_paths;
-use crate::types::{EventRecord, EventType};
+use crate::types::{EventLogMetadata, EventRecord, EventType};
 use serde_json::{Map, Value};
-use std::fs::{OpenOptions, create_dir_all, read_to_string};
+use sha2::{Digest, Sha256};
+use std::fs::{OpenOptions, create_dir_all, read, read_to_string};
 use std::io::Write;
 use std::path::Path;
 
 pub struct ReadEventsResult {
     pub events: Vec<EventRecord>,
     pub warning: Option<String>,
+    pub metadata: EventLogMetadata,
 }
 
 fn event_type_from_str(raw: &str) -> Option<EventType> {
@@ -285,6 +287,11 @@ pub fn read_events_from_path(path: &Path) -> Result<ReadEventsResult, TsqError> 
                 return Ok(ReadEventsResult {
                     events: Vec::new(),
                     warning: None,
+                    metadata: EventLogMetadata {
+                        event_count: 0,
+                        byte_len: 0,
+                        sha256: sha256_hex(&[]),
+                    },
                 });
             }
             return Err(
@@ -293,7 +300,94 @@ pub fn read_events_from_path(path: &Path) -> Result<ReadEventsResult, TsqError> 
             );
         }
     };
+    let byte_len = raw.len() as u64;
+    let sha256 = sha256_hex(raw.as_bytes());
+    let (events, warning) = parse_events_raw(&raw, path, 0)?;
 
+    Ok(ReadEventsResult {
+        metadata: EventLogMetadata {
+            event_count: events.len(),
+            byte_len,
+            sha256,
+        },
+        events,
+        warning,
+    })
+}
+
+pub fn read_event_log_metadata(
+    repo_root: impl AsRef<Path>,
+    event_count: usize,
+) -> Result<EventLogMetadata, TsqError> {
+    let paths = get_paths(repo_root);
+    let raw = match read(&paths.events_file) {
+        Ok(raw) => raw,
+        Err(error) => {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                Vec::new()
+            } else {
+                return Err(
+                    TsqError::new("EVENT_READ_FAILED", "Failed reading events", 2)
+                        .with_details(io_error_value(&error)),
+                );
+            }
+        }
+    };
+    Ok(EventLogMetadata {
+        event_count,
+        byte_len: raw.len() as u64,
+        sha256: sha256_hex(&raw),
+    })
+}
+
+pub fn read_events_tail_from_path(
+    path: &Path,
+    prefix: &EventLogMetadata,
+) -> Result<Option<ReadEventsResult>, TsqError> {
+    let raw = match read(path) {
+        Ok(raw) => raw,
+        Err(error) => {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                return Ok(None);
+            }
+            return Err(
+                TsqError::new("EVENT_READ_FAILED", "Failed reading events", 2)
+                    .with_details(io_error_value(&error)),
+            );
+        }
+    };
+    if raw.len() < prefix.byte_len as usize {
+        return Ok(None);
+    }
+
+    let prefix_len = prefix.byte_len as usize;
+    if sha256_hex(&raw[..prefix_len]) != prefix.sha256 {
+        return Ok(None);
+    }
+
+    let tail = std::str::from_utf8(&raw[prefix_len..]).map_err(|error| {
+        TsqError::new("EVENTS_CORRUPT", "Events file is not valid UTF-8", 2)
+            .with_details(any_error_value(&error))
+    })?;
+    let (events, warning) = parse_events_raw(tail, path, prefix.event_count)?;
+    let metadata = EventLogMetadata {
+        event_count: prefix.event_count + events.len(),
+        byte_len: raw.len() as u64,
+        sha256: sha256_hex(&raw),
+    };
+
+    Ok(Some(ReadEventsResult {
+        events,
+        warning,
+        metadata,
+    }))
+}
+
+fn parse_events_raw(
+    raw: &str,
+    path: &Path,
+    line_offset: usize,
+) -> Result<(Vec<EventRecord>, Option<String>), TsqError> {
     let mut lines: Vec<&str> = raw.split('\n').collect();
     if matches!(lines.last(), Some(value) if value.is_empty()) {
         lines.pop();
@@ -309,7 +403,7 @@ pub fn read_events_from_path(path: &Path) -> Result<ReadEventsResult, TsqError> 
         }
 
         match serde_json::from_str::<Value>(line) {
-            Ok(parsed) => match parse_event_record(&parsed, index + 1) {
+            Ok(parsed) => match parse_event_record(&parsed, line_offset + index + 1) {
                 Ok(record) => events.push(record),
                 Err(error) => return Err(error),
             },
@@ -323,14 +417,14 @@ pub fn read_events_from_path(path: &Path) -> Result<ReadEventsResult, TsqError> 
                 }
                 return Err(TsqError::new(
                     "EVENTS_CORRUPT",
-                    format!("Malformed events JSONL at line {}", index + 1),
+                    format!("Malformed events JSONL at line {}", line_offset + index + 1),
                     2,
                 ));
             }
         }
     }
 
-    Ok(ReadEventsResult { events, warning })
+    Ok((events, warning))
 }
 
 pub fn read_events(repo_root: impl AsRef<Path>) -> Result<ReadEventsResult, TsqError> {
@@ -344,4 +438,10 @@ fn io_error_value(error: &std::io::Error) -> Value {
 
 fn any_error_value(error: &impl std::fmt::Display) -> Value {
     serde_json::json!({"message": error.to_string()})
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
 }

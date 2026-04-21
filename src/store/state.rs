@@ -1,12 +1,16 @@
 use crate::errors::TsqError;
 use crate::store::paths::get_paths;
-use crate::types::State;
+use crate::types::{EventLogMetadata, SCHEMA_VERSION, State, StateCache};
 use chrono::Utc;
 use std::fs::{OpenOptions, create_dir_all, read_to_string, remove_file, rename};
 use std::io::Write;
 use std::path::Path;
 
-pub fn write_state_cache(repo_root: impl AsRef<Path>, state: &State) -> Result<(), TsqError> {
+pub fn write_state_cache(
+    repo_root: impl AsRef<Path>,
+    state: &State,
+    event_log: EventLogMetadata,
+) -> Result<(), TsqError> {
     let paths = get_paths(repo_root);
     create_dir_all(&paths.tasque_dir).map_err(|error| {
         TsqError::new("STATE_WRITE_FAILED", "Failed writing state cache", 2)
@@ -19,7 +23,12 @@ pub fn write_state_cache(repo_root: impl AsRef<Path>, state: &State) -> Result<(
         std::process::id(),
         Utc::now().timestamp_millis()
     );
-    let payload = serde_json::to_string_pretty(state).map_err(|error| {
+    let cache = StateCache {
+        schema_version: SCHEMA_VERSION,
+        event_log: Some(event_log),
+        state: state.clone(),
+    };
+    let payload = serde_json::to_string_pretty(&cache).map_err(|error| {
         TsqError::new("STATE_WRITE_FAILED", "Failed writing state cache", 2)
             .with_details(any_error_value(&error))
     })?;
@@ -58,16 +67,25 @@ pub fn write_state_cache(repo_root: impl AsRef<Path>, state: &State) -> Result<(
     Ok(())
 }
 
-pub fn read_state_cache(repo_root: impl AsRef<Path>) -> Result<Option<State>, TsqError> {
+pub fn read_state_cache(repo_root: impl AsRef<Path>) -> Result<Option<StateCache>, TsqError> {
     let paths = get_paths(repo_root);
     let legacy_state_file = paths.tasque_dir.join("tasks.jsonl");
     let candidates = [paths.state_file, legacy_state_file];
 
     for state_file in candidates.iter() {
         match read_to_string(state_file) {
-            Ok(raw) => match serde_json::from_str::<State>(&raw) {
-                Ok(state) => return Ok(Some(state)),
-                Err(_) => return Ok(None),
+            Ok(raw) => match serde_json::from_str::<StateCache>(&raw) {
+                Ok(cache) => return Ok(Some(cache)),
+                Err(_) => match serde_json::from_str::<State>(&raw) {
+                    Ok(state) => {
+                        return Ok(Some(StateCache {
+                            schema_version: SCHEMA_VERSION,
+                            event_log: None,
+                            state,
+                        }));
+                    }
+                    Err(_) => return Ok(None),
+                },
             },
             Err(error) => {
                 if error.kind() == std::io::ErrorKind::NotFound {

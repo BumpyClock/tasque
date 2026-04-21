@@ -27,5 +27,13 @@
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
   },
-  "include": ["src/index.tsx", "src/data.ts", "src/model.ts"]
+  "include": [
+    "src/index.tsx",
+    "src/data.ts",
+    "src/model.ts",
+    "src/tui-app.tsx",
+    "src/tui-helpers.ts",
+    "src/tui-types.ts",
+    "src/tui-views.tsx"
+  ]
 }

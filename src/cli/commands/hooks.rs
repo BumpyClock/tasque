@@ -17,11 +17,7 @@ pub struct HooksInstallArgs {
     pub force: bool,
 }
 
-pub fn execute_hooks(
-    service: &TasqueService,
-    command: HooksCommand,
-    opts: GlobalOpts,
-) -> i32 {
+pub fn execute_hooks(service: &TasqueService, command: HooksCommand, opts: GlobalOpts) -> i32 {
     match command {
         HooksCommand::Install(args) => run_action(
             "tsq hooks install",

@@ -7,7 +7,7 @@ use crate::app::service_utils::{
     DEFAULT_STALE_STATUSES, apply_list_filter, must_resolve_existing, must_task, sort_stale_tasks,
     sort_task_ids, sort_tasks,
 };
-use crate::app::storage::load_projected_state;
+use crate::app::storage::{load_projected_state, load_projected_state_with_events};
 use crate::domain::dep_tree::build_dependents_by_blocker;
 use crate::domain::deps::normalize_dependency_edges;
 use crate::domain::query::{evaluate_query, parse_query};
@@ -34,7 +34,7 @@ pub struct ShowResult {
 }
 
 pub fn show(ctx: &ServiceContext, id_raw: &str, exact_id: bool) -> Result<ShowResult, TsqError> {
-    let loaded = load_projected_state(&ctx.repo_root)?;
+    let loaded = load_projected_state_with_events(&ctx.repo_root)?;
     let id = must_resolve_existing(&loaded.state, id_raw, exact_id)?;
     let task = must_task(&loaded.state, &id)?;
 
@@ -300,6 +300,7 @@ pub fn ready(ctx: &ServiceContext, lane: Option<PlanningLane>) -> Result<Vec<Tas
 pub fn doctor(ctx: &ServiceContext) -> Result<DoctorResult, TsqError> {
     let loaded = load_projected_state(&ctx.repo_root)?;
     let mut issues = Vec::new();
+    let graph = scan_orphaned_graph(&loaded.state);
 
     for (child, blockers) in &loaded.state.deps {
         if !loaded.state.tasks.contains_key(child) {
@@ -335,9 +336,16 @@ pub fn doctor(ctx: &ServiceContext) -> Result<DoctorResult, TsqError> {
         }
     }
 
+    for issue in graph.invalid_direct_refs {
+        issues.push(format!(
+            "direct task ref {}: {}.{} -> {}",
+            issue.reason, issue.task_id, issue.field, issue.target
+        ));
+    }
+
     Ok(DoctorResult {
         tasks: loaded.state.tasks.len(),
-        events: loaded.all_events.len(),
+        events: loaded.event_count,
         snapshot_loaded: loaded.snapshot.is_some(),
         warning: loaded.warning,
         issues,
@@ -345,7 +353,7 @@ pub fn doctor(ctx: &ServiceContext) -> Result<DoctorResult, TsqError> {
 }
 
 pub fn history(ctx: &ServiceContext, input: &HistoryInput) -> Result<HistoryResult, TsqError> {
-    let loaded = load_projected_state(&ctx.repo_root)?;
+    let loaded = load_projected_state_with_events(&ctx.repo_root)?;
     let id = must_resolve_existing(&loaded.state, &input.id, input.exact_id)?;
 
     let mut events: Vec<EventRecord> = loaded

@@ -113,6 +113,67 @@ fn search_rejects_invalid_dep_type_direction_value() {
 }
 
 #[test]
+fn search_matches_incoming_and_outgoing_dependency_types() {
+    let repo = common::make_repo();
+    init_repo(repo.path());
+
+    let child = create_task(repo.path(), "Multi dependency child");
+    let blocks_blocker = create_task(repo.path(), "Blocks blocker");
+    let starts_after_blocker = create_task(repo.path(), "Starts after blocker");
+    let unrelated = create_task(repo.path(), "Unrelated task");
+
+    let blocks_dep = run_json(
+        repo.path(),
+        ["dep", "add", &child, &blocks_blocker, "--type", "blocks"],
+    );
+    assert_eq!(blocks_dep.cli.code, 0);
+    let starts_after_dep = run_json(
+        repo.path(),
+        [
+            "dep",
+            "add",
+            &child,
+            &starts_after_blocker,
+            "--type",
+            "starts_after",
+        ],
+    );
+    assert_eq!(starts_after_dep.cli.code, 0);
+
+    let incoming_blocks = run_json(repo.path(), ["search", "dep_type_in:blocks"]);
+    assert_eq!(incoming_blocks.cli.code, 0);
+    let incoming_block_ids = ids_from_task_list(&incoming_blocks.envelope);
+    assert!(incoming_block_ids.contains(&blocks_blocker));
+    assert!(!incoming_block_ids.contains(&starts_after_blocker));
+    assert!(!incoming_block_ids.contains(&child));
+    assert!(!incoming_block_ids.contains(&unrelated));
+
+    let incoming_starts_after = run_json(repo.path(), ["search", "dep_type_in:starts_after"]);
+    assert_eq!(incoming_starts_after.cli.code, 0);
+    let incoming_starts_after_ids = ids_from_task_list(&incoming_starts_after.envelope);
+    assert!(incoming_starts_after_ids.contains(&starts_after_blocker));
+    assert!(!incoming_starts_after_ids.contains(&blocks_blocker));
+    assert!(!incoming_starts_after_ids.contains(&child));
+    assert!(!incoming_starts_after_ids.contains(&unrelated));
+
+    let outgoing_blocks = run_json(repo.path(), ["search", "dep_type_out:blocks"]);
+    assert_eq!(outgoing_blocks.cli.code, 0);
+    let outgoing_block_ids = ids_from_task_list(&outgoing_blocks.envelope);
+    assert!(outgoing_block_ids.contains(&child));
+    assert!(!outgoing_block_ids.contains(&blocks_blocker));
+    assert!(!outgoing_block_ids.contains(&starts_after_blocker));
+    assert!(!outgoing_block_ids.contains(&unrelated));
+
+    let outgoing_starts_after = run_json(repo.path(), ["search", "dep_type_out:starts_after"]);
+    assert_eq!(outgoing_starts_after.cli.code, 0);
+    let outgoing_starts_after_ids = ids_from_task_list(&outgoing_starts_after.envelope);
+    assert!(outgoing_starts_after_ids.contains(&child));
+    assert!(!outgoing_starts_after_ids.contains(&blocks_blocker));
+    assert!(!outgoing_starts_after_ids.contains(&starts_after_blocker));
+    assert!(!outgoing_starts_after_ids.contains(&unrelated));
+}
+
+#[test]
 fn search_handles_negated_filters_with_double_dash_separator() {
     let repo = common::make_repo();
     init_repo(repo.path());

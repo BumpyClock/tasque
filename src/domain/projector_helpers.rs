@@ -4,7 +4,7 @@ use crate::types::{
     EventRecord, EventType, PlanningState, Priority, RelationType, State, Task, TaskKind,
     TaskStatus,
 };
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::collections::HashMap;
 
 pub(crate) fn as_string(value: Option<&Value>) -> Option<String> {
@@ -74,6 +74,127 @@ pub(crate) fn as_relation_type(value: Option<&Value>) -> Option<RelationType> {
         "supersedes" => Some(RelationType::Supersedes),
         _ => None,
     }
+}
+
+pub(crate) fn optional_task_kind_field(
+    payload: &Map<String, Value>,
+    field: &str,
+    event: &EventRecord,
+    event_name: &str,
+) -> Result<Option<TaskKind>, TsqError> {
+    optional_typed_field(payload, field, event, event_name, as_task_kind)
+}
+
+pub(crate) fn optional_priority_field(
+    payload: &Map<String, Value>,
+    field: &str,
+    event: &EventRecord,
+    event_name: &str,
+) -> Result<Option<Priority>, TsqError> {
+    optional_typed_field(payload, field, event, event_name, as_priority)
+}
+
+pub(crate) fn optional_task_status_field(
+    payload: &Map<String, Value>,
+    field: &str,
+    event: &EventRecord,
+    event_name: &str,
+) -> Result<Option<TaskStatus>, TsqError> {
+    optional_typed_field(payload, field, event, event_name, as_task_status)
+}
+
+pub(crate) fn optional_planning_state_field(
+    payload: &Map<String, Value>,
+    field: &str,
+    event: &EventRecord,
+    event_name: &str,
+) -> Result<Option<PlanningState>, TsqError> {
+    optional_typed_field(payload, field, event, event_name, as_planning_state)
+}
+
+pub(crate) fn optional_string_array_field(
+    payload: &Map<String, Value>,
+    field: &str,
+    event: &EventRecord,
+    event_name: &str,
+) -> Result<Option<Vec<String>>, TsqError> {
+    optional_typed_field(payload, field, event, event_name, as_string_array)
+}
+
+pub(crate) fn optional_task_ref_field(
+    state: &State,
+    payload: &Map<String, Value>,
+    field: &str,
+    event: &EventRecord,
+    event_name: &str,
+) -> Result<Option<String>, TsqError> {
+    let Some(value) = present_non_null(payload, field) else {
+        return Ok(None);
+    };
+    let Some(target) = value.as_str() else {
+        return Err(invalid_event_field(event, event_name, field));
+    };
+    if target.is_empty() {
+        return Err(invalid_event_field(event, event_name, field));
+    }
+    if target == event.task_id {
+        return Err(TsqError::new(
+            "INVALID_EVENT",
+            format!("{} {} cannot reference self", event_name, field),
+            1,
+        )
+        .with_details(serde_json::json!({
+          "event_id": event_id_value(event),
+          "task_id": &event.task_id,
+          "field": field,
+        })));
+    }
+    if !state.tasks.contains_key(target) {
+        return Err(TsqError::new(
+            "INVALID_EVENT",
+            format!("{} {} references missing task", event_name, field),
+            1,
+        )
+        .with_details(serde_json::json!({
+          "event_id": event_id_value(event),
+          "task_id": &event.task_id,
+          "field": field,
+          "target": target,
+        })));
+    }
+    Ok(Some(target.to_string()))
+}
+
+fn optional_typed_field<T>(
+    payload: &Map<String, Value>,
+    field: &str,
+    event: &EventRecord,
+    event_name: &str,
+    parse: fn(Option<&Value>) -> Option<T>,
+) -> Result<Option<T>, TsqError> {
+    let Some(value) = present_non_null(payload, field) else {
+        return Ok(None);
+    };
+    parse(Some(value))
+        .map(Some)
+        .ok_or_else(|| invalid_event_field(event, event_name, field))
+}
+
+fn present_non_null<'a>(payload: &'a Map<String, Value>, field: &str) -> Option<&'a Value> {
+    payload.get(field).filter(|value| !value.is_null())
+}
+
+fn invalid_event_field(event: &EventRecord, event_name: &str, field: &str) -> TsqError {
+    TsqError::new(
+        "INVALID_EVENT",
+        format!("{} has invalid {}", event_name, field),
+        1,
+    )
+    .with_details(serde_json::json!({
+      "event_id": event_id_value(event),
+      "task_id": &event.task_id,
+      "field": field,
+    }))
 }
 
 pub(crate) fn event_type_to_string(event_type: &EventType) -> &'static str {

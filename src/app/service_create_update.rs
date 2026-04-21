@@ -117,7 +117,7 @@ pub fn create(ctx: &ServiceContext, input: &CreateInput) -> Result<Task, TsqErro
         persist_projection(
             &ctx.repo_root,
             &mut next_state,
-            loaded.all_events.len() + 1,
+            loaded.event_count + 1,
             None,
         )?;
         must_task(&next_state, &id)
@@ -247,7 +247,7 @@ pub fn update(ctx: &ServiceContext, input: &UpdateInput) -> Result<Task, TsqErro
         persist_projection(
             &ctx.repo_root,
             &mut next_state,
-            loaded.all_events.len() + events.len(),
+            loaded.event_count + events.len(),
             None,
         )?;
         must_task(&next_state, &id)

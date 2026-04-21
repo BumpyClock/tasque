@@ -35,6 +35,20 @@ fn make_status_event(id: &str, task_id: &str, status: &str) -> EventRecord {
     }
 }
 
+fn make_update_event(id: &str, task_id: &str, title: &str) -> EventRecord {
+    let mut payload = Map::new();
+    payload.insert("title".to_string(), Value::String(title.to_string()));
+    EventRecord {
+        id: Some(id.to_string()),
+        event_id: Some(id.to_string()),
+        ts: "2026-01-01T00:02:00Z".to_string(),
+        actor: "test".to_string(),
+        event_type: EventType::TaskUpdated,
+        task_id: task_id.to_string(),
+        payload,
+    }
+}
+
 fn write_jsonl(path: &Path, events: &[EventRecord]) {
     let mut f = fs::File::create(path).unwrap();
     for ev in events {
@@ -98,14 +112,17 @@ fn test_merge_driver_disjoint_events() {
         merged.len()
     );
 
-    // Verify sorted by event ID
+    // Verify stable source union order: ancestor, ours-only, theirs-only.
     let ids: Vec<&str> = merged
         .iter()
         .map(|v| v.get("id").unwrap().as_str().unwrap())
         .collect();
-    let mut sorted_ids = ids.clone();
-    sorted_ids.sort();
-    assert_eq!(ids, sorted_ids, "Events should be sorted by ID");
+    assert_eq!(
+        ids,
+        vec![
+            "01AAA", "01AAB", "01AAC", "01BBB", "01BBC", "01CCC", "01CCD"
+        ]
+    );
 }
 
 #[test]
@@ -249,12 +266,48 @@ fn test_merge_driver_empty_ancestor() {
         "Expected 4 events from empty ancestor merge"
     );
 
-    // Verify sorted
+    // Verify stable source union order.
     let ids: Vec<&str> = merged
         .iter()
         .map(|v| v.get("id").unwrap().as_str().unwrap())
         .collect();
     assert_eq!(ids, vec!["01AAA", "01AAB", "01CCC", "01CCD"]);
+}
+
+#[test]
+fn test_merge_driver_preserves_causal_source_order_when_ids_sort_backwards() {
+    let repo = make_repo();
+    let dir = repo.path();
+
+    let create = make_event("02CREATE", "original");
+    let update = make_update_event("01UPDATE", "tsq-02CREATE", "renamed");
+    let theirs = make_event("03THEIRS", "theirs");
+
+    let ancestor_path = dir.join("ancestor.jsonl");
+    let ours_path = dir.join("ours.jsonl");
+    let theirs_path = dir.join("theirs.jsonl");
+
+    write_jsonl(&ancestor_path, &[]);
+    write_jsonl(&ours_path, &[create, update]);
+    write_jsonl(&theirs_path, &[theirs]);
+
+    let result = run_cli(
+        dir,
+        [
+            "merge-driver",
+            ancestor_path.to_str().unwrap(),
+            ours_path.to_str().unwrap(),
+            theirs_path.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(result.code, 0, "stderr: {}", result.stderr);
+
+    let merged = read_jsonl(&ours_path);
+    let ids: Vec<&str> = merged
+        .iter()
+        .map(|v| v.get("id").unwrap().as_str().unwrap())
+        .collect();
+    assert_eq!(ids, vec!["02CREATE", "01UPDATE", "03THEIRS"]);
 }
 
 #[test]

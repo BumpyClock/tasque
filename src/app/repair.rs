@@ -15,6 +15,14 @@ use std::path::Path;
 pub struct OrphanedGraph {
     pub orphaned_deps: Vec<RepairDep>,
     pub orphaned_links: Vec<RepairLink>,
+    pub invalid_direct_refs: Vec<DirectTaskRefIssue>,
+}
+
+pub struct DirectTaskRefIssue {
+    pub task_id: String,
+    pub field: &'static str,
+    pub target: String,
+    pub reason: &'static str,
 }
 
 pub struct RepairOptions {
@@ -25,6 +33,7 @@ pub struct RepairOptions {
 pub fn scan_orphaned_graph(state: &State) -> OrphanedGraph {
     let mut orphaned_deps = Vec::new();
     let mut orphaned_links = Vec::new();
+    let mut invalid_direct_refs = Vec::new();
 
     for (child, blockers) in &state.deps {
         for edge in normalize_dependency_edges(Some(blockers)) {
@@ -52,9 +61,68 @@ pub fn scan_orphaned_graph(state: &State) -> OrphanedGraph {
         }
     }
 
+    for task in state.tasks.values() {
+        scan_direct_ref(
+            state,
+            &mut invalid_direct_refs,
+            &task.id,
+            "parent_id",
+            task.parent_id.as_deref(),
+        );
+        scan_direct_ref(
+            state,
+            &mut invalid_direct_refs,
+            &task.id,
+            "duplicate_of",
+            task.duplicate_of.as_deref(),
+        );
+        scan_direct_ref(
+            state,
+            &mut invalid_direct_refs,
+            &task.id,
+            "superseded_by",
+            task.superseded_by.as_deref(),
+        );
+        scan_direct_ref(
+            state,
+            &mut invalid_direct_refs,
+            &task.id,
+            "replies_to",
+            task.replies_to.as_deref(),
+        );
+    }
+
     OrphanedGraph {
         orphaned_deps,
         orphaned_links,
+        invalid_direct_refs,
+    }
+}
+
+fn scan_direct_ref(
+    state: &State,
+    issues: &mut Vec<DirectTaskRefIssue>,
+    task_id: &str,
+    field: &'static str,
+    target: Option<&str>,
+) {
+    let Some(target) = target else {
+        return;
+    };
+    let reason = if target == task_id {
+        Some("self reference")
+    } else if !state.tasks.contains_key(target) {
+        Some("target missing")
+    } else {
+        None
+    };
+    if let Some(reason) = reason {
+        issues.push(DirectTaskRefIssue {
+            task_id: task_id.to_string(),
+            field,
+            target: target.to_string(),
+            reason,
+        });
     }
 }
 
@@ -177,7 +245,7 @@ pub fn execute_repair(
             persist_projection(
                 &repo_root,
                 &mut next_state,
-                loaded.all_events.len() + events.len(),
+                loaded.event_count + events.len(),
                 None,
             )?;
         }

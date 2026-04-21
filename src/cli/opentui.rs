@@ -3,7 +3,7 @@ use crate::cli::tui::{TuiOptions, TuiView};
 use crate::types::TaskStatus;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 const DEFAULT_RUNTIME: &str = "bun";
 
@@ -15,10 +15,22 @@ pub fn should_launch_opentui(options: &TuiOptions) -> bool {
     {
         return false;
     }
-    !options.json
-        && !options.once
-        && std::io::stdin().is_terminal()
-        && std::io::stdout().is_terminal()
+    if options.json
+        || options.once
+        || !std::io::stdin().is_terminal()
+        || !std::io::stdout().is_terminal()
+    {
+        return false;
+    }
+
+    if explicit_entry_path().is_some() {
+        return true;
+    }
+
+    let Some(entry) = resolve_entry_path() else {
+        return false;
+    };
+    runtime_is_available(&resolve_runtime()) && dependencies_are_available(&entry)
 }
 
 pub fn launch_opentui(options: &TuiOptions) -> Result<i32, String> {
@@ -26,10 +38,7 @@ pub fn launch_opentui(options: &TuiOptions) -> Result<i32, String> {
         "OpenTUI entrypoint not found (expected tui-opentui/src/index.tsx)".to_string()
     })?;
 
-    let runtime = std::env::var("TSQ_OPENTUI_RUNTIME")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| DEFAULT_RUNTIME.to_string());
+    let runtime = resolve_runtime();
 
     let mut command = Command::new(&runtime);
     command.arg("run").arg(&entry);
@@ -57,11 +66,7 @@ pub fn launch_opentui(options: &TuiOptions) -> Result<i32, String> {
 }
 
 fn resolve_entry_path() -> Option<PathBuf> {
-    if let Some(value) = std::env::var("TSQ_OPENTUI_ENTRY")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-    {
+    if let Some(value) = explicit_entry_path() {
         let path = PathBuf::from(value);
         if path.is_file() {
             return Some(path);
@@ -84,6 +89,47 @@ fn resolve_entry_path() -> Option<PathBuf> {
     );
 
     candidates.into_iter().find(|path| path.is_file())
+}
+
+fn explicit_entry_path() -> Option<String> {
+    std::env::var("TSQ_OPENTUI_ENTRY")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn resolve_runtime() -> String {
+    std::env::var("TSQ_OPENTUI_RUNTIME")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_RUNTIME.to_string())
+}
+
+fn runtime_is_available(runtime: &str) -> bool {
+    Command::new(runtime)
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok()
+}
+
+fn dependencies_are_available(entry: &Path) -> bool {
+    let Some(project_dir) = entry.parent().and_then(Path::parent) else {
+        return false;
+    };
+    ["@opentui/core", "@opentui/react", "react"]
+        .iter()
+        .all(|name| dependency_path(project_dir, name).exists())
+}
+
+fn dependency_path(project_dir: &Path, name: &str) -> PathBuf {
+    let mut path = project_dir.join("node_modules");
+    for segment in name.split('/') {
+        path.push(segment);
+    }
+    path
 }
 
 fn view_to_env(view: TuiView) -> &'static str {
@@ -119,5 +165,30 @@ mod tests {
         assert_eq!(view_to_env(TuiView::List), "tasks");
         assert_eq!(view_to_env(TuiView::Epics), "epics");
         assert_eq!(view_to_env(TuiView::Board), "board");
+    }
+
+    #[test]
+    fn detects_opentui_dependencies_next_to_entry() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let project = temp.path().join("tui-opentui");
+        std::fs::create_dir_all(project.join("src")).expect("src");
+        for dep in ["@opentui/core", "@opentui/react", "react"] {
+            std::fs::create_dir_all(dependency_path(&project, dep)).expect("dep");
+        }
+        let entry = project.join("src").join("index.tsx");
+        std::fs::write(&entry, "").expect("entry");
+
+        assert!(dependencies_are_available(&entry));
+    }
+
+    #[test]
+    fn rejects_entry_without_opentui_dependencies() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let project = temp.path().join("tui-opentui");
+        std::fs::create_dir_all(project.join("src")).expect("src");
+        let entry = project.join("src").join("index.tsx");
+        std::fs::write(&entry, "").expect("entry");
+
+        assert!(!dependencies_are_available(&entry));
     }
 }

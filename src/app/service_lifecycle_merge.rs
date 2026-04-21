@@ -186,7 +186,7 @@ pub fn merge(ctx: &ServiceContext, input: &MergeInput) -> Result<MergeResult, Ts
             persist_projection(
                 &ctx.repo_root,
                 &mut next_state,
-                loaded.all_events.len() + events.len(),
+                loaded.event_count + events.len(),
                 None,
             )?;
             let final_target = must_task(&next_state, &target_id)?;

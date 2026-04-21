@@ -1,8 +1,9 @@
-use crate::domain::dep_tree::build_dependents_by_blocker;
+use crate::domain::dep_tree::{DependentEdge, build_dependents_by_blocker};
 use crate::domain::deps::{normalize_dependency_edges, normalize_dependency_type};
 use crate::domain::validate::is_ready;
 use crate::errors::TsqError;
 use crate::types::{State, Task, TaskKind, TaskStatus};
+use std::collections::HashMap;
 
 /// A single parsed search term with optional field qualifier and negation.
 /// Example: status:open becomes field="status" value="open" negated=false.
@@ -91,16 +92,47 @@ pub fn evaluate_query(tasks: &[Task], filter: &QueryFilter, state: &State) -> Ve
     if filter.terms.is_empty() {
         return tasks.to_vec();
     }
+    let context = QueryEvalContext::new(filter, state);
     tasks
         .iter()
-        .filter(|&task| matches_all(task, &filter.terms, state))
+        .filter(|&task| matches_all(task, &filter.terms, state, &context))
         .cloned()
         .collect()
 }
 
-fn matches_all(task: &Task, terms: &[QueryTerm], state: &State) -> bool {
+struct QueryEvalContext {
+    dependents_by_blocker: Option<HashMap<String, Vec<DependentEdge>>>,
+}
+
+impl QueryEvalContext {
+    fn new(filter: &QueryFilter, state: &State) -> Self {
+        let dependents_by_blocker = if filter.terms.iter().any(|term| term.field == "dep_type_in") {
+            Some(build_dependents_by_blocker(&state.deps))
+        } else {
+            None
+        };
+
+        Self {
+            dependents_by_blocker,
+        }
+    }
+
+    fn incoming_dep_edges(&self, task_id: &str) -> Option<&[DependentEdge]> {
+        self.dependents_by_blocker
+            .as_ref()
+            .and_then(|dependents| dependents.get(task_id))
+            .map(Vec::as_slice)
+    }
+}
+
+fn matches_all(
+    task: &Task,
+    terms: &[QueryTerm],
+    state: &State,
+    context: &QueryEvalContext,
+) -> bool {
     for term in terms {
-        let matched = match_term(task, term, state);
+        let matched = match_term(task, term, state, context);
         if term.negated {
             if matched {
                 return false;
@@ -112,7 +144,7 @@ fn matches_all(task: &Task, terms: &[QueryTerm], state: &State) -> bool {
     true
 }
 
-fn match_term(task: &Task, term: &QueryTerm, state: &State) -> bool {
+fn match_term(task: &Task, term: &QueryTerm, state: &State, context: &QueryEvalContext) -> bool {
     match term.field.as_str() {
         "id" => task.id == term.value || task.id.starts_with(&term.value),
         "text" => match_task_text(task, &term.value),
@@ -143,7 +175,7 @@ fn match_term(task: &Task, term: &QueryTerm, state: &State) -> bool {
             .iter()
             .any(|label| label.to_lowercase() == term.value.to_lowercase()),
         "ready" => is_ready(state, &task.id) == (term.value == "true"),
-        "dep_type_in" => has_incoming_dep_type(state, &task.id, &term.value),
+        "dep_type_in" => has_incoming_dep_type(context, &task.id, &term.value),
         "dep_type_out" => has_outgoing_dep_type(state, &task.id, &term.value),
         _ => match_task_text(task, &term.value),
     }
@@ -182,14 +214,13 @@ fn has_outgoing_dep_type(state: &State, task_id: &str, raw_type: &str) -> bool {
         .any(|edge| edge.dep_type == dep_type)
 }
 
-fn has_incoming_dep_type(state: &State, task_id: &str, raw_type: &str) -> bool {
+fn has_incoming_dep_type(context: &QueryEvalContext, task_id: &str, raw_type: &str) -> bool {
     let dep_type = match normalize_dependency_type(raw_type) {
         Some(dep_type) => dep_type,
         None => return false,
     };
-    let dependents = build_dependents_by_blocker(&state.deps);
-    dependents
-        .get(task_id)
+    context
+        .incoming_dep_edges(task_id)
         .map(|edges| edges.iter().any(|edge| edge.dep_type == dep_type))
         .unwrap_or(false)
 }

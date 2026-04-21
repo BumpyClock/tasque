@@ -123,7 +123,12 @@ pub fn branch_exists(repo_root: &Path, name: &str) -> Result<bool, TsqError> {
 pub fn has_upstream(repo_root: &Path) -> Result<bool, TsqError> {
     run_git_status(
         repo_root,
-        &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+        &[
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{upstream}",
+        ],
     )
 }
 
@@ -221,7 +226,10 @@ pub fn ensure_worktree(repo_root: &Path, branch: &str) -> Result<PathBuf, TsqErr
 
 fn configure_sparse_checkout(wt: &Path) -> Result<(), TsqError> {
     run_git(wt, &["sparse-checkout", "init", "--no-cone"])?;
-    run_git(wt, &["sparse-checkout", "set", "/.tasque", "/.gitattributes"])?;
+    run_git(
+        wt,
+        &["sparse-checkout", "set", "/.tasque", "/.gitattributes"],
+    )?;
     Ok(())
 }
 
@@ -623,7 +631,10 @@ mod tests {
 
         let resolved = git_common_dir(&repo).unwrap();
         assert!(resolved.ends_with(".git-common"));
-        assert_eq!(resolved.canonicalize().unwrap(), common.canonicalize().unwrap());
+        assert_eq!(
+            resolved.canonicalize().unwrap(),
+            common.canonicalize().unwrap()
+        );
     }
 
     #[test]

@@ -3,7 +3,9 @@ use crate::store::config::{read_config, write_config};
 use crate::store::events::{append_events, read_events};
 use crate::store::git;
 use crate::store::paths::get_paths;
-use crate::types::{HookInstallResult, HookUninstallResult, MigrateResult, SyncRunResult, SyncSetupResult};
+use crate::types::{
+    HookInstallResult, HookUninstallResult, MigrateResult, SyncRunResult, SyncSetupResult,
+};
 use std::collections::HashSet;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -226,8 +228,12 @@ fn install_hooks_locked(repo_root: &str, force: bool) -> Result<HookInstallResul
 
     if pre_push.exists() {
         let existing = std::fs::read_to_string(&pre_push).map_err(|error| {
-            TsqError::new("HOOK_INSTALL_FAILED", "failed reading existing pre-push hook", 2)
-                .with_details(serde_json::json!({"message": error.to_string()}))
+            TsqError::new(
+                "HOOK_INSTALL_FAILED",
+                "failed reading existing pre-push hook",
+                2,
+            )
+            .with_details(serde_json::json!({"message": error.to_string()}))
         })?;
         if existing.contains(HOOK_MARKER) {
             return Ok(HookInstallResult {
@@ -353,10 +359,7 @@ fn clear_repo_events(repo_root: &str) -> Result<(), TsqError> {
 }
 
 fn hook_script() -> String {
-    format!(
-        "#!/bin/sh\n# {}\nset -e\ntsq sync --no-push\n",
-        HOOK_MARKER
-    )
+    format!("#!/bin/sh\n# {}\nset -e\ntsq sync --no-push\n", HOOK_MARKER)
 }
 
 fn with_setup_lock<T, F>(repo_root: &str, f: F) -> Result<T, TsqError>
@@ -380,14 +383,22 @@ where
             Ok(_) => break,
             Err(error) => {
                 if error.kind() != std::io::ErrorKind::AlreadyExists {
-                    return Err(TsqError::new("SYNC_SETUP_FAILED", "failed acquiring setup lock", 2)
-                        .with_details(serde_json::json!({"message": error.to_string()})));
+                    return Err(TsqError::new(
+                        "SYNC_SETUP_FAILED",
+                        "failed acquiring setup lock",
+                        2,
+                    )
+                    .with_details(serde_json::json!({"message": error.to_string()})));
                 }
                 if Instant::now() >= deadline {
-                    return Err(
-                        TsqError::new("SYNC_SETUP_TIMEOUT", "timed out waiting for setup lock", 3)
-                            .with_details(serde_json::json!({"lockFile": lock_file.display().to_string()})),
-                    );
+                    return Err(TsqError::new(
+                        "SYNC_SETUP_TIMEOUT",
+                        "timed out waiting for setup lock",
+                        3,
+                    )
+                    .with_details(
+                        serde_json::json!({"lockFile": lock_file.display().to_string()}),
+                    ));
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }
@@ -404,8 +415,12 @@ fn set_hook_permissions(path: &Path) -> Result<(), TsqError> {
     use std::os::unix::fs::PermissionsExt;
     let permissions = std::fs::Permissions::from_mode(0o755);
     std::fs::set_permissions(path, permissions).map_err(|error| {
-        TsqError::new("HOOK_INSTALL_FAILED", "failed setting pre-push hook permissions", 2)
-            .with_details(serde_json::json!({"message": error.to_string()}))
+        TsqError::new(
+            "HOOK_INSTALL_FAILED",
+            "failed setting pre-push hook permissions",
+            2,
+        )
+        .with_details(serde_json::json!({"message": error.to_string()}))
     })
 }
 

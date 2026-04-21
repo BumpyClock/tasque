@@ -41,7 +41,7 @@ pub fn dep_add(
         persist_projection(
             &ctx.repo_root,
             &mut next_state,
-            loaded.all_events.len() + 1,
+            loaded.event_count + 1,
             None,
         )?;
         Ok((child, blocker, dep_type))
@@ -69,7 +69,7 @@ pub fn dep_remove(
         persist_projection(
             &ctx.repo_root,
             &mut next_state,
-            loaded.all_events.len() + 1,
+            loaded.event_count + 1,
             None,
         )?;
         Ok((child, blocker, dep_type))
@@ -103,7 +103,7 @@ pub fn link_add(
         persist_projection(
             &ctx.repo_root,
             &mut next_state,
-            loaded.all_events.len() + 1,
+            loaded.event_count + 1,
             None,
         )?;
         Ok((src, dst, input.rel_type))
@@ -137,7 +137,7 @@ pub fn link_remove(
         persist_projection(
             &ctx.repo_root,
             &mut next_state,
-            loaded.all_events.len() + 1,
+            loaded.event_count + 1,
             None,
         )?;
         Ok((src, dst, input.rel_type))

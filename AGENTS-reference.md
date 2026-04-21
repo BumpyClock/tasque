@@ -7,6 +7,7 @@ Referenced from [AGENTS.md](./AGENTS.md).
 Repo-local `.tasque/`:
 - `.tasque/events.jsonl` (canonical source of truth, append-only)
 - `.tasque/state.json` (derived cache, rebuildable, gitignored)
+- `.tasque/tasks.jsonl` (legacy state-cache name; read-only fallback when `state.json` is absent; removal target)
 - `.tasque/snapshots/` (replay checkpoints, local by default)
 - `.tasque/config.json` (project settings)
 - `.tasque/.lock` (ephemeral write lock)
@@ -71,17 +72,23 @@ Relation types:
 - `supersedes`
 
 ## CLI Contract
-- `tsq init`
-- `tsq init --install-skill|--uninstall-skill [--skill-targets ...]`
-- `tsq create [<title>] [--child <title> ...] [--kind ...] [-p ...] [--parent <id>] [--external-ref <ref>] [--discovered-from <id>] [--planning <needs_planning|planned>] [--needs-planning] [--ensure] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
+- `tsq` (no args, TTY): open read-only TUI
+- `tsq init [--wizard|--no-wizard] [--yes] [--preset <name>] [--sync-branch <branch>]`
+- `tsq init --install-skill|--uninstall-skill [--skill-targets ...] [--skill-name <name>] [--force-skill-overwrite]`
+- `tsq create [<title>] [--child <title> ...] [--kind ...] [-p ...] [--parent <id>] [--description <text>] [--external-ref <ref>] [--discovered-from <id>] [--planning <needs_planning|planned>] [--needs-planning] [--ensure] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
 - `tsq show <id>`
-- `tsq list [--status ...] [--assignee ...] [--external-ref <ref>] [--discovered-from <id>] [--kind ...] [--planning <needs_planning|planned>] [--dep-type <blocks|starts_after>] [--dep-direction <in|out|any>] [--tree]`
+- `tsq list [--status ...] [--assignee ...] [--unassigned] [--external-ref <ref>] [--discovered-from <id>] [--kind ...] [--label ...] [--label-any ...] [--created-after <iso>] [--updated-after <iso>] [--closed-after <iso>] [--id <id,...>] [--planning <needs_planning|planned>] [--dep-type <blocks|starts_after>] [--dep-direction <in|out|any>] [--tree] [--full]`
+- `tsq search <query>`
 - `tsq ready [--lane <planning|coding>]`
 - `tsq watch [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--tree]`
+- `tsq tui [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--board|--epics]`
 - `tsq stale [--days <n>] [--status <status>] [--assignee <name>] [--limit <n>]`
 - `tsq doctor`
-- `tsq update <id> [--title ...] [--status ...] [--priority ...] [--external-ref <ref>] [--clear-external-ref] [--discovered-from <id>] [--clear-discovered-from] [--planning <needs_planning|planned>]`
+- `tsq repair [--fix] [--force-unlock]`
+- `tsq update <id> [--title ...] [--description ...] [--clear-description] [--status ...] [--priority ...] [--external-ref <ref>] [--clear-external-ref] [--discovered-from <id>] [--clear-discovered-from] [--planning <needs_planning|planned>]`
 - `tsq update <id> --claim [--assignee <a>] [--require-spec]`
+- `tsq close <id...> [--reason <text>]`
+- `tsq reopen <id...>`
 - `tsq orphans`
 - `tsq spec attach <id> [source] [--file <path> | --stdin | --text <markdown>]`
 - `tsq spec check <id>`
@@ -100,6 +107,11 @@ Relation types:
 - `tsq label remove <id> <label>`
 - `tsq label list`
 - `tsq history <id> [--limit <n>] [--type <event-type>] [--actor <name>] [--since <iso>]`
+- `tsq sync [--no-push]`
+- `tsq hooks install [--force]`
+- `tsq hooks uninstall`
+- `tsq migrate --sync-branch <branch>`
+- `tsq merge-driver <ancestor> <ours> <theirs>`
 
 Global options:
 - `--json`
@@ -150,10 +162,12 @@ Error:
 - atomic cache writes (`state.json.tmp-*` -> rename)
 - startup recovery ignores one malformed trailing JSONL line with warning
 - deterministic rebuild from snapshot + event tail
+- reads legacy `.tasque/tasks.jsonl` only as a fallback state cache; do not write new data there
 
 ## Repo Conventions
 - commit `.tasque/events.jsonl` and `.tasque/config.json`
 - do not commit `.tasque/state.json`
+- do not create or edit `.tasque/tasks.jsonl`
 - snapshots optional to commit (default local-only)
 - do not manually edit generated cache files
 

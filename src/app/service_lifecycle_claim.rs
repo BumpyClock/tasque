@@ -64,7 +64,7 @@ pub fn claim(ctx: &ServiceContext, input: &ClaimInput) -> Result<Task, TsqError>
         persist_projection(
             &ctx.repo_root,
             &mut next_state,
-            loaded.all_events.len() + 1,
+            loaded.event_count + 1,
             None,
         )?;
         must_task(&next_state, &id)
@@ -119,7 +119,7 @@ pub fn close(ctx: &ServiceContext, input: &CloseInput) -> Result<Vec<Task>, TsqE
         persist_projection(
             &ctx.repo_root,
             &mut next_state,
-            loaded.all_events.len() + events.len(),
+            loaded.event_count + events.len(),
             None,
         )?;
         resolved_ids
@@ -166,7 +166,7 @@ pub fn reopen(ctx: &ServiceContext, input: &ReopenInput) -> Result<Vec<Task>, Ts
         persist_projection(
             &ctx.repo_root,
             &mut next_state,
-            loaded.all_events.len() + events.len(),
+            loaded.event_count + events.len(),
             None,
         )?;
         resolved_ids
@@ -207,7 +207,7 @@ pub fn supersede(ctx: &ServiceContext, input: &SupersedeInput) -> Result<Task, T
         persist_projection(
             &ctx.repo_root,
             &mut next_state,
-            loaded.all_events.len() + 1,
+            loaded.event_count + 1,
             None,
         )?;
         must_task(&next_state, &source)
@@ -305,7 +305,7 @@ pub fn duplicate(ctx: &ServiceContext, input: &DuplicateInput) -> Result<Task, T
         persist_projection(
             &ctx.repo_root,
             &mut next_state,
-            loaded.all_events.len() + events.len(),
+            loaded.event_count + events.len(),
             None,
         )?;
         must_task(&next_state, &source)

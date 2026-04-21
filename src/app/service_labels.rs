@@ -31,7 +31,7 @@ pub fn label_add(ctx: &ServiceContext, input: &LabelInput) -> Result<Task, TsqEr
         persist_projection(
             &ctx.repo_root,
             &mut next_state,
-            loaded.all_events.len() + 1,
+            loaded.event_count + 1,
             None,
         )?;
         must_task(&next_state, &id)
@@ -59,7 +59,7 @@ pub fn label_remove(ctx: &ServiceContext, input: &LabelInput) -> Result<Task, Ts
         persist_projection(
             &ctx.repo_root,
             &mut next_state,
-            loaded.all_events.len() + 1,
+            loaded.event_count + 1,
             None,
         )?;
         must_task(&next_state, &id)

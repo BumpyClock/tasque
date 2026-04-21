@@ -83,7 +83,7 @@ pub fn spec_attach(
         persist_projection(
             &ctx.repo_root,
             &mut next_state,
-            loaded.all_events.len() + 1,
+            loaded.event_count + 1,
             None,
         )?;
 

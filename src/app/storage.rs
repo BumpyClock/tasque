@@ -11,7 +11,9 @@ use std::fs::{OpenOptions, create_dir_all, read_to_string, remove_file, rename};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-pub use crate::app::state::{LoadedState, load_projected_state, persist_projection};
+pub use crate::app::state::{
+    LoadedState, load_projected_state, load_projected_state_with_events, persist_projection,
+};
 pub use crate::store::config::{read_config, write_default_config};
 pub use crate::store::events::{append_events, read_events};
 pub use crate::store::lock::with_write_lock;

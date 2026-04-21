@@ -1,9 +1,10 @@
+use crate::app::sync;
 use crate::domain::projector::apply_events;
 use crate::domain::state::create_empty_state;
 use crate::errors::TsqError;
-use crate::app::sync;
 use crate::store::config::read_config;
-use crate::store::events::read_events;
+use crate::store::events::{read_event_log_metadata, read_events, read_events_tail_from_path};
+use crate::store::paths::get_paths;
 use crate::store::snapshots::{load_latest_snapshot_with_warning, write_snapshot};
 use crate::store::state::{read_state_cache, write_state_cache};
 use crate::types::{EventRecord, Snapshot, State};
@@ -13,57 +14,116 @@ use std::path::Path;
 pub struct LoadedState {
     pub state: State,
     pub all_events: Vec<EventRecord>,
+    pub event_count: usize,
     pub warning: Option<String>,
     pub snapshot: Option<Snapshot>,
 }
 
 pub fn load_projected_state(repo_root: impl AsRef<Path>) -> Result<LoadedState, TsqError> {
-    let read = read_events(&repo_root)?;
+    load_projected_state_inner(repo_root, false)
+}
+
+pub fn load_projected_state_with_events(
+    repo_root: impl AsRef<Path>,
+) -> Result<LoadedState, TsqError> {
+    load_projected_state_inner(repo_root, true)
+}
+
+fn load_projected_state_inner(
+    repo_root: impl AsRef<Path>,
+    include_events: bool,
+) -> Result<LoadedState, TsqError> {
+    let repo_root = repo_root.as_ref();
+
+    if !include_events {
+        if let Some(loaded) = load_from_state_cache(repo_root)? {
+            return Ok(loaded);
+        }
+        if let Some(loaded) = load_from_snapshot(repo_root)? {
+            return Ok(loaded);
+        }
+    }
+
+    let read = read_events(repo_root)?;
+    let event_count = read.metadata.event_count;
     let events = read.events;
     let event_warning = read.warning;
 
-    if let Some(from_cache) = read_state_cache(&repo_root)?
-        && from_cache.applied_events <= events.len()
-    {
-        let offset = from_cache.applied_events;
-        if offset == events.len() {
-            return Ok(LoadedState {
-                state: from_cache,
-                all_events: events,
-                warning: event_warning,
-                snapshot: None,
-            });
-        }
-        let mut state = apply_events(&from_cache, &events[offset..])?;
-        state.applied_events = events.len();
-        return Ok(LoadedState {
-            state,
-            all_events: events,
-            warning: event_warning,
-            snapshot: None,
-        });
-    }
-
-    let loaded = load_latest_snapshot_with_warning(&repo_root)?;
-    let base = loaded
-        .snapshot
-        .as_ref()
-        .map(|snapshot| snapshot.state.clone())
-        .unwrap_or_else(create_empty_state);
-    let start_offset = loaded
-        .snapshot
-        .as_ref()
-        .map(|snapshot| std::cmp::min(snapshot.event_count, events.len()))
-        .unwrap_or(0);
-    let mut projected = apply_events(&base, &events[start_offset..])?;
+    let mut projected = apply_events(&create_empty_state(), &events)?;
     projected.applied_events = events.len();
 
     Ok(LoadedState {
         state: projected,
-        all_events: events,
-        warning: combine_warnings(event_warning, loaded.warning),
-        snapshot: loaded.snapshot,
+        all_events: if include_events { events } else { Vec::new() },
+        event_count,
+        warning: event_warning,
+        snapshot: None,
     })
+}
+
+fn load_from_state_cache(repo_root: &Path) -> Result<Option<LoadedState>, TsqError> {
+    let Some(cache) = read_state_cache(repo_root)? else {
+        return Ok(None);
+    };
+    let Some(metadata) = cache.event_log.as_ref() else {
+        return Ok(None);
+    };
+    if cache.state.applied_events != metadata.event_count {
+        return Ok(None);
+    }
+
+    let events_file = get_paths(repo_root).events_file;
+    let Some(tail) = read_events_tail_from_path(&events_file, metadata)? else {
+        return Ok(None);
+    };
+    let mut state = if tail.events.is_empty() {
+        cache.state
+    } else {
+        apply_events(&cache.state, &tail.events)?
+    };
+    state.applied_events = tail.metadata.event_count;
+
+    Ok(Some(LoadedState {
+        state,
+        all_events: Vec::new(),
+        event_count: tail.metadata.event_count,
+        warning: tail.warning,
+        snapshot: None,
+    }))
+}
+
+fn load_from_snapshot(repo_root: &Path) -> Result<Option<LoadedState>, TsqError> {
+    let loaded = load_latest_snapshot_with_warning(repo_root)?;
+    let Some(snapshot) = loaded.snapshot else {
+        return Ok(None);
+    };
+    let Some(metadata) = snapshot.event_log.as_ref() else {
+        return Ok(None);
+    };
+    if snapshot.event_count != metadata.event_count
+        || snapshot.state.applied_events != metadata.event_count
+    {
+        return Ok(None);
+    }
+
+    let events_file = get_paths(repo_root).events_file;
+    let Some(tail) = read_events_tail_from_path(&events_file, metadata)? else {
+        return Ok(None);
+    };
+    let mut state = if tail.events.is_empty() {
+        snapshot.state.clone()
+    } else {
+        apply_events(&snapshot.state, &tail.events)?
+    };
+    state.applied_events = tail.metadata.event_count;
+
+    Ok(Some(LoadedState {
+        state,
+        all_events: Vec::new(),
+        event_count: tail.metadata.event_count,
+        warning: combine_warnings(tail.warning, loaded.warning),
+        snapshot: Some(snapshot),
+    }))
 }
 
 pub fn persist_projection(
@@ -74,7 +134,8 @@ pub fn persist_projection(
 ) -> Result<(), TsqError> {
     let repo_path = repo_root.as_ref();
     state.applied_events = event_count;
-    write_state_cache(repo_path, state)?;
+    let event_log = read_event_log_metadata(repo_path, event_count)?;
+    write_state_cache(repo_path, state, event_log.clone())?;
 
     let config = read_config(repo_path)?;
     if config.snapshot_every == 0 {
@@ -90,6 +151,7 @@ pub fn persist_projection(
         let snapshot = Snapshot {
             taken_at,
             event_count,
+            event_log: Some(event_log),
             state: state.clone(),
         };
         write_snapshot(repo_path, &snapshot)?;
@@ -115,5 +177,74 @@ fn combine_warnings(warnings: Option<String>, other: Option<String>) -> Option<S
         None
     } else {
         Some(combined.join(" | "))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::events::make_event;
+    use crate::store::events::append_events;
+    use crate::store::paths::get_paths;
+    use crate::types::EventType;
+    use serde_json::Map;
+    use tempfile::TempDir;
+
+    fn created_event(task_id: &str, title: &str) -> EventRecord {
+        let mut payload = Map::new();
+        payload.insert("title".to_string(), serde_json::json!(title));
+        make_event(
+            "test",
+            "2026-01-01T00:00:00.000Z",
+            EventType::TaskCreated,
+            task_id,
+            payload,
+        )
+    }
+
+    #[test]
+    fn stale_state_cache_is_ignored_after_same_count_log_rewrite() {
+        let dir = TempDir::new().expect("tempdir");
+        let repo = dir.path();
+        let first = created_event("tsq-aaaaaaaa", "first");
+        append_events(repo, &[first]).expect("append first event");
+
+        let mut loaded = load_projected_state(repo).expect("load first state").state;
+        persist_projection(repo, &mut loaded, 1, None).expect("persist cache");
+
+        let paths = get_paths(repo);
+        std::fs::write(
+            &paths.events_file,
+            format!(
+                "{}\n",
+                serde_json::to_string(&created_event("tsq-bbbbbbbb", "second"))
+                    .expect("serialize event")
+            ),
+        )
+        .expect("rewrite events");
+
+        let reloaded = load_projected_state(repo).expect("reload rewritten state");
+        assert!(reloaded.state.tasks.contains_key("tsq-bbbbbbbb"));
+        assert!(!reloaded.state.tasks.contains_key("tsq-aaaaaaaa"));
+    }
+
+    #[test]
+    fn state_cache_replays_only_tail_when_prefix_matches() {
+        let dir = TempDir::new().expect("tempdir");
+        let repo = dir.path();
+        let first = created_event("tsq-aaaaaaaa", "first");
+        append_events(repo, &[first]).expect("append first event");
+
+        let mut loaded = load_projected_state(repo).expect("load first state").state;
+        persist_projection(repo, &mut loaded, 1, None).expect("persist cache");
+
+        let second = created_event("tsq-bbbbbbbb", "second");
+        append_events(repo, &[second]).expect("append second event");
+
+        let reloaded = load_projected_state(repo).expect("reload tail state");
+        assert_eq!(reloaded.event_count, 2);
+        assert!(reloaded.state.tasks.contains_key("tsq-aaaaaaaa"));
+        assert!(reloaded.state.tasks.contains_key("tsq-bbbbbbbb"));
+        assert!(reloaded.all_events.is_empty());
     }
 }

@@ -35,6 +35,7 @@ Error envelope:
 
 - Canonical source of truth: `.tasque/events.jsonl` (append-only)
 - Derived cache: `.tasque/state.json` (rebuildable, gitignored)
+- Legacy cache fallback: `.tasque/tasks.jsonl` (read-only fallback when `state.json` is absent; removal target)
 - Optional replay checkpoints: `.tasque/snapshots/`
 - Config: `.tasque/config.json`
 - Ephemeral lock: `.tasque/.lock`
@@ -44,3 +45,4 @@ Error envelope:
 - Read path: load latest snapshot, replay event tail, refresh state cache.
 - Write path: append event(s), update projection, periodically write snapshot.
 - Startup recovery tolerates one malformed trailing JSONL line.
+- Do not create or edit `.tasque/tasks.jsonl`; new writes use `.tasque/state.json`.

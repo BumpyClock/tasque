@@ -320,6 +320,8 @@ pub fn create_orphan_branch(
 
     // Init temp repo
     run_git(tmp_path, &["init"])?;
+    run_git(tmp_path, &["config", "user.name", "tsq"])?;
+    run_git(tmp_path, &["config", "user.email", "tsq@example.invalid"])?;
 
     // Copy .tasque/ contents
     let dst_tasque = tmp_path.join(".tasque");

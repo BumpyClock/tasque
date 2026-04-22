@@ -33,9 +33,10 @@ JSONL only.
 
 ## Storage Model (JSONL)
 Git repos default to sync-worktree mode:
-- `tsq init` configures `tasque-sync` unless `--sync-branch <branch>` overrides it
-- data operations redirect to `tasque-sync-worktree`
+- `tsq init` configures `tsq-sync` unless `--sync-branch <name>` or `--worktree-name <name>` overrides it
+- data operations redirect to the configured sync worktree
 - legacy main-tree `.tasque` data migrates automatically when no `sync_branch` is configured
+- fresh clones fetch the configured sync branch and create the worktree on first use
 - main worktree keeps `.tasque/config.json` as the pointer to the sync branch
 
 Non-git dirs use repo-local `.tasque/`:
@@ -98,7 +99,7 @@ Open blocker:
 
 ## CLI Contract (V1)
 - `tsq` (no args, TTY): open read-only TUI
-- `tsq init [--wizard|--no-wizard] [--yes] [--preset <name>] [--sync-branch <branch>]`
+- `tsq init [--wizard|--no-wizard] [--yes] [--preset <name>] [--sync-branch|--worktree-name <name>]`
 - `tsq init --install-skill|--uninstall-skill [--skill-targets ...] [--skill-name <name>] [--force-skill-overwrite]`
 - `tsq create [<title>] [--child <title> ...] [--kind ...] [-p 0..3] [--parent <id>] [--description <text>] [--external-ref <ref>] [--discovered-from <id>] [--planning <needs_planning|planned>] [--needs-planning] [--ensure] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
 - `tsq show <id>`
@@ -135,7 +136,7 @@ Open blocker:
 - `tsq sync [--no-push]`
 - `tsq hooks install [--force]`
 - `tsq hooks uninstall`
-- `tsq migrate --sync-branch <branch>`
+- `tsq migrate [--sync-branch|--worktree-name <name>]`
 - `tsq merge-driver <ancestor> <ours> <theirs>`
 
 Global options:

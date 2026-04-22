@@ -5,9 +5,10 @@ Referenced from [AGENTS.md](./AGENTS.md).
 
 ## Storage Model
 Git repositories default to sync-worktree mode:
-- `tsq init` configures the `tasque-sync` branch unless `--sync-branch <branch>` names a custom branch.
-- data operations are redirected to the dedicated `tasque-sync-worktree`
+- `tsq init` configures the `tsq-sync` branch/worktree unless `--sync-branch <name>` or `--worktree-name <name>` names a custom branch/worktree.
+- data operations are redirected to the configured sync worktree
 - legacy main-tree `.tasque` data migrates automatically when no `sync_branch` is configured
+- fresh clones fetch the configured sync branch and create the worktree on first use
 - the main worktree keeps `.tasque/config.json` as the pointer to the sync branch
 
 Non-git directories use repo-local `.tasque/`:
@@ -81,7 +82,7 @@ Relation types:
 
 ## CLI Contract
 - `tsq` (no args, TTY): open read-only TUI
-- `tsq init [--wizard|--no-wizard] [--yes] [--preset <name>] [--sync-branch <branch>]`
+- `tsq init [--wizard|--no-wizard] [--yes] [--preset <name>] [--sync-branch|--worktree-name <name>]`
 - `tsq init --install-skill|--uninstall-skill [--skill-targets ...] [--skill-name <name>] [--force-skill-overwrite]`
 - `tsq create [<title>] [--child <title> ...] [--kind ...] [-p ...] [--parent <id>] [--description <text>] [--external-ref <ref>] [--discovered-from <id>] [--planning <needs_planning|planned>] [--needs-planning] [--ensure] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
 - `tsq show <id>`
@@ -118,7 +119,7 @@ Relation types:
 - `tsq sync [--no-push]`
 - `tsq hooks install [--force]`
 - `tsq hooks uninstall`
-- `tsq migrate --sync-branch <branch>`
+- `tsq migrate [--sync-branch|--worktree-name <name>]`
 - `tsq merge-driver <ancestor> <ours> <theirs>`
 
 Global options:

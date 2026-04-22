@@ -120,6 +120,38 @@ pub fn branch_exists(repo_root: &Path, name: &str) -> Result<bool, TsqError> {
     run_git_status(repo_root, &["show-ref", "--verify", "--quiet", &refspec])
 }
 
+pub fn remote_branch_exists(repo_root: &Path, name: &str) -> Result<bool, TsqError> {
+    validate_branch_name(name)?;
+    let refspec = format!("refs/heads/{}", name);
+    run_git_status(
+        repo_root,
+        &["ls-remote", "--exit-code", "--heads", "origin", &refspec],
+    )
+}
+
+pub fn remote_tracking_branch_exists(repo_root: &Path, name: &str) -> Result<bool, TsqError> {
+    validate_branch_name(name)?;
+    let refspec = format!("refs/remotes/origin/{}", name);
+    run_git_status(repo_root, &["show-ref", "--verify", "--quiet", &refspec])
+}
+
+pub fn track_remote_branch(repo_root: &Path, name: &str) -> Result<(), TsqError> {
+    validate_branch_name(name)?;
+    run_git(
+        repo_root,
+        &["branch", "--track", name, &format!("origin/{name}")],
+    )?;
+    Ok(())
+}
+
+pub fn fetch_remote_branch(repo_root: &Path, name: &str) -> Result<(), TsqError> {
+    validate_branch_name(name)?;
+    let remote_ref = format!("+refs/heads/{name}:refs/remotes/origin/{name}");
+    run_git(repo_root, &["fetch", "origin", &remote_ref])?;
+    track_remote_branch(repo_root, name)?;
+    Ok(())
+}
+
 pub fn has_upstream(repo_root: &Path) -> Result<bool, TsqError> {
     run_git_status(
         repo_root,
@@ -160,15 +192,30 @@ pub fn hooks_dir(repo_root: &Path) -> Result<PathBuf, TsqError> {
 }
 
 pub fn is_sync_worktree_path(repo_root: &Path) -> bool {
+    if !repo_root.join(".tasque").join("events.jsonl").exists() {
+        return false;
+    }
+
+    if let Some(common_dir) = fast_git_common_dir(repo_root)
+        && let (Ok(root), Ok(common)) = (repo_root.canonicalize(), common_dir.canonicalize())
+        && root.starts_with(common)
+    {
+        return true;
+    }
+
+    if !repo_root.join(".git").is_file() {
+        return false;
+    }
+
     repo_root
         .file_name()
         .and_then(|value| value.to_str())
-        .map(|value| value == "tasque-sync-worktree")
+        .map(|value| value == "tsq-sync" || value == "tasque-sync-worktree")
         .unwrap_or(false)
 }
 
-pub fn quick_worktree_path(repo_root: &Path) -> Option<PathBuf> {
-    fast_git_common_dir(repo_root).map(|path| path.join("tasque-sync-worktree"))
+pub fn quick_worktree_path(repo_root: &Path, branch: &str) -> Option<PathBuf> {
+    fast_git_common_dir(repo_root).map(|path| path.join(branch))
 }
 
 pub fn worktree_is_valid(worktree_path: &Path, expected_branch: &str) -> bool {
@@ -184,10 +231,10 @@ pub fn worktree_is_valid(worktree_path: &Path, expected_branch: &str) -> bool {
 }
 
 /// Derive the worktree path for the sync branch.
-/// Located at `<git_dir>/tasque-sync-worktree`.
-pub fn worktree_path(repo_root: &Path, _branch: &str) -> Result<PathBuf, TsqError> {
+/// Located at `<git_dir>/<branch>`.
+pub fn worktree_path(repo_root: &Path, branch: &str) -> Result<PathBuf, TsqError> {
     let gd = git_common_dir(repo_root)?;
-    Ok(gd.join("tasque-sync-worktree"))
+    Ok(gd.join(branch))
 }
 
 /// Ensure a git worktree exists for the given branch.
@@ -195,6 +242,13 @@ pub fn worktree_path(repo_root: &Path, _branch: &str) -> Result<PathBuf, TsqErro
 /// Returns the worktree path.
 pub fn ensure_worktree(repo_root: &Path, branch: &str) -> Result<PathBuf, TsqError> {
     validate_branch_name(branch)?;
+    if !branch_exists(repo_root, branch)? {
+        if remote_tracking_branch_exists(repo_root, branch)? {
+            track_remote_branch(repo_root, branch)?;
+        } else if remote_branch_exists(repo_root, branch)? {
+            fetch_remote_branch(repo_root, branch)?;
+        }
+    }
     let wt = worktree_path(repo_root, branch)?;
 
     if wt.exists() {

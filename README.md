@@ -18,7 +18,7 @@ Global options:
 Commands:
 
 - `tsq` (no args, TTY): open read-only TUI (List/Board views)
-- `tsq init [--wizard|--no-wizard] [--yes] [--preset <name>] [--sync-branch <branch>]`
+- `tsq init [--wizard|--no-wizard] [--yes] [--preset <name>] [--sync-branch|--worktree-name <name>]`
 - `tsq init --install-skill|--uninstall-skill [--skill-targets ...] [--skill-name <name>] [--force-skill-overwrite]`
 - `tsq create [<title>] [--child <title> ...] [--kind ...] [-p ...] [--parent <id>] [--description <text>] [--external-ref <ref>] [--discovered-from <id>] [--planning <needs_planning|planned>] [--needs-planning] [--ensure] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
 - `tsq show <id>`
@@ -55,13 +55,14 @@ Commands:
 - `tsq sync [--no-push]`
 - `tsq hooks install [--force]`
 - `tsq hooks uninstall`
-- `tsq migrate --sync-branch <branch>`
+- `tsq migrate [--sync-branch|--worktree-name <name>]`
 - `tsq merge-driver <ancestor> <ours> <theirs>`
 
-Git repos default to worktree mode: `tsq init` creates/configures the `tasque-sync`
-branch and stores task data in a dedicated git worktree. Use `--sync-branch <branch>`
-to choose a different branch name. Existing git repos with main-tree `.tasque`
-data and no `sync_branch` migrate automatically on the next `tsq` command.
+Git repos default to worktree mode: `tsq init` creates/configures the `tsq-sync`
+branch and stores task data in a dedicated git worktree. Use `--sync-branch <name>`
+or `--worktree-name <name>` to choose a different branch/worktree name. Existing git repos with main-tree `.tasque`
+data and no `sync_branch` migrate automatically on the next `tsq` command. Fresh clones fetch
+the configured sync branch and create the worktree on first use.
 Non-git directories use local `.tasque/` storage.
 
 
@@ -129,7 +130,8 @@ All steps must pass before merging.
 
 Git repos default to a dedicated sync worktree:
 
-- `tsq init` configures `tasque-sync` and redirects data operations there.
+- `tsq init` configures `tsq-sync` by default and redirects data operations there.
+- Fresh clones fetch the configured sync branch and create the worktree on first use.
 - Existing git repos with main-tree `.tasque` data migrate automatically when `tsq`
   next resolves the project root.
 - The main worktree keeps `.tasque/config.json` so `tsq` can find the sync branch.

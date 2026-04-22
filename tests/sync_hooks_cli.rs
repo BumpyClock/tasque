@@ -74,11 +74,11 @@ fn init_defaults_to_sync_branch_configuration_in_git_repo() {
 
     let config = fs::read_to_string(root.join(".tasque").join("config.json")).expect("config");
     assert!(
-        config.contains("\"sync_branch\": \"tasque-sync\""),
+        config.contains("\"sync_branch\": \"tsq-sync\""),
         "expected default sync branch config:\n{}",
         config
     );
-    let wt = root.join(".git").join("tasque-sync-worktree");
+    let wt = root.join(".git").join("tsq-sync");
     assert!(wt.join(".tasque").join("events.jsonl").exists());
     assert!(!wt.join(".tasque").join(".setup.lock").exists());
 
@@ -89,17 +89,24 @@ fn init_defaults_to_sync_branch_configuration_in_git_repo() {
 }
 
 #[test]
-fn create_auto_commits_and_sync_commits_pending_changes() {
+fn custom_worktree_name_auto_commits_and_syncs_pending_changes() {
     let repo = make_repo();
     let root = repo.path();
     git(root, &["init"]);
     git(root, &["config", "user.name", "rust-test"]);
     git(root, &["config", "user.email", "rust-test@example.com"]);
 
-    let init = run_cli(root, ["init", "--sync-branch", "tasque-sync"]);
+    let init = run_cli(root, ["init", "--worktree-name", "custom-sync"]);
     assert_eq!(init.code, 0, "stderr: {}", init.stderr);
 
-    let wt = root.join(".git").join("tasque-sync-worktree");
+    let config = fs::read_to_string(root.join(".tasque").join("config.json")).expect("config");
+    assert!(
+        config.contains("\"sync_branch\": \"custom-sync\""),
+        "expected custom sync branch config:\n{}",
+        config
+    );
+
+    let wt = root.join(".git").join("custom-sync");
     let before = git_out(&wt, &["rev-list", "--count", "HEAD"])
         .parse::<u64>()
         .expect("commit count");
@@ -121,4 +128,99 @@ fn create_auto_commits_and_sync_commits_pending_changes() {
 
     let status = git_out(&wt, &["status", "--porcelain"]);
     assert!(status.is_empty(), "expected clean worktree after sync");
+}
+
+#[test]
+fn migrate_defaults_to_tsq_sync_worktree_name() {
+    let repo = make_repo();
+    let root = repo.path();
+
+    let init = run_cli(root, ["init"]);
+    assert_eq!(init.code, 0, "stderr: {}", init.stderr);
+    let create = run_cli(root, ["create", "Legacy migration task"]);
+    assert_eq!(create.code, 0, "stderr: {}", create.stderr);
+
+    git(root, &["init"]);
+    git(root, &["config", "user.name", "rust-test"]);
+    git(root, &["config", "user.email", "rust-test@example.com"]);
+
+    let migrate = run_cli(root, ["migrate", "--json"]);
+    assert_eq!(migrate.code, 0, "stderr: {}", migrate.stderr);
+    let envelope: Value = serde_json::from_str(migrate.stdout.trim()).expect("json envelope");
+    assert_eq!(envelope.get("ok").and_then(Value::as_bool), Some(true));
+    assert_eq!(
+        envelope
+            .get("data")
+            .and_then(|data| data.get("branch"))
+            .and_then(Value::as_str),
+        Some("tsq-sync")
+    );
+
+    let wt = root.join(".git").join("tsq-sync");
+    assert!(wt.join(".tasque").join("events.jsonl").exists());
+    let root_events =
+        fs::read_to_string(root.join(".tasque").join("events.jsonl")).expect("events");
+    assert!(root_events.is_empty(), "expected root events cleared");
+}
+
+#[test]
+fn fresh_clone_fetches_remote_sync_branch_and_creates_worktree() {
+    let repo = make_repo();
+    let base = repo.path();
+    let source = base.join("source");
+    fs::create_dir(&source).expect("source dir");
+
+    git(&source, &["init", "-b", "main"]);
+    git(&source, &["config", "user.name", "rust-test"]);
+    git(&source, &["config", "user.email", "rust-test@example.com"]);
+
+    let init = run_cli(&source, ["init"]);
+    assert_eq!(init.code, 0, "stderr: {}", init.stderr);
+    let create = run_cli(&source, ["create", "Remote sync task"]);
+    assert_eq!(create.code, 0, "stderr: {}", create.stderr);
+
+    git(&source, &["add", ".tasque/config.json", ".gitattributes"]);
+    git(&source, &["commit", "-m", "seed main config"]);
+
+    let remote = base.join("origin.git");
+    let remote_arg = remote.to_string_lossy().to_string();
+    git(base, &["init", "--bare", remote_arg.as_str()]);
+    git(&remote, &["symbolic-ref", "HEAD", "refs/heads/main"]);
+    git(&source, &["remote", "add", "origin", remote_arg.as_str()]);
+    git(&source, &["push", "origin", "HEAD:main"]);
+    git(&source, &["push", "origin", "tsq-sync"]);
+
+    let clone = base.join("clone");
+    let clone_arg = clone.to_string_lossy().to_string();
+    git(base, &["clone", remote_arg.as_str(), clone_arg.as_str()]);
+    let missing_remote = base.join("missing-origin.git");
+    let missing_remote_arg = missing_remote.to_string_lossy().to_string();
+    git(
+        &clone,
+        &["remote", "set-url", "origin", missing_remote_arg.as_str()],
+    );
+
+    let list = run_cli(&clone, ["list", "--json"]);
+    assert_eq!(list.code, 0, "stderr: {}", list.stderr);
+    assert!(
+        list.stdout.contains("Remote sync task"),
+        "expected cloned repo to read remote sync task:\n{}",
+        list.stdout
+    );
+    assert!(
+        clone
+            .join(".git")
+            .join("tsq-sync")
+            .join(".tasque")
+            .join("events.jsonl")
+            .exists()
+    );
+    assert_eq!(git_out(&clone, &["branch", "--show-current"]), "main");
+    assert!(
+        git_out(
+            &clone.join(".git").join("tsq-sync"),
+            &["branch", "--show-current"]
+        )
+        .contains("tsq-sync")
+    );
 }

@@ -5,13 +5,13 @@ Read when: you need exact command syntax or available options.
 ## Core workflow
 
 - `tsq` (no args, TTY): open read-only TUI
-- `tsq init [--wizard|--no-wizard] [--yes] [--preset <name>] [--sync-branch <branch>]`
+- `tsq init [--wizard|--no-wizard] [--yes] [--preset <name>] [--sync-branch|--worktree-name <name>]`
 - `tsq init --install-skill|--uninstall-skill [--skill-targets ...] [--skill-name <name>] [--force-skill-overwrite]`
 
-In git repos, `tsq init` defaults to sync-worktree mode using `tasque-sync`.
-Use `--sync-branch <branch>` to choose another branch. Existing main-tree
-`.tasque` data migrates automatically. Non-git directories use local `.tasque/`
-storage.
+In git repos, `tsq init` defaults to sync-worktree mode using `tsq-sync`.
+Use `--sync-branch <name>` or `--worktree-name <name>` to choose another branch/worktree. Existing main-tree
+`.tasque` data migrates automatically. Fresh clones fetch the configured sync branch
+and create the worktree on first use. Non-git directories use local `.tasque/` storage.
 
 - `tsq create [<title>] [--child <title> ...] [--kind ...] [-p ...] [--parent <id>] [--description <text>] [--external-ref <ref>] [--discovered-from <id>] [--planning <needs_planning|planned>] [--needs-planning] [--ensure] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
 - `tsq show <id>`
@@ -57,7 +57,7 @@ storage.
 - `tsq sync [--no-push]`
 - `tsq hooks install [--force]`
 - `tsq hooks uninstall`
-- `tsq migrate --sync-branch <branch>`
+- `tsq migrate [--sync-branch|--worktree-name <name>]`
 - `tsq merge-driver <ancestor> <ours> <theirs>`
 
 ## Global options and status alias

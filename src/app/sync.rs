@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 const SYNC_COMMIT_MESSAGE: &str = "chore(tsq): sync task updates";
 const HOOK_MARKER: &str = "tsq-sync-pre-push-hook";
 const SETUP_LOCK_TIMEOUT_MS: u64 = 120_000;
-pub const DEFAULT_SYNC_BRANCH: &str = "tasque-sync";
+pub const DEFAULT_SYNC_BRANCH: &str = "tsq-sync";
 
 /// Resolve the effective root directory for data operations.
 ///
@@ -36,7 +36,7 @@ pub fn resolve_effective_root(repo_root: &str) -> Result<String, TsqError> {
     };
 
     let repo_path = Path::new(repo_root);
-    if let Some(quick_path) = git::quick_worktree_path(repo_path)
+    if let Some(quick_path) = git::quick_worktree_path(repo_path, &branch)
         && git::worktree_is_valid(&quick_path, &branch)
     {
         return Ok(quick_path.to_string_lossy().to_string());
@@ -468,7 +468,7 @@ mod tests {
         let config = crate::types::Config {
             schema_version: 1,
             snapshot_every: 200,
-            sync_branch: Some("tasque-sync".to_string()),
+            sync_branch: Some(DEFAULT_SYNC_BRANCH.to_string()),
         };
         write_config(repo, &config).expect("write_config");
 
@@ -533,7 +533,7 @@ mod tests {
         let effective =
             resolve_effective_root(&repo.to_string_lossy()).expect("resolve_effective_root");
 
-        assert!(effective.ends_with("tasque-sync-worktree"));
+        assert!(effective.ends_with(DEFAULT_SYNC_BRANCH));
         let updated_config = read_config(repo).expect("read updated config");
         assert_eq!(
             updated_config.sync_branch.as_deref(),
@@ -557,7 +557,7 @@ mod tests {
         };
         write_config(repo, &config).expect("write_config");
 
-        let err = setup_sync_branch(&repo.to_string_lossy(), "tasque-sync", "test")
+        let err = setup_sync_branch(&repo.to_string_lossy(), DEFAULT_SYNC_BRANCH, "test")
             .expect_err("expected error");
         assert_eq!(err.code, "GIT_NOT_AVAILABLE");
     }
@@ -664,7 +664,7 @@ mod tests {
         ];
         append_events(repo, &events).expect("append_events");
 
-        let result = migrate_to_sync_branch(&repo.to_string_lossy(), "tasque-sync", "test")
+        let result = migrate_to_sync_branch(&repo.to_string_lossy(), DEFAULT_SYNC_BRANCH, "test")
             .expect("migrate");
         assert_eq!(result.events_migrated, 0);
 
@@ -724,10 +724,10 @@ mod tests {
         let repo1 = Arc::new(repo);
         let repo2 = repo1.clone();
         let t1 = std::thread::spawn(move || {
-            setup_sync_branch(&repo1.to_string_lossy(), "tasque-sync", "test")
+            setup_sync_branch(&repo1.to_string_lossy(), DEFAULT_SYNC_BRANCH, "test")
         });
         let t2 = std::thread::spawn(move || {
-            setup_sync_branch(&repo2.to_string_lossy(), "tasque-sync", "test")
+            setup_sync_branch(&repo2.to_string_lossy(), DEFAULT_SYNC_BRANCH, "test")
         });
 
         let r1 = t1.join().expect("thread1");

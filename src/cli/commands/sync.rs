@@ -1,4 +1,5 @@
 use crate::app::service::TasqueService;
+use crate::app::sync::DEFAULT_SYNC_BRANCH;
 use crate::cli::action::{GlobalOpts, run_action};
 use crate::store::merge_driver::merge_events_files;
 use clap::Args;
@@ -16,9 +17,9 @@ pub struct MergeDriverArgs {
 
 #[derive(Debug, Args)]
 pub struct MigrateArgs {
-    /// Name of the sync branch to migrate events into
-    #[arg(long = "sync-branch")]
-    pub sync_branch: String,
+    /// Name of the sync branch/worktree to migrate events into
+    #[arg(long = "sync-branch", alias = "worktree-name")]
+    pub sync_branch: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -73,7 +74,7 @@ pub fn execute_migrate(service: &TasqueService, args: MigrateArgs, opts: GlobalO
     run_action(
         "tsq migrate",
         opts,
-        || service.migrate(&args.sync_branch),
+        || service.migrate(args.sync_branch.as_deref().unwrap_or(DEFAULT_SYNC_BRANCH)),
         |data| data.clone(),
         |data| {
             println!(

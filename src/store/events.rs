@@ -1,3 +1,7 @@
+use crate::domain::event_payload_codecs::{
+    dependency_type_from_str, event_type_as_str, event_type_from_str, planning_state_from_str,
+    relation_type_from_str, task_kind_from_str, task_status_from_str,
+};
 use crate::errors::TsqError;
 use crate::store::paths::get_paths;
 use crate::types::{EventLogMetadata, EventRecord, EventType};
@@ -11,23 +15,6 @@ pub struct ReadEventsResult {
     pub events: Vec<EventRecord>,
     pub warning: Option<String>,
     pub metadata: EventLogMetadata,
-}
-
-fn event_type_from_str(raw: &str) -> Option<EventType> {
-    match raw {
-        "task.created" => Some(EventType::TaskCreated),
-        "task.updated" => Some(EventType::TaskUpdated),
-        "task.status_set" => Some(EventType::TaskStatusSet),
-        "task.claimed" => Some(EventType::TaskClaimed),
-        "task.noted" => Some(EventType::TaskNoted),
-        "task.spec_attached" => Some(EventType::TaskSpecAttached),
-        "task.superseded" => Some(EventType::TaskSuperseded),
-        "dep.added" => Some(EventType::DepAdded),
-        "dep.removed" => Some(EventType::DepRemoved),
-        "link.added" => Some(EventType::LinkAdded),
-        "link.removed" => Some(EventType::LinkRemoved),
-        _ => None,
-    }
 }
 
 fn required_fields(event_type: &EventType) -> &'static [(&'static str, &'static str)] {
@@ -75,37 +62,112 @@ fn validate_event_payload(
     if matches!(event_type, EventType::DepAdded | EventType::DepRemoved)
         && let Some(dep_type_value) = payload.get("dep_type")
     {
-        let dep_type_str = dep_type_value.as_str().unwrap_or("");
-        if dep_type_str != "blocks" && dep_type_str != "starts_after" {
-            return Err(TsqError::new(
-                "EVENTS_CORRUPT",
-                format!(
-                    "Invalid event at line {}: {} payload field \"dep_type\" must be blocks|starts_after",
-                    line,
-                    event_type_to_string(event_type)
-                ),
-                2,
-            ));
-        }
+        validate_enum_field(
+            event_type,
+            "dep_type",
+            dep_type_value,
+            line,
+            dependency_type_from_str,
+        )?;
+    }
+    if matches!(event_type, EventType::TaskCreated) {
+        validate_optional_enum_field(event_type, payload, "kind", line, task_kind_from_str)?;
+        validate_optional_enum_field(event_type, payload, "status", line, task_status_from_str)?;
+        validate_optional_enum_field(
+            event_type,
+            payload,
+            "planning_state",
+            line,
+            planning_state_from_str,
+        )?;
+    }
+    if matches!(event_type, EventType::TaskUpdated) {
+        validate_optional_enum_field(event_type, payload, "kind", line, task_kind_from_str)?;
+        validate_optional_enum_field(event_type, payload, "status", line, task_status_from_str)?;
+        validate_optional_enum_field(
+            event_type,
+            payload,
+            "planning_state",
+            line,
+            planning_state_from_str,
+        )?;
+    }
+    if matches!(event_type, EventType::TaskStatusSet)
+        && let Some(status_value) = payload.get("status")
+    {
+        validate_enum_field(
+            event_type,
+            "status",
+            status_value,
+            line,
+            task_status_from_str,
+        )?;
+    }
+    if matches!(event_type, EventType::LinkAdded | EventType::LinkRemoved)
+        && let Some(type_value) = payload.get("type")
+    {
+        validate_enum_field(event_type, "type", type_value, line, relation_type_from_str)?;
     }
 
     Ok(())
 }
 
-fn event_type_to_string(event_type: &EventType) -> &'static str {
-    match event_type {
-        EventType::TaskCreated => "task.created",
-        EventType::TaskUpdated => "task.updated",
-        EventType::TaskStatusSet => "task.status_set",
-        EventType::TaskClaimed => "task.claimed",
-        EventType::TaskNoted => "task.noted",
-        EventType::TaskSpecAttached => "task.spec_attached",
-        EventType::TaskSuperseded => "task.superseded",
-        EventType::DepAdded => "dep.added",
-        EventType::DepRemoved => "dep.removed",
-        EventType::LinkAdded => "link.added",
-        EventType::LinkRemoved => "link.removed",
+fn validate_optional_enum_field<T>(
+    event_type: &EventType,
+    payload: &Map<String, Value>,
+    field: &'static str,
+    line: usize,
+    parse: fn(&str) -> Option<T>,
+) -> Result<(), TsqError> {
+    if let Some(value) = payload.get(field) {
+        if value.is_null() {
+            return Ok(());
+        }
+        validate_enum_field(event_type, field, value, line, parse)?;
     }
+    Ok(())
+}
+
+fn validate_enum_field<T>(
+    event_type: &EventType,
+    field: &'static str,
+    value: &Value,
+    line: usize,
+    parse: fn(&str) -> Option<T>,
+) -> Result<(), TsqError> {
+    let raw = value.as_str().unwrap_or("");
+    if parse(raw).is_none() {
+        return Err(invalid_event_payload_field(
+            event_type,
+            field,
+            line,
+            "invalid enum value",
+        ));
+    }
+    Ok(())
+}
+
+fn invalid_event_payload_field(
+    event_type: &EventType,
+    field: &str,
+    line: usize,
+    reason: &str,
+) -> TsqError {
+    TsqError::new(
+        "EVENTS_CORRUPT",
+        format!(
+            "Invalid event at line {}: {} payload field \"{}\" {}",
+            line,
+            event_type_to_string(event_type),
+            field,
+            reason
+        ),
+        2,
+    )
+}
+
+fn event_type_to_string(event_type: &EventType) -> &'static str {
+    event_type_as_str(*event_type)
 }
 
 fn parse_event_record(value: &Value, line: usize) -> Result<EventRecord, TsqError> {

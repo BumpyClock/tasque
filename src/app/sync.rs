@@ -13,17 +13,26 @@ use std::time::{Duration, Instant};
 const SYNC_COMMIT_MESSAGE: &str = "chore(tsq): sync task updates";
 const HOOK_MARKER: &str = "tsq-sync-pre-push-hook";
 const SETUP_LOCK_TIMEOUT_MS: u64 = 120_000;
+pub const DEFAULT_SYNC_BRANCH: &str = "tasque-sync";
 
 /// Resolve the effective root directory for data operations.
 ///
 /// If the config specifies a `sync_branch`, the data root is redirected to the
-/// worktree for that branch. Otherwise returns `repo_root` unchanged.
+/// worktree for that branch. Legacy git repos without `sync_branch` are migrated
+/// to the default sync worktree automatically.
 pub fn resolve_effective_root(repo_root: &str) -> Result<String, TsqError> {
     let config = read_config(repo_root)?;
 
     let branch = match config.sync_branch {
         Some(branch) => branch,
-        None => return Ok(repo_root.to_string()),
+        None => {
+            let repo_path = Path::new(repo_root);
+            if git::is_git_repo(repo_path) && !git::is_sync_worktree_path(repo_path) {
+                let migrated = migrate_to_sync_branch(repo_root, DEFAULT_SYNC_BRANCH, "tsq")?;
+                return Ok(migrated.worktree_path);
+            }
+            return Ok(repo_root.to_string());
+        }
     };
 
     let repo_path = Path::new(repo_root);
@@ -465,6 +474,75 @@ mod tests {
 
         let err = resolve_effective_root(&repo.to_string_lossy()).expect_err("expected error");
         assert_eq!(err.code, "GIT_NOT_AVAILABLE");
+    }
+
+    #[test]
+    fn resolve_effective_root_migrates_legacy_git_repo_to_default_sync_branch() {
+        unsafe {
+            std::env::set_var("GIT_AUTHOR_NAME", "tasque-test");
+            std::env::set_var("GIT_AUTHOR_EMAIL", "tasque@example.com");
+            std::env::set_var("GIT_COMMITTER_NAME", "tasque-test");
+            std::env::set_var("GIT_COMMITTER_EMAIL", "tasque@example.com");
+        }
+
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let repo = dir.path();
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(repo)
+            .output()
+            .expect("git init");
+        std::process::Command::new("git")
+            .args(["config", "user.name", "tasque-test"])
+            .current_dir(repo)
+            .output()
+            .expect("git config");
+        std::process::Command::new("git")
+            .args(["config", "user.email", "tasque@example.com"])
+            .current_dir(repo)
+            .output()
+            .expect("git config");
+
+        std::fs::create_dir_all(repo.join(".tasque")).expect("mkdir");
+        let config = crate::types::Config {
+            schema_version: 1,
+            snapshot_every: 200,
+            sync_branch: None,
+        };
+        write_config(repo, &config).expect("write_config");
+
+        let mut created_payload = serde_json::Map::new();
+        created_payload.insert(
+            "title".to_string(),
+            serde_json::Value::String("Legacy task".to_string()),
+        );
+        append_events(
+            repo,
+            &[crate::types::EventRecord {
+                id: Some("01LEGACY".to_string()),
+                event_id: Some("01LEGACY".to_string()),
+                ts: "2026-01-01T00:00:00Z".to_string(),
+                actor: "test".to_string(),
+                event_type: crate::types::EventType::TaskCreated,
+                task_id: "tsq-legacy1".to_string(),
+                payload: created_payload,
+            }],
+        )
+        .expect("append legacy event");
+
+        let effective =
+            resolve_effective_root(&repo.to_string_lossy()).expect("resolve_effective_root");
+
+        assert!(effective.ends_with("tasque-sync-worktree"));
+        let updated_config = read_config(repo).expect("read updated config");
+        assert_eq!(
+            updated_config.sync_branch.as_deref(),
+            Some(DEFAULT_SYNC_BRANCH)
+        );
+        let migrated = read_events(&effective).expect("read migrated events");
+        assert_eq!(migrated.events.len(), 1);
+        let root_events = read_events(repo).expect("read root events");
+        assert_eq!(root_events.events.len(), 0);
     }
 
     #[test]

@@ -4,6 +4,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 pub const SCHEMA_VERSION: u32 = 1;
+pub const STATE_CACHE_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -222,6 +223,8 @@ pub struct StateCache {
 pub struct Snapshot {
     pub taken_at: String,
     pub event_count: usize,
+    #[serde(default)]
+    pub projection_version: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub event_log: Option<EventLogMetadata>,
     pub state: State,

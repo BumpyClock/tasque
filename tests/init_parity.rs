@@ -1,7 +1,9 @@
 mod common;
 
 use common::{assert_validation_error, make_repo, run_json};
-use tasque::cli::init_flow::{InitCommandOptions, InitResolutionContext, resolve_init_plan};
+use tasque::cli::init_flow::{
+    InitCommandOptions, InitPlan, InitResolutionContext, resolve_init_plan, run_init_wizard,
+};
 
 fn assert_init_validation_error(result: &common::JsonOutput, expected_message: &str) {
     assert_eq!(
@@ -110,4 +112,99 @@ fn resolve_init_plan_rejects_preset_with_json_in_tty_context() {
 
     let err = resolve_init_plan(&options, &context).expect_err("expected validation error");
     assert_resolve_validation_error(err, "--preset is not supported with --json");
+}
+
+#[test]
+fn resolve_init_plan_preserves_sync_branch_in_non_interactive_input() {
+    let options = InitCommandOptions {
+        sync_branch: Some("tasque-sync".to_string()),
+        ..InitCommandOptions::default()
+    };
+    let context = InitResolutionContext {
+        raw_args: vec!["init".to_string(), "--sync-branch".to_string()],
+        is_tty: false,
+        json: false,
+    };
+
+    let plan = resolve_init_plan(&options, &context).expect("expected init plan");
+
+    match plan {
+        InitPlan::NonInteractive { input } => {
+            assert_eq!(input.sync_branch.as_deref(), Some("tasque-sync"));
+            assert!(!input.install_skill);
+            assert!(!input.uninstall_skill);
+        }
+        InitPlan::Wizard { .. } => panic!("expected non-interactive plan"),
+    }
+}
+
+#[test]
+fn resolve_init_plan_preserves_sync_branch_in_wizard_seed() {
+    let options = InitCommandOptions {
+        sync_branch: Some("tasque-sync".to_string()),
+        ..InitCommandOptions::default()
+    };
+    let context = InitResolutionContext {
+        raw_args: vec!["init".to_string(), "--sync-branch".to_string()],
+        is_tty: true,
+        json: false,
+    };
+
+    let plan = resolve_init_plan(&options, &context).expect("expected init plan");
+
+    match plan {
+        InitPlan::Wizard { seed, .. } => {
+            assert_eq!(seed.sync_branch.as_deref(), Some("tasque-sync"));
+            assert_eq!(seed.action, tasque::cli::init_flow::SkillAction::None);
+        }
+        InitPlan::NonInteractive { .. } => panic!("expected wizard plan"),
+    }
+}
+
+#[test]
+fn run_init_wizard_auto_accept_preserves_sync_branch_in_input() {
+    let options = InitCommandOptions {
+        sync_branch: Some("tasque-sync".to_string()),
+        ..InitCommandOptions::default()
+    };
+    let context = InitResolutionContext {
+        raw_args: vec!["init".to_string(), "--wizard".to_string()],
+        is_tty: true,
+        json: false,
+    };
+
+    let plan = resolve_init_plan(&options, &context).expect("expected init plan");
+    let InitPlan::Wizard { seed, .. } = plan else {
+        panic!("expected wizard plan");
+    };
+
+    let input = run_init_wizard(seed, true).expect("expected wizard input");
+
+    assert_eq!(input.sync_branch.as_deref(), Some("tasque-sync"));
+    assert!(!input.install_skill);
+    assert!(!input.uninstall_skill);
+}
+
+#[test]
+fn sync_branch_does_not_require_skill_action() {
+    let options = InitCommandOptions {
+        sync_branch: Some("tasque-sync".to_string()),
+        ..InitCommandOptions::default()
+    };
+    let context = InitResolutionContext {
+        raw_args: vec!["init".to_string(), "--sync-branch".to_string()],
+        is_tty: false,
+        json: false,
+    };
+
+    let plan = resolve_init_plan(&options, &context).expect("expected init plan");
+
+    match plan {
+        InitPlan::NonInteractive { input } => {
+            assert_eq!(input.sync_branch.as_deref(), Some("tasque-sync"));
+            assert_eq!(input.skill_targets, None);
+            assert_eq!(input.skill_name, None);
+        }
+        InitPlan::Wizard { .. } => panic!("expected non-interactive plan"),
+    }
 }

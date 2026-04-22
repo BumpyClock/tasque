@@ -5,6 +5,7 @@ use super::projector_helpers::{
     set_child_counter, set_task_closed_state, task_status_to_string,
 };
 use crate::errors::TsqError;
+use crate::store::paths::is_task_spec_relative_path;
 use crate::types::{EventRecord, PlanningState, Task, TaskKind, TaskNote, TaskStatus};
 
 pub(crate) fn apply_task_created(
@@ -137,7 +138,14 @@ pub(crate) fn apply_task_updated(
         next.priority = priority;
     }
 
-    let _ = optional_task_status_field(payload, "status", event, "task.updated")?;
+    if let Some(status) = optional_task_status_field(payload, "status", event, "task.updated")? {
+        next.status = status;
+        next.closed_at = if status == TaskStatus::Closed {
+            as_string(payload.get("closed_at")).or_else(|| Some(event.ts.clone()))
+        } else {
+            None
+        };
+    }
 
     let assignee = as_string(payload.get("assignee"));
     if let Some(assignee) = assignee {
@@ -151,6 +159,7 @@ pub(crate) fn apply_task_updated(
     if let Some(parent_id) =
         optional_task_ref_field(state, payload, "parent_id", event, "task.updated")?
     {
+        assert_no_parent_cycle(state, &event.task_id, &parent_id, event, "task.updated")?;
         next.parent_id = Some(parent_id.clone());
         set_child_counter(state, &parent_id, &event.task_id);
     }
@@ -417,11 +426,26 @@ pub(crate) fn apply_task_spec_attached(
         })));
     }
 
+    let spec_path = spec_path.unwrap();
+    let spec_fingerprint = spec_fingerprint.unwrap();
+    if !is_task_spec_relative_path(&event.task_id, &spec_path) {
+        return Err(TsqError::new(
+            "INVALID_EVENT",
+            "task.spec_attached spec_path must be canonical",
+            1,
+        )
+        .with_details(serde_json::json!({
+          "event_id": event_id_value(event),
+          "task_id": &event.task_id,
+          "spec_path": spec_path,
+        })));
+    }
+
     state.tasks.insert(
         event.task_id.clone(),
         Task {
-            spec_path: Some(spec_path.unwrap()),
-            spec_fingerprint: Some(spec_fingerprint.unwrap()),
+            spec_path: Some(spec_path),
+            spec_fingerprint: Some(spec_fingerprint),
             spec_attached_at: Some(spec_attached_at),
             spec_attached_by: Some(spec_attached_by),
             updated_at: event.ts.clone(),
@@ -429,6 +453,39 @@ pub(crate) fn apply_task_spec_attached(
         },
     );
 
+    Ok(())
+}
+
+fn assert_no_parent_cycle(
+    state: &crate::types::State,
+    task_id: &str,
+    parent_id: &str,
+    event: &EventRecord,
+    event_name: &str,
+) -> Result<(), TsqError> {
+    let mut cursor = Some(parent_id);
+    let mut visited = std::collections::HashSet::new();
+    while let Some(current) = cursor {
+        if current == task_id {
+            return Err(TsqError::new(
+                "INVALID_EVENT",
+                format!("{} parent_id would create a cycle", event_name),
+                1,
+            )
+            .with_details(serde_json::json!({
+              "event_id": event_id_value(event),
+              "task_id": task_id,
+              "parent_id": parent_id,
+            })));
+        }
+        if !visited.insert(current.to_string()) {
+            return Ok(());
+        }
+        cursor = state
+            .tasks
+            .get(current)
+            .and_then(|task| task.parent_id.as_deref());
+    }
     Ok(())
 }
 

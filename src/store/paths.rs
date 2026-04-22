@@ -28,6 +28,10 @@ pub fn task_spec_relative_path(task_id: &str) -> String {
     format!(".tasque/specs/{}/spec.md", task_id)
 }
 
+pub fn is_task_spec_relative_path(task_id: &str, spec_path: &str) -> bool {
+    spec_path == task_spec_relative_path(task_id)
+}
+
 pub fn task_spec_file(repo_root: impl AsRef<Path>, task_id: &str) -> PathBuf {
     repo_root
         .as_ref()

@@ -1,6 +1,8 @@
 use crate::errors::TsqError;
 use crate::store::paths::get_paths;
-use crate::types::{EventLogMetadata, SCHEMA_VERSION, State, StateCache};
+use crate::types::{
+    EventLogMetadata, SCHEMA_VERSION, STATE_CACHE_SCHEMA_VERSION, State, StateCache,
+};
 use chrono::Utc;
 use std::fs::{OpenOptions, create_dir_all, read_to_string, remove_file, rename};
 use std::io::Write;
@@ -24,7 +26,7 @@ pub fn write_state_cache(
         Utc::now().timestamp_millis()
     );
     let cache = StateCache {
-        schema_version: SCHEMA_VERSION,
+        schema_version: STATE_CACHE_SCHEMA_VERSION,
         event_log: Some(event_log),
         state: state.clone(),
     };
@@ -75,7 +77,12 @@ pub fn read_state_cache(repo_root: impl AsRef<Path>) -> Result<Option<StateCache
     for state_file in candidates.iter() {
         match read_to_string(state_file) {
             Ok(raw) => match serde_json::from_str::<StateCache>(&raw) {
-                Ok(cache) => return Ok(Some(cache)),
+                Ok(cache) => {
+                    if cache.schema_version == STATE_CACHE_SCHEMA_VERSION {
+                        return Ok(Some(cache));
+                    }
+                    continue;
+                }
                 Err(_) => match serde_json::from_str::<State>(&raw) {
                     Ok(state) => {
                         return Ok(Some(StateCache {

@@ -4,7 +4,13 @@ This file contains detailed storage, task model, CLI contract, and project conve
 Referenced from [AGENTS.md](./AGENTS.md).
 
 ## Storage Model
-Repo-local `.tasque/`:
+Git repositories default to sync-worktree mode:
+- `tsq init` configures the `tasque-sync` branch unless `--sync-branch <branch>` names a custom branch.
+- data operations are redirected to the dedicated `tasque-sync-worktree`
+- legacy main-tree `.tasque` data migrates automatically when no `sync_branch` is configured
+- the main worktree keeps `.tasque/config.json` as the pointer to the sync branch
+
+Non-git directories use repo-local `.tasque/`:
 - `.tasque/events.jsonl` (canonical source of truth, append-only)
 - `.tasque/state.json` (derived cache, rebuildable, gitignored)
 - `.tasque/tasks.jsonl` (legacy state-cache name; read-only fallback when `state.json` is absent; removal target)
@@ -35,6 +41,8 @@ Event types:
 - `link.removed`
 
 Read path:
+- resolve configured sync worktree when `sync_branch` is set
+- migrate legacy git repos to the default sync worktree when no `sync_branch` is set
 - load latest snapshot (if any)
 - replay event tail
 - refresh `state.json` cache

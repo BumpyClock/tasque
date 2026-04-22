@@ -25,14 +25,20 @@ JSONL only.
 - multi-writer guarantees across machines
 
 ## Stack
-- Runtime: Bun (latest)
-- Language: TypeScript (`strict`)
-- CLI parser: `commander` (simple, stable)
-- Validation: `zod` + `TsqError` (event-line schema validation at JSONL parse boundaries; projector/service still perform domain validation)
-- Terminal output: `picocolors` + minimal table util
+- Runtime: native Rust binary (`tsq`)
+- Language: Rust 2024
+- CLI parser: `clap` derive
+- Serialization/validation: `serde`/`serde_json` at JSONL boundaries plus typed domain validation
+- Terminal output: TTY-aware render/style modules
 
 ## Storage Model (JSONL)
-Repo-local `.tasque/`:
+Git repos default to sync-worktree mode:
+- `tsq init` configures `tasque-sync` unless `--sync-branch <branch>` overrides it
+- data operations redirect to `tasque-sync-worktree`
+- legacy main-tree `.tasque` data migrates automatically when no `sync_branch` is configured
+- main worktree keeps `.tasque/config.json` as the pointer to the sync branch
+
+Non-git dirs use repo-local `.tasque/`:
 - `.tasque/events.jsonl` (source of truth, append-only)
 - `.tasque/state.json` (derived cache; rebuildable)
 - `.tasque/config.json` (project settings)
@@ -50,12 +56,17 @@ Event types:
 - `task.updated`
 - `task.status_set`
 - `task.claimed`
+- `task.noted`
+- `task.spec_attached`
+- `task.superseded`
 - `dep.added`
 - `dep.removed`
 - `link.added`
 - `link.removed`
 
 Read path:
+- resolve configured sync worktree when `sync_branch` is set
+- migrate legacy git repos to the default sync worktree when no `sync_branch` is set
 - load `state.json` if present + fresh
 - else replay `events.jsonl`
 - on write: append event, update cache
@@ -64,7 +75,7 @@ Read path:
 Task fields:
 - `id` (`tsq-<hash>` root, `<parent>.<n>` child)
 - `title`
-- `status` (`open|in_progress|blocked|closed|canceled`)
+- `status` (`open|in_progress|blocked|deferred|closed|canceled`)
 - `priority` (`0..3`)
 - `assignee` (optional)
 - `parent_id` (optional)
@@ -86,21 +97,56 @@ Open blocker:
 - target status not in `closed|canceled`
 
 ## CLI Contract (V1)
-- `tsq init`
-- `tsq create [<title>] [--child <title> ...] [-p 0..3] [--parent <id>] [--ensure] [--json]`
-- `tsq show <id> [--json]`
-- `tsq list [--status <s>] [--assignee <a>] [--json]`
-- `tsq ready [--json]`
-- `tsq update <id> [--title ...] [--status ...] [--priority ...] [--json]`
-- `tsq update <id> --claim [--assignee <a>] [--json]`
-- `tsq dep add <child> <blocker> [--json]`
-- `tsq dep remove <child> <blocker> [--json]`
-- `tsq link add <src> <dst> --type <relation> [--json]`
+- `tsq` (no args, TTY): open read-only TUI
+- `tsq init [--wizard|--no-wizard] [--yes] [--preset <name>] [--sync-branch <branch>]`
+- `tsq init --install-skill|--uninstall-skill [--skill-targets ...] [--skill-name <name>] [--force-skill-overwrite]`
+- `tsq create [<title>] [--child <title> ...] [--kind ...] [-p 0..3] [--parent <id>] [--description <text>] [--external-ref <ref>] [--discovered-from <id>] [--planning <needs_planning|planned>] [--needs-planning] [--ensure] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
+- `tsq show <id>`
+- `tsq list [--status ...] [--assignee ...] [--unassigned] [--external-ref <ref>] [--discovered-from <id>] [--kind ...] [--label ...] [--label-any ...] [--created-after <iso>] [--updated-after <iso>] [--closed-after <iso>] [--id <id,...>] [--planning <needs_planning|planned>] [--dep-type <blocks|starts_after>] [--dep-direction <in|out|any>] [--tree] [--full]`
+- `tsq search <query>`
+- `tsq ready [--lane <planning|coding>]`
+- `tsq watch [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--tree]`
+- `tsq tui [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--board|--epics]`
+- `tsq stale [--days <n>] [--status <status>] [--assignee <name>] [--limit <n>]`
+- `tsq doctor`
+- `tsq repair [--fix] [--force-unlock]`
+- `tsq update <id> [--title ...] [--description ...] [--clear-description] [--status ...] [--priority ...] [--external-ref <ref>] [--clear-external-ref] [--discovered-from <id>] [--clear-discovered-from] [--planning <needs_planning|planned>]`
+- `tsq update <id> --claim [--assignee <a>] [--require-spec]`
+- `tsq close <id...> [--reason <text>]`
+- `tsq reopen <id...>`
+- `tsq orphans`
+- `tsq spec attach <id> [source] [--file <path> | --stdin | --text <markdown>]`
+- `tsq spec check <id>`
+- `tsq dep add <child> <blocker> [--type <blocks|starts_after>]`
+- `tsq dep tree <id> [--direction <up|down|both>] [--depth <n>]`
+- `tsq dep remove <child> <blocker> [--type <blocks|starts_after>]`
+- `tsq link add <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
+- `tsq link remove <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
+- `tsq duplicate <id> --of <canonical-id> [--reason <text>]`
+- `tsq duplicates [--limit <n>]`
+- `tsq merge <source-id...> --into <target-id> [--reason <text>] [--force] [--dry-run]`
+- `tsq supersede <old-id> --with <new-id> [--reason <text>]`
+- `tsq note add <id> <text>`
+- `tsq note list <id>`
+- `tsq label add <id> <label>`
+- `tsq label remove <id> <label>`
+- `tsq label list`
+- `tsq history <id> [--limit <n>] [--type <event-type>] [--actor <name>] [--since <iso>]`
+- `tsq sync [--no-push]`
+- `tsq hooks install [--force]`
+- `tsq hooks uninstall`
+- `tsq migrate --sync-branch <branch>`
+- `tsq merge-driver <ancestor> <ours> <theirs>`
+
+Global options:
+- `--json`
+- `--exact-id`
 
 Exit codes:
 - `0` success
 - `1` validation/user error
 - `2` storage/IO error
+- `3` lock/concurrency failure
 
 ## Concurrency + Integrity
 - single-process write lock: `.tasque/.lock` (`open wx`, short retry)
@@ -110,19 +156,19 @@ Exit codes:
 
 ## Repo Conventions
 - commit `.tasque/events.jsonl` + `.tasque/config.json`
-- optional: commit `state.json` (or regenerate in CI)
+- do not commit `.tasque/state.json`
+- do not create or edit `.tasque/tasks.jsonl`
 - no manual edits to generated cache
 
 ## Build Plan
-1. bootstrap Bun TS CLI skeleton
-2. implement event append/read + replay
-3. implement task commands (`init/create/show/update/list`)
-4. implement deps/links + ready logic
-5. add `--json` stable output
-6. add tests (ID generation, replay, ready, deps)
+1. maintain Rust CLI/TUI feature parity
+2. keep event append/read/replay durable
+3. keep command behavior stable under `--json`
+4. keep release/npm packaging aligned to `Cargo.toml`
+5. run `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --quiet` before handoff
 
 ## Keep It Simple Rules
 - prefer one clear code path over abstractions
-- no plugin system in V1
+- no backend plugin system in current scope
 - no backend interface layer until second backend exists
 - file size target: <500 LOC per file

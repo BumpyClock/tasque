@@ -42,6 +42,7 @@ pub struct InitArgs {
     pub skill_dir_copilot: Option<String>,
     #[arg(long = "skill-dir-opencode")]
     pub skill_dir_opencode: Option<String>,
+    /// Override the default sync branch used for git worktree-backed storage
     #[arg(long = "sync-branch")]
     pub sync_branch: Option<String>,
 }

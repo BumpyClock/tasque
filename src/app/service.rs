@@ -13,8 +13,10 @@ use crate::app::service_utils::must_resolve_existing;
 use crate::app::storage::{
     ensure_events_file, ensure_tasque_gitignore, load_projected_state, write_default_config,
 };
+use crate::app::sync::DEFAULT_SYNC_BRANCH;
 use crate::domain::dep_tree::build_dep_tree;
 use crate::skills::{apply_skill_operation, types::SkillAction};
+use crate::store::git;
 use crate::types::{DependencyType, RelationType, RepairResult, Task, TaskTreeNode};
 use crate::{app::service_lifecycle, app::service_query, errors::TsqError};
 use std::fs;
@@ -64,7 +66,14 @@ impl TasqueService {
             ".tasque/.gitignore".to_string(),
         ];
 
-        let sync_setup = if let Some(ref branch) = input.sync_branch {
+        let default_sync_branch =
+            if input.sync_branch.is_none() && should_default_to_sync_branch(&self.ctx.repo_root) {
+                Some(DEFAULT_SYNC_BRANCH.to_string())
+            } else {
+                None
+            };
+        let sync_branch = input.sync_branch.as_ref().or(default_sync_branch.as_ref());
+        let sync_setup = if let Some(branch) = sync_branch {
             Some(crate::app::sync::setup_sync_branch(
                 &self.ctx.repo_root,
                 branch,
@@ -311,4 +320,9 @@ fn build_target_overrides(
 
 fn io_error_value(error: &std::io::Error) -> serde_json::Value {
     serde_json::json!({"kind": format!("{:?}", error.kind()), "message": error.to_string()})
+}
+
+fn should_default_to_sync_branch(repo_root: &str) -> bool {
+    let path = std::path::Path::new(repo_root);
+    git::is_git_repo(path) && !git::is_sync_worktree_path(path)
 }

@@ -7,6 +7,12 @@ Read when: you need exact command syntax or available options.
 - `tsq` (no args, TTY): open read-only TUI
 - `tsq init [--wizard|--no-wizard] [--yes] [--preset <name>] [--sync-branch <branch>]`
 - `tsq init --install-skill|--uninstall-skill [--skill-targets ...] [--skill-name <name>] [--force-skill-overwrite]`
+
+In git repos, `tsq init` defaults to sync-worktree mode using `tasque-sync`.
+Use `--sync-branch <branch>` to choose another branch. Existing main-tree
+`.tasque` data migrates automatically. Non-git directories use local `.tasque/`
+storage.
+
 - `tsq create [<title>] [--child <title> ...] [--kind ...] [-p ...] [--parent <id>] [--description <text>] [--external-ref <ref>] [--discovered-from <id>] [--planning <needs_planning|planned>] [--needs-planning] [--ensure] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
 - `tsq show <id>`
 - `tsq list [--status ...] [--assignee ...] [--unassigned] [--external-ref <ref>] [--discovered-from <id>] [--kind ...] [--label ...] [--label-any ...] [--created-after <iso>] [--updated-after <iso>] [--closed-after <iso>] [--id <id,...>] [--planning <needs_planning|planned>] [--dep-type <blocks|starts_after>] [--dep-direction <in|out|any>] [--tree] [--full]`

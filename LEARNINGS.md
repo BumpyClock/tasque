@@ -4,10 +4,11 @@
 - JSONL append-only events (`.tasque/events.jsonl`) are the sole source of truth. Derived state (`.tasque/state.json`) is a rebuildable cache — never edit it manually.
 - Single-machine write lock via `.tasque/.lock` (`open wx`, short retry). No multi-writer guarantees.
 - Snapshot loader scans newest-to-oldest valid snapshot; writes prune to latest 5 files.
+- Git repos default to sync-worktree mode on `tsq init`: main worktree keeps `.tasque/config.json`; task data lives in `tasque-sync-worktree` unless `--sync-branch` names another branch. Legacy git repos with main-tree `.tasque` data auto-migrate on the next command.
 - Event IDs are ULIDs. Canonical event field is `id` with legacy `event_id` alias accepted on read. Task IDs are 8-char Crockford base32 random (root) or `<parent>.<n>` (children, append-only).
-- TasqueService is split into focused modules: `service.ts` (facade, 454 LOC), `service-types.ts`, `service-utils.ts`, `service-lifecycle.ts` (mutations), `service-query.ts` (queries). Internal modules receive a `ServiceContext` object.
+- TasqueService is split into focused Rust modules: `src/app/service.rs` (facade), `src/app/service_types.rs`, `src/app/service_utils.rs`, `src/app/service_lifecycle*.rs` (mutations), `src/app/service_query.rs`, plus notes/specs/labels modules. Internal modules receive a `ServiceContext` object.
 - Status transitions emit `task.status_set` events; non-status field updates emit `task.updated`. Supersede/duplicate emit both.
-- Shared helpers: `src/domain/events.ts` (event factory), `src/cli/terminal.ts` (width/density), `buildDependentsByBlocker` lives in `dep-tree.ts`.
+- Shared helpers: `src/domain/events.rs` (event factory), `src/cli/terminal.rs` (width/density), dependency tree helpers in `src/domain/dep_tree.rs`.
 - JSON output uses a universal envelope with `schema_version=1`.
 
 ## Design Decisions
@@ -21,30 +22,29 @@
 
 ## Pitfalls
 - Human-readable CLI color/styling must stay TTY-aware and honor `NO_COLOR`/`CLICOLOR=0` (with optional `CLICOLOR_FORCE`) so automation/tests remain plain-text stable while interactive shells get richer output.
-- `resolveTaskId` throws `TASK_NOT_FOUND`, not `NOT_FOUND`.
-- Negated search queries (`-field:value`) need a `--` separator before them due to commander treating leading `-` as option flags.
-- Commander option conflict detection (e.g. `--assignee` vs `--unassigned`) must use option events, not just value checks, to handle both `--flag value` and `--flag=value` forms consistently.
+- `resolve_task_id` returns `TASK_NOT_FOUND`, not `NOT_FOUND`.
+- Negated search queries (`-field:value`) need a `--` separator before them because `clap` treats leading `-` as option flags.
+- `clap` option conflict detection (e.g. `--assignee` vs `--unassigned`) must handle both `--flag value` and `--flag=value` forms consistently.
 - Lock contention timeout (`LOCK_TIMEOUT`) is a concurrency-class failure and must keep `exitCode: 3` (not IO/storage code 2).
 - Query tokenizer must handle `field:\"quoted value\"` as one token; quote handling only at token-start breaks field-prefixed quoted filters.
-- `withWriteLock` throws `AggregateError` when both callback and release fail; uses try/catch flow (not `finally`) to satisfy biome `noUnsafeFinally`.
+- `with_write_lock` returns `INTERNAL_ERROR` when both callback and lock release fail; keep release failure visible instead of masking it behind the callback error.
 - Stale lock cleanup uses atomic `rename` + content verification to prevent TOCTOU races between concurrent cleaners.
 - Projector validates dep/link targets with `requireTask()` — repair tests must inject orphans via state cache, not raw events, to bypass this validation.
 - `repair --fix` computes plan inside write lock using locked snapshot to prevent plan/apply drift.
-- `process.exitCode` is sticky within a long-lived process. Reset at command entry (`preAction`) so a prior failing command does not cause later successful commands to exit non-zero.
+- CLI command handlers return explicit `i32` exit codes; do not reintroduce global process exit state that can leak between in-process command runs.
 - `clap` may report no-subcommand cases as `DisplayHelpOnMissingArgumentOrSubcommand` (not only `MissingSubcommand`); for hard default no-arg behavior (like TUI entry), prefer an explicit pre-parse `args.len()==1` TTY check and then handle both error kinds in fallback parsing paths.
-- Under `bun test` on Windows, piping stdin into compiled `dist/tsq.exe` can be flaky; stdin-focused tests are more reliable when they feed stdin from a file descriptor (e.g., `stdin: Bun.file(path)`) or run via source entry.
-- Test helpers default to compiled `dist/tsq.exe` when present; for new CLI-option coverage before a fresh build, run those tests against `bun run src/main.ts` to avoid stale-binary false failures.
-- `bun run build` can fail with `EPERM` on Windows if `dist/tsq.exe` is still in use by a running test process; retry build after tests complete.
+- On Windows, replacing a compiled `tsq.exe` can fail with `EPERM` if a prior test or shell still holds the binary; stop the process and retry the Cargo build.
+- For new CLI-option coverage before a fresh release build, run tests against `cargo run -- ...` or rebuild first to avoid stale-binary false failures.
 
 ## Build & Release
-- `bun run build` compiles a single binary; `bun run release` emits a platform artifact + `SHA256SUMS.txt` in `dist/releases/`.
+- `cargo build --release --locked` compiles the Rust binary; release workflows emit platform artifacts + `SHA256SUMS.txt` in `dist/releases/`.
 - Release automation should pass the freshly built `dist/tsq(.exe)` path into release-note generation instead of relying on `tsq` from `PATH`; this keeps GitHub runners and local environments deterministic.
 - `tsq init` skill lifecycle for agents uses managed-marker semantics: install, uninstall, idempotent update, non-managed skip unless `--force`.
-- Versioning/release planning baseline: use `package.json` as version source, surface via CLI `-V/--version`, and automate release PR/tag flow with release-please + GitHub Actions artifact publishing.
-- Added `bun run version:bump` helper (`scripts/version-bump.ts`) to bump package semver (`--version` or `--bump`) plus optional schema version (`--schema`) and update schema-version examples in docs; supports `--dry-run`.
+- Versioning/release planning baseline: use `Cargo.toml` as version source, surface via CLI `-V/--version`, and automate release PR/tag flow with release-please + GitHub Actions artifact publishing.
+- Added `node npm/scripts/bump-version.js` helper to bump `Cargo.toml`, `Cargo.lock`, root npm package, and platform package versions; supports `--dry-run`.
 - `release-please.yml` now supports `workflow_dispatch` for manual release-PR refresh from GitHub Actions.
-- Added `bun run release:verify-version` helper (`scripts/release-version.ts`) to enforce tag/version sync (`v<package.version>`) in CI and manual release workflows.
-- Added `release-from-package.yml` workflow: manual dispatch creates a GitHub release from `package.json` version and then the publish workflow handles artifact builds.
+- Release workflows enforce tag/version sync against `Cargo.toml`.
+- Added `release-from-package.yml` workflow: manual dispatch creates a GitHub release from `Cargo.toml` version and then the publish workflow handles artifact builds.
 
 ## Init UX
 - Wizard contract baseline: run `tsq init` wizard only on TTY by default; `--no-wizard` is authoritative; `--wizard` is TTY-only; non-interactive agent flows must remain fully deterministic via flags.
@@ -52,7 +52,7 @@
 - Explicit skill actions (`--install-skill` / `--uninstall-skill`) should bypass auto-wizard mode so `tsq init` executes immediately; `--wizard` is still available to force interactive flow.
 
 ## Recent Updates
-- 2026-02-18: Event parsing now uses Zod at JSONL boundaries; canonical event field is `id` while reads still accept legacy `event_id`.
+- 2026-02-18: Event parsing validates JSONL boundaries via typed Rust/serde parsing; canonical event field is `id` while reads still accept legacy `event_id`.
 - 2026-02-18: Cache path migrated to `.tasque/state.json` with backward-compatible reads from legacy `.tasque/tasks.jsonl`.
 - 2026-02-18: Planned workflow model approved: keep lifecycle `status` separate from new `planning_state`; add `deferred` lifecycle status; `ready` should surface both planning and coding lanes with optional lane filter; create defaults to `planning_state=needs_planning`; add `--body-file`, strict `--id` regex, and deferred follow-up tasks for `discovered-from` + typed dependency model expansion.
 - 2026-02-18: Implemented `discovered_from` provenance metadata end-to-end (`create/update/list/search/show`) and typed dependency edges (`blocks|starts_after`) with directional filters/search (`--dep-type/--dep-direction`, `dep_type_in/out`); only `blocks` affect ready/cycle checks.

@@ -1,4 +1,8 @@
 use crate::domain::deps::normalize_dependency_edges;
+use crate::domain::event_payload_codecs::{
+    event_type_as_str, planning_state_from_str, relation_type_from_str, task_kind_from_str,
+    task_status_as_str, task_status_from_str,
+};
 use crate::errors::TsqError;
 use crate::types::{
     EventRecord, EventType, PlanningState, Priority, RelationType, State, Task, TaskKind,
@@ -38,42 +42,19 @@ pub(crate) fn as_bool(value: Option<&Value>) -> Option<bool> {
 }
 
 pub(crate) fn as_task_kind(value: Option<&Value>) -> Option<TaskKind> {
-    match value?.as_str()? {
-        "task" => Some(TaskKind::Task),
-        "feature" => Some(TaskKind::Feature),
-        "epic" => Some(TaskKind::Epic),
-        _ => None,
-    }
+    task_kind_from_str(value?.as_str()?)
 }
 
 pub(crate) fn as_task_status(value: Option<&Value>) -> Option<TaskStatus> {
-    match value?.as_str()? {
-        "open" => Some(TaskStatus::Open),
-        "in_progress" => Some(TaskStatus::InProgress),
-        "blocked" => Some(TaskStatus::Blocked),
-        "closed" => Some(TaskStatus::Closed),
-        "canceled" => Some(TaskStatus::Canceled),
-        "deferred" => Some(TaskStatus::Deferred),
-        _ => None,
-    }
+    task_status_from_str(value?.as_str()?)
 }
 
 pub(crate) fn as_planning_state(value: Option<&Value>) -> Option<PlanningState> {
-    match value?.as_str()? {
-        "needs_planning" => Some(PlanningState::NeedsPlanning),
-        "planned" => Some(PlanningState::Planned),
-        _ => None,
-    }
+    planning_state_from_str(value?.as_str()?)
 }
 
 pub(crate) fn as_relation_type(value: Option<&Value>) -> Option<RelationType> {
-    match value?.as_str()? {
-        "relates_to" => Some(RelationType::RelatesTo),
-        "replies_to" => Some(RelationType::RepliesTo),
-        "duplicates" => Some(RelationType::Duplicates),
-        "supersedes" => Some(RelationType::Supersedes),
-        _ => None,
-    }
+    relation_type_from_str(value?.as_str()?)
 }
 
 pub(crate) fn optional_task_kind_field(
@@ -198,32 +179,11 @@ fn invalid_event_field(event: &EventRecord, event_name: &str, field: &str) -> Ts
 }
 
 pub(crate) fn event_type_to_string(event_type: &EventType) -> &'static str {
-    #[allow(unreachable_patterns)]
-    match event_type {
-        EventType::TaskCreated => "task.created",
-        EventType::TaskUpdated => "task.updated",
-        EventType::TaskStatusSet => "task.status_set",
-        EventType::TaskClaimed => "task.claimed",
-        EventType::TaskNoted => "task.noted",
-        EventType::TaskSpecAttached => "task.spec_attached",
-        EventType::TaskSuperseded => "task.superseded",
-        EventType::DepAdded => "dep.added",
-        EventType::DepRemoved => "dep.removed",
-        EventType::LinkAdded => "link.added",
-        EventType::LinkRemoved => "link.removed",
-        _ => "unknown",
-    }
+    event_type_as_str(*event_type)
 }
 
 pub(crate) fn task_status_to_string(status: TaskStatus) -> &'static str {
-    match status {
-        TaskStatus::Open => "open",
-        TaskStatus::InProgress => "in_progress",
-        TaskStatus::Blocked => "blocked",
-        TaskStatus::Closed => "closed",
-        TaskStatus::Canceled => "canceled",
-        TaskStatus::Deferred => "deferred",
-    }
+    task_status_as_str(status)
 }
 
 pub(crate) fn event_id_value(event: &EventRecord) -> Option<String> {

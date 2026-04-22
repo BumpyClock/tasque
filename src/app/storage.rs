@@ -17,7 +17,9 @@ pub use crate::app::state::{
 pub use crate::store::config::{read_config, write_default_config};
 pub use crate::store::events::{append_events, read_events};
 pub use crate::store::lock::with_write_lock;
-pub use crate::store::paths::{get_paths, task_spec_file, task_spec_relative_path};
+pub use crate::store::paths::{
+    get_paths, is_task_spec_relative_path, task_spec_file, task_spec_relative_path,
+};
 pub use crate::store::snapshots::{load_latest_snapshot, write_snapshot};
 pub use crate::store::state::{read_state_cache, write_state_cache};
 
@@ -260,7 +262,19 @@ pub fn evaluate_task_spec(
         });
     }
 
-    if let Some(spec_path_value) = spec_path.clone() {
+    let metadata_path_valid = spec_path
+        .as_deref()
+        .map(|value| is_task_spec_relative_path(task_id, value))
+        .unwrap_or(true);
+    if !metadata_path_valid {
+        diagnostics.push(SpecCheckDiagnostic {
+            code: SpecCheckDiagnosticCode::SpecMetadataInvalid,
+            message: "task spec path is not canonical".to_string(),
+            details: Some(serde_json::json!({"spec_path": spec_path.clone()})),
+        });
+    }
+
+    if metadata_path_valid && let Some(spec_path_value) = spec_path.clone() {
         let resolved = resolve_spec_path(repo_root, &spec_path_value);
         match read_to_string(&resolved) {
             Ok(value) => content = Some(value),
@@ -328,7 +342,7 @@ pub fn evaluate_task_spec(
         task_id: task_id.to_string(),
         ok: diagnostics.is_empty(),
         spec: SpecCheckSpec {
-            attached: spec_path.is_some() && expected_fingerprint.is_some(),
+            attached: metadata_path_valid && spec_path.is_some() && expected_fingerprint.is_some(),
             spec_path,
             expected_fingerprint,
             actual_fingerprint,

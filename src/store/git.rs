@@ -435,8 +435,12 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), TsqError> {
         )
     })? {
         let entry = entry.map_err(|e| git_error("Failed reading dir entry", e.to_string()))?;
+        let file_name = entry.file_name();
+        if should_skip_tasque_seed_entry(&file_name.to_string_lossy()) {
+            continue;
+        }
         let src_path = entry.path();
-        let dst_path = dst.join(entry.file_name());
+        let dst_path = dst.join(file_name);
 
         if src_path.is_dir() {
             copy_dir_recursive(&src_path, &dst_path)?;
@@ -454,6 +458,16 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), TsqError> {
         }
     }
     Ok(())
+}
+
+fn should_skip_tasque_seed_entry(name: &str) -> bool {
+    name == ".lock"
+        || name == ".setup.lock"
+        || name == "state.json"
+        || name == "tasks.jsonl"
+        || name == "snapshots"
+        || name.starts_with("state.json.tmp")
+        || name.ends_with(".tmp")
 }
 
 #[cfg(test)]

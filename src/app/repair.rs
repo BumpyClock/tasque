@@ -113,6 +113,8 @@ fn scan_direct_ref(
         Some("self reference")
     } else if !state.tasks.contains_key(target) {
         Some("target missing")
+    } else if field == "parent_id" && parent_chain_reaches(state, target, task_id) {
+        Some("parent cycle")
     } else {
         None
     };
@@ -124,6 +126,24 @@ fn scan_direct_ref(
             reason,
         });
     }
+}
+
+fn parent_chain_reaches(state: &State, start: &str, target: &str) -> bool {
+    let mut cursor = Some(start);
+    let mut visited = std::collections::HashSet::new();
+    while let Some(current) = cursor {
+        if current == target {
+            return true;
+        }
+        if !visited.insert(current.to_string()) {
+            return false;
+        }
+        cursor = state
+            .tasks
+            .get(current)
+            .and_then(|task| task.parent_id.as_deref());
+    }
+    false
 }
 
 fn scan_filesystem(

@@ -62,7 +62,7 @@ fn hooks_install_and_uninstall_manage_pre_push_hook() {
 }
 
 #[test]
-fn sync_requires_sync_branch_configuration() {
+fn init_defaults_to_sync_branch_configuration_in_git_repo() {
     let repo = make_repo();
     let root = repo.path();
     git(root, &["init"]);
@@ -72,14 +72,20 @@ fn sync_requires_sync_branch_configuration() {
     let init = run_cli(root, ["init"]);
     assert_eq!(init.code, 0, "stderr: {}", init.stderr);
 
+    let config = fs::read_to_string(root.join(".tasque").join("config.json")).expect("config");
+    assert!(
+        config.contains("\"sync_branch\": \"tasque-sync\""),
+        "expected default sync branch config:\n{}",
+        config
+    );
+    let wt = root.join(".git").join("tasque-sync-worktree");
+    assert!(wt.join(".tasque").join("events.jsonl").exists());
+    assert!(!wt.join(".tasque").join(".setup.lock").exists());
+
     let result = run_cli(root, ["sync", "--json"]);
-    assert_eq!(result.code, 1, "stderr: {}", result.stderr);
+    assert_eq!(result.code, 0, "stderr: {}", result.stderr);
     let envelope: Value = serde_json::from_str(result.stdout.trim()).expect("json envelope");
-    let code = envelope
-        .get("error")
-        .and_then(|value| value.get("code"))
-        .and_then(Value::as_str);
-    assert_eq!(code, Some("SYNC_NOT_CONFIGURED"));
+    assert_eq!(envelope.get("ok").and_then(Value::as_bool), Some(true));
 }
 
 #[test]

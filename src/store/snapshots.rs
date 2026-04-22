@@ -1,6 +1,6 @@
 use crate::errors::TsqError;
 use crate::store::paths::get_paths;
-use crate::types::Snapshot;
+use crate::types::{STATE_CACHE_SCHEMA_VERSION, Snapshot};
 use chrono::Utc;
 use std::fs::{OpenOptions, create_dir_all, read_dir, read_to_string, remove_file, rename};
 use std::io::Write;
@@ -96,6 +96,7 @@ pub fn load_latest_snapshot_with_warning(
 
 fn is_snapshot(snapshot: &Snapshot) -> bool {
     !snapshot.taken_at.is_empty()
+        && snapshot.projection_version == STATE_CACHE_SCHEMA_VERSION
         && snapshot.event_log.as_ref().is_some_and(|event_log| {
             event_log.event_count == snapshot.event_count
                 && event_log.event_count == snapshot.state.applied_events

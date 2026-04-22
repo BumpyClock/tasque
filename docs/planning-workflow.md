@@ -1,3 +1,10 @@
+---
+summary: Planning-aware task workflow, deferred status, and lane-aware ready behavior.
+read_when:
+  - Changing task planning_state, deferred lifecycle status, or ready lane filtering.
+  - Updating CLI docs for planning, deferred, ready, list, or create/update flows.
+---
+
 # Planning Workflow
 
 ## Overview

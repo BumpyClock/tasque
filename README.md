@@ -3,7 +3,7 @@
 Local-first task tracker for coding agents.
 
 - JSONL source of truth
-- Repo-local storage in `.tasque/`
+- Git worktree-backed `.tasque/` storage by default in git repos
 - No DB/service
 - Durable restart + replay
 
@@ -57,6 +57,12 @@ Commands:
 - `tsq hooks uninstall`
 - `tsq migrate --sync-branch <branch>`
 - `tsq merge-driver <ancestor> <ours> <theirs>`
+
+Git repos default to worktree mode: `tsq init` creates/configures the `tasque-sync`
+branch and stores task data in a dedicated git worktree. Use `--sync-branch <branch>`
+to choose a different branch name. Existing git repos with main-tree `.tasque`
+data and no `sync_branch` migrate automatically on the next `tsq` command.
+Non-git directories use local `.tasque/` storage.
 
 
 
@@ -121,7 +127,15 @@ All steps must pass before merging.
 
 ## Storage Layout
 
-Repo-local `.tasque/`:
+Git repos default to a dedicated sync worktree:
+
+- `tsq init` configures `tasque-sync` and redirects data operations there.
+- Existing git repos with main-tree `.tasque` data migrate automatically when `tsq`
+  next resolves the project root.
+- The main worktree keeps `.tasque/config.json` so `tsq` can find the sync branch.
+- The sync worktree owns the canonical `.tasque/events.jsonl`, specs, snapshots, and cache.
+
+Non-git directories use repo-local `.tasque/`:
 
 - `events.jsonl`: canonical append-only event log
 - `state.json`: derived projection cache (rebuildable, gitignored)

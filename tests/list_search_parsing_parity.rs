@@ -77,6 +77,74 @@ fn list_rejects_repeatable_csv_values_with_empty_tokens() {
 }
 
 #[test]
+fn list_label_filter_normalizes_mixed_case_values() {
+    let repo = common::make_repo();
+    init_repo(repo.path());
+
+    let target = create_task(repo.path(), "Labeled target");
+    let other = create_task(repo.path(), "Other task");
+
+    let target_label = label_add(repo.path(), &target, "ops-team");
+    assert_eq!(target_label.cli.code, 0);
+    let other_label = label_add(repo.path(), &other, "infra");
+    assert_eq!(other_label.cli.code, 0);
+
+    let result = run_json(repo.path(), ["list", "--label", "OPS-Team"]);
+    assert_eq!(result.cli.code, 0);
+
+    let ids = ids_from_task_list(&result.envelope);
+    assert!(ids.contains(&target));
+    assert!(!ids.contains(&other));
+}
+
+#[test]
+fn list_label_any_filter_normalizes_mixed_case_values() {
+    let repo = common::make_repo();
+    init_repo(repo.path());
+
+    let ops = create_task(repo.path(), "Ops task");
+    let frontend = create_task(repo.path(), "Frontend task");
+    let other = create_task(repo.path(), "Other task");
+
+    let ops_label = label_add(repo.path(), &ops, "ops");
+    assert_eq!(ops_label.cli.code, 0);
+    let frontend_label = label_add(repo.path(), &frontend, "frontend");
+    assert_eq!(frontend_label.cli.code, 0);
+    let other_label = label_add(repo.path(), &other, "infra");
+    assert_eq!(other_label.cli.code, 0);
+
+    let result = run_json(repo.path(), ["list", "--label-any", "OPS,FrontEnd"]);
+    assert_eq!(result.cli.code, 0);
+
+    let ids = ids_from_task_list(&result.envelope);
+    assert!(ids.contains(&ops));
+    assert!(ids.contains(&frontend));
+    assert!(!ids.contains(&other));
+}
+
+#[test]
+fn list_rejects_invalid_label_filters() {
+    let repo = common::make_repo();
+    init_repo(repo.path());
+
+    let invalid_label = run_json(repo.path(), ["list", "--label", "bad label"]);
+    assert_eq!(invalid_label.cli.code, 1);
+    assert_validation_error(&invalid_label);
+    assert_error_message(
+        &invalid_label,
+        "label must only contain characters [a-z0-9:_/-]",
+    );
+
+    let invalid_label_any = run_json(repo.path(), ["list", "--label-any", "ops,bad label"]);
+    assert_eq!(invalid_label_any.cli.code, 1);
+    assert_validation_error(&invalid_label_any);
+    assert_error_message(
+        &invalid_label_any,
+        "label must only contain characters [a-z0-9:_/-]",
+    );
+}
+
+#[test]
 fn search_parses_field_prefixed_quoted_terms_as_single_token() {
     let repo = common::make_repo();
     init_repo(repo.path());

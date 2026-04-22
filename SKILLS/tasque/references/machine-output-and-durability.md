@@ -33,6 +33,10 @@ Error envelope:
 
 ## Storage model
 
+- Git repos default to sync-worktree mode on `tsq init`: the main worktree keeps
+  `.tasque/config.json`, while task data lives in `tasque-sync-worktree` unless
+  `--sync-branch` names another branch. Existing main-tree `.tasque` data
+  migrates automatically when no `sync_branch` is configured.
 - Canonical source of truth: `.tasque/events.jsonl` (append-only)
 - Derived cache: `.tasque/state.json` (rebuildable, gitignored)
 - Legacy cache fallback: `.tasque/tasks.jsonl` (read-only fallback when `state.json` is absent; removal target)

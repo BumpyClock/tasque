@@ -1,6 +1,7 @@
 use crate::app::runtime::{normalize_status, parse_priority};
 use crate::app::service_types::{DepDirectionFilter, ListFilter};
 use crate::domain::dep_tree::DepDirection;
+use crate::domain::labels::normalize_label;
 use crate::domain::validate::PlanningLane;
 use crate::errors::TsqError;
 use crate::skills::types::SkillTarget;
@@ -280,11 +281,11 @@ pub fn parse_list_filter(input: ListParseInput) -> Result<ListFilter, TsqError> 
     if let Some(kind) = input.kind.as_deref() {
         filter.kind = Some(parse_kind(kind)?);
     }
-    if let Some(label) = as_optional_string(input.label.as_deref()) {
+    if let Some(label) = parse_label_filter(input.label.as_deref(), "label")? {
         filter.label = Some(label);
     }
     if let Some(label_any) = parse_repeatable_csv_values(input.label_any, "label-any")? {
-        filter.label_any = Some(unique_sorted(label_any));
+        filter.label_any = Some(unique_sorted(normalize_label_values(label_any)?));
     }
     if let Some(created_after) = input.created_after.as_deref() {
         filter.created_after = Some(parse_iso_timestamp(created_after, "created-after")?);
@@ -393,6 +394,28 @@ fn parse_repeatable_csv_values(
         ));
     }
     Ok(Some(normalized))
+}
+
+fn parse_label_filter(raw: Option<&str>, field: &str) -> Result<Option<String>, TsqError> {
+    let Some(value) = raw else {
+        return Ok(None);
+    };
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(TsqError::new(
+            "VALIDATION_ERROR",
+            format!("--{} must not be empty", field),
+            1,
+        ));
+    }
+    normalize_label(trimmed).map(Some)
+}
+
+fn normalize_label_values(values: Vec<String>) -> Result<Vec<String>, TsqError> {
+    values
+        .into_iter()
+        .map(|value| normalize_label(&value))
+        .collect()
 }
 
 fn unique_sorted(mut values: Vec<String>) -> Vec<String> {

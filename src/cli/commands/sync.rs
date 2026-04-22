@@ -34,7 +34,7 @@ pub struct SyncArgs {
 /// specifies `merge=tasque-events` for `events.jsonl`.
 ///
 /// Does NOT need TasqueService -- operates directly on raw files.
-/// Returns 0 on success, 1 on conflict.
+/// Returns 0 on success, 1 on conflict, or `error.exit_code` on merge errors.
 pub fn execute_merge_driver(args: MergeDriverArgs) -> i32 {
     let ancestor = Path::new(&args.ancestor);
     let ours = Path::new(&args.ours);

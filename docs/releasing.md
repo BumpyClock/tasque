@@ -1,6 +1,11 @@
-# Releasing
+---
+summary: Release process, Cargo/npm version sync, GitHub workflows, and verification checklist.
+read_when:
+  - Preparing a new tsq release, forcing release workflow runs, or bumping release versions.
+  - Changing release, npm publish, platform artifact, or version bump automation.
+---
 
-Read when: preparing a new `tsq` release, forcing release workflow runs, or bumping release versions.
+# Releasing
 
 ## Source Of Version Truth
 

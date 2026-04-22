@@ -1,5 +1,6 @@
 pub mod dep_tree;
 pub mod deps;
+pub mod event_payload_codecs;
 pub mod events;
 pub mod ids;
 pub mod labels;

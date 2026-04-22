@@ -7,7 +7,7 @@ use crate::store::events::{read_event_log_metadata, read_events, read_events_tai
 use crate::store::paths::get_paths;
 use crate::store::snapshots::{load_latest_snapshot_with_warning, write_snapshot};
 use crate::store::state::{read_state_cache, write_state_cache};
-use crate::types::{EventRecord, Snapshot, State};
+use crate::types::{EventRecord, STATE_CACHE_SCHEMA_VERSION, Snapshot, State};
 use chrono::{SecondsFormat, Utc};
 use std::path::Path;
 
@@ -151,6 +151,7 @@ pub fn persist_projection(
         let snapshot = Snapshot {
             taken_at,
             event_count,
+            projection_version: STATE_CACHE_SCHEMA_VERSION,
             event_log: Some(event_log),
             state: state.clone(),
         };
@@ -184,9 +185,9 @@ fn combine_warnings(warnings: Option<String>, other: Option<String>) -> Option<S
 mod tests {
     use super::*;
     use crate::domain::events::make_event;
-    use crate::store::events::append_events;
+    use crate::store::events::{append_events, read_event_log_metadata};
     use crate::store::paths::get_paths;
-    use crate::types::EventType;
+    use crate::types::{EventType, SCHEMA_VERSION, StateCache, TaskStatus};
     use serde_json::Map;
     use tempfile::TempDir;
 
@@ -199,6 +200,16 @@ mod tests {
             EventType::TaskCreated,
             task_id,
             payload,
+        )
+    }
+
+    fn updated_event(task_id: &str, payload: serde_json::Value) -> EventRecord {
+        make_event(
+            "test",
+            "2026-01-02T00:00:00.000Z",
+            EventType::TaskUpdated,
+            task_id,
+            payload.as_object().cloned().unwrap_or_default(),
         )
     }
 
@@ -246,5 +257,35 @@ mod tests {
         assert!(reloaded.state.tasks.contains_key("tsq-aaaaaaaa"));
         assert!(reloaded.state.tasks.contains_key("tsq-bbbbbbbb"));
         assert!(reloaded.all_events.is_empty());
+    }
+
+    #[test]
+    fn old_state_cache_schema_is_ignored_after_projection_semantics_change() {
+        let dir = TempDir::new().expect("tempdir");
+        let repo = dir.path();
+        let task_id = "tsq-aaaaaaaa";
+        let created = created_event(task_id, "first");
+        let closed = updated_event(task_id, serde_json::json!({"status": "closed"}));
+        append_events(repo, &[created.clone(), closed]).expect("append events");
+
+        let mut stale_state =
+            apply_events(&create_empty_state(), &[created]).expect("project created");
+        stale_state.applied_events = 2;
+        let metadata = read_event_log_metadata(repo, 2).expect("metadata");
+        let stale_cache = StateCache {
+            schema_version: SCHEMA_VERSION,
+            event_log: Some(metadata),
+            state: stale_state,
+        };
+        let paths = get_paths(repo);
+        std::fs::write(
+            &paths.state_file,
+            serde_json::to_string_pretty(&stale_cache).expect("serialize cache"),
+        )
+        .expect("write stale cache");
+
+        let reloaded = load_projected_state(repo).expect("reload state");
+        let task = reloaded.state.tasks.get(task_id).expect("task");
+        assert_eq!(task.status, TaskStatus::Closed);
     }
 }

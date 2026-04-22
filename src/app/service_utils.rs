@@ -3,8 +3,14 @@ use crate::domain::ids::make_root_id;
 use crate::domain::resolve::resolve_task_id;
 use crate::errors::TsqError;
 use crate::types::{RelationType, State, Task, TaskStatus};
+use once_cell::sync::Lazy;
 use regex::Regex;
 use ulid::Ulid;
+
+static DUPLICATE_TITLE_NON_ALNUM: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"[^a-z0-9]+").expect("valid duplicate title non-alnum regex"));
+static DUPLICATE_TITLE_WHITESPACE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\s+").expect("valid duplicate title whitespace regex"));
 
 pub const DEFAULT_STALE_STATUSES: &[TaskStatus] = &[
     TaskStatus::Open,
@@ -194,14 +200,12 @@ pub fn creates_duplicate_cycle(state: &State, source: &str, canonical: &str) -> 
 
 pub fn normalize_duplicate_title(title: &str) -> String {
     let lower = title.to_lowercase();
-    let non_alnum = Regex::new(r"[^a-z0-9]+")
-        .ok()
-        .map(|regex| regex.replace_all(&lower, " ").to_string())
-        .unwrap_or(lower);
-    let collapsed = Regex::new(r"\s+")
-        .ok()
-        .map(|regex| regex.replace_all(&non_alnum, " ").to_string())
-        .unwrap_or(non_alnum);
+    let non_alnum = DUPLICATE_TITLE_NON_ALNUM
+        .replace_all(&lower, " ")
+        .to_string();
+    let collapsed = DUPLICATE_TITLE_WHITESPACE
+        .replace_all(&non_alnum, " ")
+        .to_string();
     collapsed.trim().to_string()
 }
 

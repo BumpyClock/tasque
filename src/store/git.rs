@@ -113,6 +113,23 @@ pub fn current_branch(repo_root: &Path) -> Result<Option<String>, TsqError> {
     }
 }
 
+pub fn current_upstream_remote(repo_root: &Path) -> Result<Option<String>, TsqError> {
+    let Some(branch) = current_branch(repo_root)? else {
+        return Ok(None);
+    };
+    let key = format!("branch.{branch}.remote");
+    if run_git_status(repo_root, &["config", "--get", &key])? {
+        let remote = run_git(repo_root, &["config", "--get", &key])?;
+        if !remote.is_empty() && remote != "." {
+            return Ok(Some(remote));
+        }
+    }
+    if has_remote(repo_root, "origin")? {
+        return Ok(Some("origin".to_string()));
+    }
+    Ok(None)
+}
+
 /// Returns true if a local branch with the given name exists.
 pub fn branch_exists(repo_root: &Path, name: &str) -> Result<bool, TsqError> {
     validate_branch_name(name)?;
@@ -164,8 +181,22 @@ pub fn has_upstream(repo_root: &Path) -> Result<bool, TsqError> {
     )
 }
 
+pub fn has_remote(repo_root: &Path, name: &str) -> Result<bool, TsqError> {
+    run_git_status(repo_root, &["remote", "get-url", name])
+}
+
 pub fn push_current(repo_root: &Path) -> Result<(), TsqError> {
     run_git(repo_root, &["push"])?;
+    Ok(())
+}
+
+pub fn push_current_set_upstream(
+    repo_root: &Path,
+    remote: &str,
+    branch: &str,
+) -> Result<(), TsqError> {
+    validate_branch_name(branch)?;
+    run_git(repo_root, &["push", "-u", remote, branch])?;
     Ok(())
 }
 

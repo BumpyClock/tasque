@@ -158,6 +158,9 @@ pub fn migrate_to_sync_branch(
 
     let wt_path = Path::new(&setup.worktree_path);
     let _ = git::commit_worktree(wt_path, "chore: migrate tasque events to sync branch")?;
+    if let Some(remote) = git::current_upstream_remote(Path::new(repo_root))? {
+        git::push_current_set_upstream(wt_path, &remote, branch)?;
+    }
     clear_repo_events(repo_root)?;
 
     Ok(MigrateResult {
@@ -187,9 +190,15 @@ pub fn sync_worktree(repo_root: &str, push: bool) -> Result<SyncRunResult, TsqEr
     let branch = git::current_branch(path)?
         .ok_or_else(|| TsqError::new("GIT_ERROR", "failed determining current branch", 2))?;
     let committed = git::commit_worktree(path, SYNC_COMMIT_MESSAGE)?;
-    let has_upstream = git::has_upstream(path)?;
-    let pushed = if push && has_upstream {
+    let mut has_upstream = git::has_upstream(path)?;
+    let pushed = if !push {
+        false
+    } else if has_upstream {
         git::push_current(path)?;
+        true
+    } else if git::has_remote(path, "origin")? {
+        git::push_current_set_upstream(path, "origin", &branch)?;
+        has_upstream = true;
         true
     } else {
         false

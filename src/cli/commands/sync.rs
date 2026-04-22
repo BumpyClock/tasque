@@ -103,7 +103,7 @@ pub fn execute_sync(service: &TasqueService, args: SyncArgs, opts: GlobalOpts) -
             }
 
             if data.pushed {
-                println!("Pushed '{}' to upstream", data.branch);
+                println!("Pushed '{}' to remote", data.branch);
             } else if data.has_upstream {
                 println!("Skipped push");
             } else {

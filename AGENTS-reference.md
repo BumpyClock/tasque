@@ -9,6 +9,7 @@ Git repositories default to sync-worktree mode:
 - data operations are redirected to the configured sync worktree
 - legacy main-tree `.tasque` data migrates automatically when no `sync_branch` is configured
 - fresh clones fetch the configured sync branch and create the worktree on first use
+- `tsq sync` pushes the sync branch to `origin` and sets upstream automatically when needed
 - the main worktree keeps `.tasque/config.json` as the pointer to the sync branch
 
 Non-git directories use repo-local `.tasque/`:

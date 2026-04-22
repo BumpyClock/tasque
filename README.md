@@ -62,7 +62,8 @@ Git repos default to worktree mode: `tsq init` creates/configures the `tsq-sync`
 branch and stores task data in a dedicated git worktree. Use `--sync-branch <name>`
 or `--worktree-name <name>` to choose a different branch/worktree name. Existing git repos with main-tree `.tasque`
 data and no `sync_branch` migrate automatically on the next `tsq` command. Fresh clones fetch
-the configured sync branch and create the worktree on first use.
+the configured sync branch and create the worktree on first use. `tsq sync` pushes
+the sync branch to `origin` and sets upstream automatically when needed.
 Non-git directories use local `.tasque/` storage.
 
 
@@ -132,6 +133,7 @@ Git repos default to a dedicated sync worktree:
 
 - `tsq init` configures `tsq-sync` by default and redirects data operations there.
 - Fresh clones fetch the configured sync branch and create the worktree on first use.
+- `tsq sync` pushes the sync branch to `origin` and sets upstream automatically when needed.
 - Existing git repos with main-tree `.tasque` data migrate automatically when `tsq`
   next resolves the project root.
 - The main worktree keeps `.tasque/config.json` so `tsq` can find the sync branch.

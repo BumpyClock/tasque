@@ -11,7 +11,8 @@ Read when: you need exact command syntax or available options.
 In git repos, `tsq init` defaults to sync-worktree mode using `tsq-sync`.
 Use `--sync-branch <name>` or `--worktree-name <name>` to choose another branch/worktree. Existing main-tree
 `.tasque` data migrates automatically. Fresh clones fetch the configured sync branch
-and create the worktree on first use. Non-git directories use local `.tasque/` storage.
+and create the worktree on first use. `tsq sync` pushes the sync branch to `origin`
+and sets upstream automatically when needed. Non-git directories use local `.tasque/` storage.
 
 - `tsq create [<title>] [--child <title> ...] [--kind ...] [-p ...] [--parent <id>] [--description <text>] [--external-ref <ref>] [--discovered-from <id>] [--planning <needs_planning|planned>] [--needs-planning] [--ensure] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
 - `tsq show <id>`

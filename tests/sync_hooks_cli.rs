@@ -131,6 +131,66 @@ fn custom_worktree_name_auto_commits_and_syncs_pending_changes() {
 }
 
 #[test]
+fn sync_without_upstream_pushes_branch_to_origin_and_sets_upstream() {
+    let repo = make_repo();
+    let base = repo.path();
+    let root = base.join("repo");
+    fs::create_dir(&root).expect("repo dir");
+
+    git(&root, &["init", "-b", "main"]);
+    git(&root, &["config", "user.name", "rust-test"]);
+    git(&root, &["config", "user.email", "rust-test@example.com"]);
+    fs::write(root.join("README.md"), "seed\n").expect("seed");
+    git(&root, &["add", "README.md"]);
+    git(&root, &["commit", "-m", "seed main"]);
+
+    let remote = base.join("origin.git");
+    let remote_arg = remote.to_string_lossy().to_string();
+    git(base, &["init", "--bare", remote_arg.as_str()]);
+    git(&remote, &["symbolic-ref", "HEAD", "refs/heads/main"]);
+    git(&root, &["remote", "add", "origin", remote_arg.as_str()]);
+    git(&root, &["push", "-u", "origin", "main"]);
+
+    let init = run_cli(&root, ["init"]);
+    assert_eq!(init.code, 0, "stderr: {}", init.stderr);
+    let create = run_cli(&root, ["create", "First remote sync task"]);
+    assert_eq!(create.code, 0, "stderr: {}", create.stderr);
+
+    let sync_result = run_cli(&root, ["sync", "--json"]);
+    assert_eq!(sync_result.code, 0, "stderr: {}", sync_result.stderr);
+    let envelope: Value = serde_json::from_str(sync_result.stdout.trim()).expect("json envelope");
+    assert_eq!(
+        envelope
+            .get("data")
+            .and_then(|data| data.get("pushed"))
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        envelope
+            .get("data")
+            .and_then(|data| data.get("has_upstream"))
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+
+    let wt = root.join(".git").join("tsq-sync");
+    assert_eq!(
+        git_out(
+            &wt,
+            &[
+                "rev-parse",
+                "--abbrev-ref",
+                "--symbolic-full-name",
+                "@{upstream}"
+            ]
+        ),
+        "origin/tsq-sync"
+    );
+    assert!(!git_out(&remote, &["show-ref", "--heads", "tsq-sync"]).is_empty());
+}
+
+#[test]
 fn migrate_defaults_to_tsq_sync_worktree_name() {
     let repo = make_repo();
     let root = repo.path();
@@ -161,6 +221,59 @@ fn migrate_defaults_to_tsq_sync_worktree_name() {
     let root_events =
         fs::read_to_string(root.join(".tasque").join("events.jsonl")).expect("events");
     assert!(root_events.is_empty(), "expected root events cleared");
+}
+
+#[test]
+fn migrate_pushes_sync_branch_to_main_upstream_before_clearing_root_events() {
+    let repo = make_repo();
+    let base = repo.path();
+    let root = base.join("repo");
+    fs::create_dir(&root).expect("repo dir");
+
+    let init = run_cli(&root, ["init"]);
+    assert_eq!(init.code, 0, "stderr: {}", init.stderr);
+    let create = run_cli(&root, ["create", "Migrated remote task"]);
+    assert_eq!(create.code, 0, "stderr: {}", create.stderr);
+
+    git(&root, &["init", "-b", "main"]);
+    git(&root, &["config", "user.name", "rust-test"]);
+    git(&root, &["config", "user.email", "rust-test@example.com"]);
+    git(
+        &root,
+        &["add", ".tasque/config.json", ".tasque/events.jsonl"],
+    );
+    git(&root, &["commit", "-m", "seed legacy tasque data"]);
+
+    let remote = base.join("origin.git");
+    let remote_arg = remote.to_string_lossy().to_string();
+    git(base, &["init", "--bare", remote_arg.as_str()]);
+    git(&remote, &["symbolic-ref", "HEAD", "refs/heads/main"]);
+    git(&root, &["remote", "add", "origin", remote_arg.as_str()]);
+    git(&root, &["push", "-u", "origin", "main"]);
+
+    let migrate = run_cli(&root, ["migrate", "--json"]);
+    assert_eq!(migrate.code, 0, "stderr: {}", migrate.stderr);
+
+    let wt = root.join(".git").join("tsq-sync");
+    assert_eq!(
+        git_out(
+            &wt,
+            &[
+                "rev-parse",
+                "--abbrev-ref",
+                "--symbolic-full-name",
+                "@{upstream}"
+            ]
+        ),
+        "origin/tsq-sync"
+    );
+    assert!(!git_out(&remote, &["show-ref", "--heads", "tsq-sync"]).is_empty());
+    let root_events =
+        fs::read_to_string(root.join(".tasque").join("events.jsonl")).expect("events");
+    assert!(
+        root_events.is_empty(),
+        "expected root events cleared after remote push"
+    );
 }
 
 #[test]

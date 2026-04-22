@@ -37,7 +37,8 @@ Error envelope:
   `.tasque/config.json`, while task data lives in `tsq-sync` unless
   `--sync-branch` or `--worktree-name` names another branch/worktree. Existing main-tree `.tasque` data
   migrates automatically when no `sync_branch` is configured. Fresh clones fetch
-  the configured sync branch and create the worktree on first use.
+  the configured sync branch and create the worktree on first use. `tsq sync`
+  pushes the sync branch to `origin` and sets upstream automatically when needed.
 - Canonical source of truth: `.tasque/events.jsonl` (append-only)
 - Derived cache: `.tasque/state.json` (rebuildable, gitignored)
 - Legacy cache fallback: `.tasque/tasks.jsonl` (read-only fallback when `state.json` is absent; removal target)

@@ -218,6 +218,32 @@ pub fn quick_worktree_path(repo_root: &Path, branch: &str) -> Option<PathBuf> {
     fast_git_common_dir(repo_root).map(|path| path.join(branch))
 }
 
+pub fn existing_worktree_for_branch(
+    repo_root: &Path,
+    branch: &str,
+) -> Result<Option<PathBuf>, TsqError> {
+    validate_branch_name(branch)?;
+    let expected_branch = format!("branch refs/heads/{branch}");
+    let out = run_git(repo_root, &["worktree", "list", "--porcelain"])?;
+    let mut current_path: Option<PathBuf> = None;
+
+    for line in out.lines() {
+        if let Some(path) = line.strip_prefix("worktree ") {
+            current_path = Some(PathBuf::from(path));
+            continue;
+        }
+
+        if line == expected_branch
+            && let Some(path) = current_path.take()
+            && worktree_is_valid(&path, branch)
+        {
+            return Ok(Some(path));
+        }
+    }
+
+    Ok(None)
+}
+
 pub fn worktree_is_valid(worktree_path: &Path, expected_branch: &str) -> bool {
     if !worktree_path.join(".git").exists() {
         return false;
@@ -242,6 +268,10 @@ pub fn worktree_path(repo_root: &Path, branch: &str) -> Result<PathBuf, TsqError
 /// Returns the worktree path.
 pub fn ensure_worktree(repo_root: &Path, branch: &str) -> Result<PathBuf, TsqError> {
     validate_branch_name(branch)?;
+    if let Some(wt) = existing_worktree_for_branch(repo_root, branch)? {
+        return Ok(wt);
+    }
+
     if !branch_exists(repo_root, branch)? {
         if remote_tracking_branch_exists(repo_root, branch)? {
             track_remote_branch(repo_root, branch)?;
@@ -767,5 +797,49 @@ mod tests {
 
         let repaired = ensure_worktree(repo, "tasque-sync").unwrap();
         assert!(worktree_is_valid(&repaired, "tasque-sync"));
+    }
+
+    #[test]
+    fn test_ensure_worktree_reuses_existing_worktree_for_branch_at_legacy_path() {
+        unsafe {
+            std::env::set_var("GIT_AUTHOR_NAME", "tasque-test");
+            std::env::set_var("GIT_AUTHOR_EMAIL", "tasque@example.com");
+            std::env::set_var("GIT_COMMITTER_NAME", "tasque-test");
+            std::env::set_var("GIT_COMMITTER_EMAIL", "tasque@example.com");
+        }
+
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path();
+        Command::new("git")
+            .args(["init"])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+
+        let tasque_dir = repo.join(".tasque");
+        std::fs::create_dir_all(&tasque_dir).unwrap();
+        std::fs::write(tasque_dir.join("events.jsonl"), "").unwrap();
+
+        create_orphan_branch(repo, "tasque-sync", &tasque_dir).unwrap();
+        let legacy_path = repo.join(".git").join("tasque-sync-worktree");
+        Command::new("git")
+            .args([
+                "worktree",
+                "add",
+                &legacy_path.to_string_lossy(),
+                "tasque-sync",
+            ])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        configure_sparse_checkout(&legacy_path).unwrap();
+
+        let wt = ensure_worktree(repo, "tasque-sync").unwrap();
+
+        assert_eq!(
+            wt.canonicalize().unwrap(),
+            legacy_path.canonicalize().unwrap()
+        );
+        assert!(!repo.join(".git").join("tasque-sync").exists());
     }
 }

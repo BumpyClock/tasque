@@ -54,9 +54,11 @@ Commands:
 - `tsq init --install-skill|--uninstall-skill [--skill-targets ...] [--skill-name <name>] [--force-skill-overwrite]`
 - `tsq create <title...> [--kind ...] [-p ...] [--parent <id>] [--from-file tasks.md] [--description <text>] [--external-ref <ref>] [--discovered-from <id>] [--planned|--needs-plan] [--ensure] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
 - `tsq show <id> [--with-spec]`
-- `tsq find ready [--lane <planning|coding>] [--assignee <name>] [--unassigned] [--kind ...] [--label ...] [--planning <needs_planning|planned>] [--tree] [--full]`
-- `tsq find <blocked|open|in-progress|deferred|done|canceled> [filters...] [--tree] [--full]`
+- `tsq find ready [--lane <planning|coding>] [--assignee <name>] [--unassigned] [--kind ...] [--label ...] [--planning <needs_planning|planned>] [--tree [--full]]`
+- `tsq find <blocked|open|in-progress|deferred|done|canceled> [filters...] [--tree [--full]]`
 - `tsq find search <query> [--full]`
+
+Note: for `find ready` and status-based `find` commands, `--full` is only valid with `--tree`. `--tree --full` keeps the full status set instead of applying the default tree status narrowing. `find search --full` remains valid without `--tree`.
 - `tsq watch [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--tree]`
 - `tsq tui [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--board|--epics]`
 - `tsq stale [--days <n>] [--status <status>] [--assignee <name>] [--limit <n>]`

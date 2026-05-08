@@ -8,7 +8,7 @@ use crate::types::{EventLogMetadata, EventRecord, EventType};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use std::fs::{OpenOptions, create_dir_all, read, read_to_string};
-use std::io::Write;
+use std::io::{Seek, SeekFrom, Write};
 use std::path::Path;
 
 pub struct ReadEventsResult {
@@ -25,11 +25,11 @@ fn required_fields(event_type: &EventType) -> &'static [(&'static str, &'static 
         EventType::TaskClaimed => &[],
         EventType::TaskNoted => &[("text", "string")],
         EventType::TaskSpecAttached => &[("spec_path", "string"), ("spec_fingerprint", "string")],
-        EventType::TaskSuperseded => &[],
+        EventType::TaskSuperseded => &[("with", "string")],
         EventType::DepAdded => &[("blocker", "string")],
         EventType::DepRemoved => &[("blocker", "string")],
-        EventType::LinkAdded => &[("type", "string")],
-        EventType::LinkRemoved => &[("type", "string")],
+        EventType::LinkAdded => &[("type", "string"), ("target", "string")],
+        EventType::LinkRemoved => &[("type", "string"), ("target", "string")],
     }
 }
 
@@ -41,7 +41,10 @@ fn validate_event_payload(
     for (field, expected) in required_fields(event_type) {
         let value = payload.get(*field);
         let type_mismatch = match *expected {
-            "string" => value.and_then(Value::as_str).is_none(),
+            "string" => value
+                .and_then(Value::as_str)
+                .filter(|raw| !raw.is_empty())
+                .is_none(),
             _ => true,
         };
         if value.is_none() || type_mismatch {
@@ -108,7 +111,121 @@ fn validate_event_payload(
     {
         validate_enum_field(event_type, "type", type_value, line, relation_type_from_str)?;
     }
+    validate_optional_priority(event_type, payload, line)?;
+    validate_optional_labels(event_type, payload, line)?;
+    for field in [
+        "clear_description",
+        "clear_external_ref",
+        "clear_discovered_from",
+    ] {
+        validate_optional_bool(event_type, payload, field, line)?;
+    }
+    for field in [
+        "parent_id",
+        "superseded_by",
+        "duplicate_of",
+        "replies_to",
+        "discovered_from",
+        "with",
+        "blocker",
+        "target",
+    ] {
+        validate_optional_nonempty_string(event_type, payload, field, line)?;
+    }
 
+    Ok(())
+}
+
+fn validate_optional_priority(
+    event_type: &EventType,
+    payload: &Map<String, Value>,
+    line: usize,
+) -> Result<(), TsqError> {
+    if let Some(value) = payload.get("priority") {
+        let Some(priority) = value.as_u64() else {
+            return Err(invalid_event_payload_field(
+                event_type,
+                "priority",
+                line,
+                "must be an integer 0..=3",
+            ));
+        };
+        if priority > 3 {
+            return Err(invalid_event_payload_field(
+                event_type,
+                "priority",
+                line,
+                "must be an integer 0..=3",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_optional_labels(
+    event_type: &EventType,
+    payload: &Map<String, Value>,
+    line: usize,
+) -> Result<(), TsqError> {
+    if let Some(value) = payload.get("labels") {
+        let Some(labels) = value.as_array() else {
+            return Err(invalid_event_payload_field(
+                event_type,
+                "labels",
+                line,
+                "must be an array of strings",
+            ));
+        };
+        if labels.iter().any(|label| label.as_str().is_none()) {
+            return Err(invalid_event_payload_field(
+                event_type,
+                "labels",
+                line,
+                "must be an array of strings",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_optional_bool(
+    event_type: &EventType,
+    payload: &Map<String, Value>,
+    field: &'static str,
+    line: usize,
+) -> Result<(), TsqError> {
+    if let Some(value) = payload.get(field)
+        && value.as_bool().is_none()
+    {
+        return Err(invalid_event_payload_field(
+            event_type,
+            field,
+            line,
+            "must be a boolean",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_optional_nonempty_string(
+    event_type: &EventType,
+    payload: &Map<String, Value>,
+    field: &'static str,
+    line: usize,
+) -> Result<(), TsqError> {
+    if let Some(value) = payload.get(field) {
+        if value.is_null() {
+            return Ok(());
+        }
+        if value.as_str().filter(|raw| !raw.is_empty()).is_none() {
+            return Err(invalid_event_payload_field(
+                event_type,
+                field,
+                line,
+                "must be a nonempty string",
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -294,9 +411,109 @@ fn parse_event_record(value: &Value, line: usize) -> Result<EventRecord, TsqErro
     })
 }
 
+fn validate_event_for_append(event: &EventRecord) -> Result<(), TsqError> {
+    let value = serde_json::to_value(event).map_err(|error| {
+        TsqError::new("EVENT_APPEND_FAILED", "Failed appending events", 2)
+            .with_details(any_error_value(&error))
+    })?;
+    parse_event_record(&value, 0).map(|_| ()).map_err(|error| {
+        TsqError::new("EVENT_APPEND_FAILED", "Failed appending events", 2).with_details(
+            serde_json::json!({
+                "validation_code": error.code,
+                "message": error.message,
+            }),
+        )
+    })
+}
+
+fn prepare_event_file_for_append(
+    handle: &mut std::fs::File,
+    path: &Path,
+) -> Result<bool, TsqError> {
+    let bytes = read(path).map_err(|error| {
+        TsqError::new("EVENT_APPEND_FAILED", "Failed appending events", 2)
+            .with_details(io_error_value(&error))
+    })?;
+    if bytes.is_empty() {
+        handle.seek(SeekFrom::End(0)).map_err(|error| {
+            TsqError::new("EVENT_APPEND_FAILED", "Failed appending events", 2)
+                .with_details(io_error_value(&error))
+        })?;
+        return Ok(false);
+    }
+
+    let raw = std::str::from_utf8(&bytes).map_err(|error| {
+        TsqError::new("EVENTS_CORRUPT", "Events file is not valid UTF-8", 2)
+            .with_details(any_error_value(&error))
+    })?;
+    let mut nonempty_lines: Vec<(usize, &str, usize)> = Vec::new();
+    let mut offset = 0;
+    for (line_index, raw_line) in raw.split_inclusive('\n').enumerate() {
+        let start = offset;
+        offset += raw_line.len();
+        let line = raw_line
+            .strip_suffix('\n')
+            .unwrap_or(raw_line)
+            .trim_end_matches('\r');
+        if !line.trim().is_empty() {
+            nonempty_lines.push((start, line, line_index + 1));
+        }
+    }
+
+    let Some(final_index) = nonempty_lines.len().checked_sub(1) else {
+        handle.seek(SeekFrom::End(0)).map_err(|error| {
+            TsqError::new("EVENT_APPEND_FAILED", "Failed appending events", 2)
+                .with_details(io_error_value(&error))
+        })?;
+        return Ok(false);
+    };
+
+    for (index, (_start, line, line_number)) in nonempty_lines.iter().enumerate() {
+        match serde_json::from_str::<Value>(line) {
+            Ok(parsed) => {
+                parse_event_record(&parsed, *line_number)?;
+            }
+            Err(_) if index == final_index => {}
+            Err(_) => {
+                return Err(TsqError::new(
+                    "EVENTS_CORRUPT",
+                    format!("Malformed events JSONL at line {}", line_number),
+                    2,
+                ));
+            }
+        }
+    }
+
+    let (last_start, final_line, _line_number) = nonempty_lines[final_index];
+    match serde_json::from_str::<Value>(final_line) {
+        Ok(_) => {
+            handle.seek(SeekFrom::End(0)).map_err(|error| {
+                TsqError::new("EVENT_APPEND_FAILED", "Failed appending events", 2)
+                    .with_details(io_error_value(&error))
+            })?;
+            Ok(!bytes.ends_with(b"\n"))
+        }
+        Err(_) => {
+            handle.set_len(last_start as u64).map_err(|error| {
+                TsqError::new("EVENT_APPEND_FAILED", "Failed appending events", 2)
+                    .with_details(io_error_value(&error))
+            })?;
+            handle.seek(SeekFrom::End(0)).map_err(|error| {
+                TsqError::new("EVENT_APPEND_FAILED", "Failed appending events", 2)
+                    .with_details(io_error_value(&error))
+            })?;
+            Ok(false)
+        }
+    }
+}
+
 pub fn append_events(repo_root: impl AsRef<Path>, events: &[EventRecord]) -> Result<(), TsqError> {
     if events.is_empty() {
         return Ok(());
+    }
+
+    for event in events {
+        validate_event_for_append(event)?;
     }
 
     let paths = get_paths(repo_root);
@@ -318,13 +535,22 @@ pub fn append_events(repo_root: impl AsRef<Path>, events: &[EventRecord]) -> Res
         + "\n";
 
     let mut handle = OpenOptions::new()
-        .append(true)
+        .read(true)
+        .write(true)
         .create(true)
+        .truncate(false)
         .open(&paths.events_file)
         .map_err(|error| {
             TsqError::new("EVENT_APPEND_FAILED", "Failed appending events", 2)
                 .with_details(io_error_value(&error))
         })?;
+    let needs_separator = prepare_event_file_for_append(&mut handle, &paths.events_file)?;
+    if needs_separator {
+        handle.write_all(b"\n").map_err(|error| {
+            TsqError::new("EVENT_APPEND_FAILED", "Failed appending events", 2)
+                .with_details(io_error_value(&error))
+        })?;
+    }
     if let Err(error) = handle.write_all(payload.as_bytes()) {
         return Err(
             TsqError::new("EVENT_APPEND_FAILED", "Failed appending events", 2)

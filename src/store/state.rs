@@ -1,3 +1,4 @@
+use crate::domain::state_invariants::validate_projected_state;
 use crate::errors::TsqError;
 use crate::store::paths::get_paths;
 use crate::types::{
@@ -71,42 +72,55 @@ pub fn write_state_cache(
 
 pub fn read_state_cache(repo_root: impl AsRef<Path>) -> Result<Option<StateCache>, TsqError> {
     let paths = get_paths(repo_root);
-    let legacy_state_file = paths.tasque_dir.join("tasks.jsonl");
-    let candidates = [paths.state_file, legacy_state_file];
+    let primary = paths.state_file;
+    let legacy = paths.tasque_dir.join("tasks.jsonl");
 
-    for state_file in candidates.iter() {
-        match read_to_string(state_file) {
-            Ok(raw) => match serde_json::from_str::<StateCache>(&raw) {
-                Ok(cache) => {
-                    if cache.schema_version == STATE_CACHE_SCHEMA_VERSION {
-                        return Ok(Some(cache));
-                    }
-                    continue;
-                }
-                Err(_) => match serde_json::from_str::<State>(&raw) {
-                    Ok(state) => {
-                        return Ok(Some(StateCache {
-                            schema_version: SCHEMA_VERSION,
-                            event_log: None,
-                            state,
-                        }));
-                    }
-                    Err(_) => return Ok(None),
-                },
-            },
-            Err(error) => {
-                if error.kind() == std::io::ErrorKind::NotFound {
-                    continue;
-                }
-                return Err(
-                    TsqError::new("STATE_READ_FAILED", "Failed reading state cache", 2)
-                        .with_details(io_error_value(&error)),
-                );
-            }
+    match read_to_string(&primary) {
+        Ok(raw) => return parse_state_cache_candidate(&raw, true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(
+                TsqError::new("STATE_READ_FAILED", "Failed reading state cache", 2)
+                    .with_details(io_error_value(&error)),
+            );
         }
     }
 
-    Ok(None)
+    match read_to_string(&legacy) {
+        Ok(raw) => parse_state_cache_candidate(&raw, false),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(
+            TsqError::new("STATE_READ_FAILED", "Failed reading state cache", 2)
+                .with_details(io_error_value(&error)),
+        ),
+    }
+}
+
+fn parse_state_cache_candidate(raw: &str, primary: bool) -> Result<Option<StateCache>, TsqError> {
+    if let Ok(cache) = serde_json::from_str::<StateCache>(raw) {
+        if cache.schema_version == STATE_CACHE_SCHEMA_VERSION
+            && validate_projected_state(&cache.state).is_ok()
+        {
+            return Ok(Some(cache));
+        }
+        return Ok(None);
+    }
+
+    if primary {
+        return Ok(None);
+    }
+
+    let Ok(state) = serde_json::from_str::<State>(raw) else {
+        return Ok(None);
+    };
+    if validate_projected_state(&state).is_err() {
+        return Ok(None);
+    }
+    Ok(Some(StateCache {
+        schema_version: SCHEMA_VERSION,
+        event_log: None,
+        state,
+    }))
 }
 
 fn io_error_value(error: &std::io::Error) -> serde_json::Value {

@@ -1,3 +1,4 @@
+use crate::domain::state_invariants::validate_projected_state;
 use crate::errors::TsqError;
 use crate::store::paths::get_paths;
 use crate::types::{STATE_CACHE_SCHEMA_VERSION, Snapshot};
@@ -101,6 +102,7 @@ fn is_snapshot(snapshot: &Snapshot) -> bool {
             event_log.event_count == snapshot.event_count
                 && event_log.event_count == snapshot.state.applied_events
         })
+        && validate_projected_state(&snapshot.state).is_ok()
 }
 
 fn invalid_snapshot_warning(invalid: &[String]) -> String {

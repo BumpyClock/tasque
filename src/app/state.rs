@@ -19,6 +19,11 @@ pub struct LoadedState {
     pub snapshot: Option<Snapshot>,
 }
 
+struct SnapshotLoadResult {
+    loaded: Option<LoadedState>,
+    warning: Option<String>,
+}
+
 pub fn load_projected_state(repo_root: impl AsRef<Path>) -> Result<LoadedState, TsqError> {
     load_projected_state_inner(repo_root, false)
 }
@@ -34,14 +39,17 @@ fn load_projected_state_inner(
     include_events: bool,
 ) -> Result<LoadedState, TsqError> {
     let repo_root = repo_root.as_ref();
+    let mut shortcut_warning = None;
 
     if !include_events {
         if let Some(loaded) = load_from_state_cache(repo_root)? {
             return Ok(loaded);
         }
-        if let Some(loaded) = load_from_snapshot(repo_root)? {
+        let snapshot_result = load_from_snapshot(repo_root)?;
+        if let Some(loaded) = snapshot_result.loaded {
             return Ok(loaded);
         }
+        shortcut_warning = snapshot_result.warning;
     }
 
     let read = read_events(repo_root)?;
@@ -56,7 +64,7 @@ fn load_projected_state_inner(
         state: projected,
         all_events: if include_events { events } else { Vec::new() },
         event_count,
-        warning: event_warning,
+        warning: combine_warnings(event_warning, shortcut_warning),
         snapshot: None,
     })
 }
@@ -92,23 +100,35 @@ fn load_from_state_cache(repo_root: &Path) -> Result<Option<LoadedState>, TsqErr
     }))
 }
 
-fn load_from_snapshot(repo_root: &Path) -> Result<Option<LoadedState>, TsqError> {
+fn load_from_snapshot(repo_root: &Path) -> Result<SnapshotLoadResult, TsqError> {
     let loaded = load_latest_snapshot_with_warning(repo_root)?;
     let Some(snapshot) = loaded.snapshot else {
-        return Ok(None);
+        return Ok(SnapshotLoadResult {
+            loaded: None,
+            warning: loaded.warning,
+        });
     };
     let Some(metadata) = snapshot.event_log.as_ref() else {
-        return Ok(None);
+        return Ok(SnapshotLoadResult {
+            loaded: None,
+            warning: loaded.warning,
+        });
     };
     if snapshot.event_count != metadata.event_count
         || snapshot.state.applied_events != metadata.event_count
     {
-        return Ok(None);
+        return Ok(SnapshotLoadResult {
+            loaded: None,
+            warning: loaded.warning,
+        });
     }
 
     let events_file = get_paths(repo_root).events_file;
     let Some(tail) = read_events_tail_from_path(&events_file, metadata)? else {
-        return Ok(None);
+        return Ok(SnapshotLoadResult {
+            loaded: None,
+            warning: loaded.warning,
+        });
     };
     let mut state = if tail.events.is_empty() {
         snapshot.state.clone()
@@ -117,13 +137,16 @@ fn load_from_snapshot(repo_root: &Path) -> Result<Option<LoadedState>, TsqError>
     };
     state.applied_events = tail.metadata.event_count;
 
-    Ok(Some(LoadedState {
-        state,
-        all_events: Vec::new(),
-        event_count: tail.metadata.event_count,
-        warning: combine_warnings(tail.warning, loaded.warning),
-        snapshot: Some(snapshot),
-    }))
+    Ok(SnapshotLoadResult {
+        loaded: Some(LoadedState {
+            state,
+            all_events: Vec::new(),
+            event_count: tail.metadata.event_count,
+            warning: combine_warnings(tail.warning, loaded.warning),
+            snapshot: Some(snapshot),
+        }),
+        warning: None,
+    })
 }
 
 pub fn persist_projection(
@@ -187,7 +210,9 @@ mod tests {
     use crate::domain::events::make_event;
     use crate::store::events::{append_events, read_event_log_metadata};
     use crate::store::paths::get_paths;
-    use crate::types::{EventType, SCHEMA_VERSION, StateCache, TaskStatus};
+    use crate::types::{
+        EventType, SCHEMA_VERSION, STATE_CACHE_SCHEMA_VERSION, Snapshot, StateCache, TaskStatus,
+    };
     use serde_json::Map;
     use tempfile::TempDir;
 
@@ -287,5 +312,147 @@ mod tests {
         let reloaded = load_projected_state(repo).expect("reload state");
         let task = reloaded.state.tasks.get(task_id).expect("task");
         assert_eq!(task.status, TaskStatus::Closed);
+    }
+
+    #[test]
+    fn invalid_priority_state_cache_is_ignored_and_replayed() {
+        let dir = TempDir::new().expect("tempdir");
+        let repo = dir.path();
+        let task_id = "tsq-aaaaaaaa";
+        append_events(repo, &[created_event(task_id, "first")]).expect("append events");
+
+        let mut state = load_projected_state(repo).expect("load").state;
+        state.tasks.get_mut(task_id).expect("task").priority = 9;
+        state.applied_events = 1;
+        let metadata = read_event_log_metadata(repo, 1).expect("metadata");
+        let cache = StateCache {
+            schema_version: STATE_CACHE_SCHEMA_VERSION,
+            event_log: Some(metadata),
+            state,
+        };
+        let paths = get_paths(repo);
+        std::fs::write(
+            &paths.state_file,
+            serde_json::to_string_pretty(&cache).expect("serialize cache"),
+        )
+        .expect("write invalid cache");
+
+        let reloaded = load_projected_state(repo).expect("reload");
+
+        assert_eq!(reloaded.state.tasks.get(task_id).expect("task").priority, 1);
+    }
+
+    #[test]
+    fn bad_ref_state_cache_is_ignored_and_replayed() {
+        let dir = TempDir::new().expect("tempdir");
+        let repo = dir.path();
+        let task_id = "tsq-aaaaaaaa";
+        append_events(repo, &[created_event(task_id, "first")]).expect("append events");
+
+        let mut state = load_projected_state(repo).expect("load").state;
+        state.tasks.get_mut(task_id).expect("task").parent_id = Some("tsq-missing".to_string());
+        state.applied_events = 1;
+        let metadata = read_event_log_metadata(repo, 1).expect("metadata");
+        let cache = StateCache {
+            schema_version: STATE_CACHE_SCHEMA_VERSION,
+            event_log: Some(metadata),
+            state,
+        };
+        let paths = get_paths(repo);
+        std::fs::write(
+            &paths.state_file,
+            serde_json::to_string_pretty(&cache).expect("serialize cache"),
+        )
+        .expect("write invalid cache");
+
+        let reloaded = load_projected_state(repo).expect("reload");
+
+        assert!(
+            reloaded
+                .state
+                .tasks
+                .get(task_id)
+                .expect("task")
+                .parent_id
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn invalid_primary_state_cache_does_not_fall_back_to_stale_legacy_cache() {
+        let dir = TempDir::new().expect("tempdir");
+        let repo = dir.path();
+        append_events(repo, &[created_event("tsq-aaaaaaaa", "first")]).expect("append first");
+        let mut loaded = load_projected_state(repo).expect("load").state;
+        persist_projection(repo, &mut loaded, 1, None).expect("persist primary cache");
+
+        append_events(repo, &[created_event("tsq-bbbbbbbb", "second")]).expect("append second");
+        let paths = get_paths(repo);
+        std::fs::write(
+            paths.tasque_dir.join("tasks.jsonl"),
+            serde_json::to_string_pretty(&loaded).expect("serialize stale legacy"),
+        )
+        .expect("write stale legacy cache");
+
+        let mut invalid_primary = loaded.clone();
+        invalid_primary
+            .tasks
+            .get_mut("tsq-aaaaaaaa")
+            .expect("task")
+            .priority = 9;
+        invalid_primary.applied_events = 2;
+        let metadata = read_event_log_metadata(repo, 2).expect("metadata");
+        let cache = StateCache {
+            schema_version: STATE_CACHE_SCHEMA_VERSION,
+            event_log: Some(metadata),
+            state: invalid_primary,
+        };
+        std::fs::write(
+            &paths.state_file,
+            serde_json::to_string_pretty(&cache).expect("serialize cache"),
+        )
+        .expect("write invalid primary cache");
+
+        let reloaded = load_projected_state(repo).expect("reload");
+
+        assert!(reloaded.state.tasks.contains_key("tsq-aaaaaaaa"));
+        assert!(reloaded.state.tasks.contains_key("tsq-bbbbbbbb"));
+    }
+
+    #[test]
+    fn invalid_latest_snapshot_is_skipped_and_full_replay_succeeds() {
+        let dir = TempDir::new().expect("tempdir");
+        let repo = dir.path();
+        let task_id = "tsq-aaaaaaaa";
+        append_events(repo, &[created_event(task_id, "first")]).expect("append events");
+
+        let mut state = load_projected_state(repo).expect("load").state;
+        state.tasks.get_mut(task_id).expect("task").priority = 9;
+        state.applied_events = 1;
+        let metadata = read_event_log_metadata(repo, 1).expect("metadata");
+        let snapshot = Snapshot {
+            taken_at: "2026-05-08T00:00:00.000Z".to_string(),
+            event_count: 1,
+            projection_version: STATE_CACHE_SCHEMA_VERSION,
+            event_log: Some(metadata),
+            state,
+        };
+        let paths = get_paths(repo);
+        std::fs::create_dir_all(&paths.snapshots_dir).expect("create snapshots dir");
+        std::fs::write(
+            paths.snapshots_dir.join("2026-05-08T00-00-00-000Z-1.json"),
+            serde_json::to_string_pretty(&snapshot).expect("serialize snapshot"),
+        )
+        .expect("write invalid snapshot");
+
+        let reloaded = load_projected_state(repo).expect("reload");
+
+        assert_eq!(reloaded.state.tasks.get(task_id).expect("task").priority, 1);
+        assert!(
+            reloaded
+                .warning
+                .unwrap_or_default()
+                .contains("Ignored invalid snapshot files")
+        );
     }
 }

@@ -102,8 +102,16 @@ fn try_cleanup_stale_lock(lock_file: &Path, current_host: &str) -> bool {
 }
 
 fn acquire_write_lock(lock_file: &Path, tasque_dir: &Path) -> Result<LockPayload, TsqError> {
+    acquire_write_lock_with_timeout(lock_file, tasque_dir, lock_timeout_ms())
+}
+
+fn acquire_write_lock_with_timeout(
+    lock_file: &Path,
+    tasque_dir: &Path,
+    timeout_ms: u64,
+) -> Result<LockPayload, TsqError> {
     let deadline = SystemTime::now()
-        .checked_add(Duration::from_millis(lock_timeout_ms()))
+        .checked_add(Duration::from_millis(timeout_ms))
         .unwrap_or(SystemTime::now());
     let host = System::host_name().unwrap_or_else(|| "unknown".to_string());
 
@@ -174,7 +182,7 @@ fn acquire_write_lock(lock_file: &Path, tasque_dir: &Path) -> Result<LockPayload
                 TsqError::new("LOCK_TIMEOUT", "Timed out acquiring write lock", 3).with_details(
                     serde_json::json!({
                       "lockFile": lock_file.display().to_string(),
-                      "timeout_ms": lock_timeout_ms(),
+                      "timeout_ms": timeout_ms,
                     }),
                 ),
             );
@@ -209,7 +217,16 @@ fn release_write_lock(lock_file: &Path, owned: &LockPayload) -> Result<(), TsqEr
         || payload.pid != owned.pid
         || payload.created_at != owned.created_at
     {
-        return Ok(());
+        return Err(TsqError::new(
+            "LOCK_OWNERSHIP_MISMATCH",
+            "Lock file is owned by another writer",
+            2,
+        )
+        .with_details(serde_json::json!({
+            "lockFile": lock_file.display().to_string(),
+            "owner": payload,
+            "attempted_owner": owned,
+        })));
     }
 
     match remove_file(lock_file) {
@@ -308,4 +325,100 @@ fn io_error_value(error: &std::io::Error) -> Value {
 
 fn any_error_value(error: &impl std::fmt::Display) -> Value {
     serde_json::json!({"message": error.to_string()})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::paths::get_paths;
+    use tempfile::TempDir;
+
+    fn write_lock(path: &Path, payload: &LockPayload) {
+        std::fs::write(
+            path,
+            format!(
+                "{}\n",
+                serde_json::to_string(payload).expect("serialize lock")
+            ),
+        )
+        .expect("write lock");
+    }
+
+    #[test]
+    fn live_lock_times_out() {
+        let dir = TempDir::new().expect("tempdir");
+        let paths = get_paths(dir.path());
+        std::fs::create_dir_all(&paths.tasque_dir).expect("create tasque dir");
+        let payload = LockPayload {
+            host: System::host_name().unwrap_or_else(|| "unknown".to_string()),
+            pid: std::process::id(),
+            created_at: Utc::now().to_rfc3339(),
+        };
+        write_lock(&paths.lock_file, &payload);
+
+        let err = acquire_write_lock_with_timeout(&paths.lock_file, &paths.tasque_dir, 1)
+            .expect_err("live lock should time out");
+
+        assert_eq!(err.code, "LOCK_TIMEOUT");
+    }
+
+    #[test]
+    fn same_host_dead_pid_stale_lock_is_removed() {
+        let dir = TempDir::new().expect("tempdir");
+        let paths = get_paths(dir.path());
+        std::fs::create_dir_all(&paths.tasque_dir).expect("create tasque dir");
+        let payload = LockPayload {
+            host: System::host_name().unwrap_or_else(|| "unknown".to_string()),
+            pid: u32::MAX,
+            created_at: (Utc::now() - chrono::Duration::milliseconds(STALE_LOCK_MS + 1_000))
+                .to_rfc3339(),
+        };
+        write_lock(&paths.lock_file, &payload);
+
+        let owned = acquire_write_lock_with_timeout(&paths.lock_file, &paths.tasque_dir, 200)
+            .expect("stale lock should be replaced");
+
+        assert_eq!(owned.pid, std::process::id());
+        release_write_lock(&paths.lock_file, &owned).expect("release owned lock");
+    }
+
+    #[test]
+    fn release_wrong_owner_reports_error_and_keeps_lock() {
+        let dir = TempDir::new().expect("tempdir");
+        let paths = get_paths(dir.path());
+        std::fs::create_dir_all(&paths.tasque_dir).expect("create tasque dir");
+        let owned = LockPayload {
+            host: "host-a".to_string(),
+            pid: 1,
+            created_at: "2026-05-08T00:00:00Z".to_string(),
+        };
+        let other = LockPayload {
+            host: "host-b".to_string(),
+            pid: 2,
+            created_at: "2026-05-08T00:00:01Z".to_string(),
+        };
+        write_lock(&paths.lock_file, &other);
+
+        let err =
+            release_write_lock(&paths.lock_file, &owned).expect_err("wrong owner should fail");
+
+        assert_eq!(err.code, "LOCK_OWNERSHIP_MISMATCH");
+        let raw = std::fs::read_to_string(&paths.lock_file).expect("lock still exists");
+        assert!(raw.contains("host-b"));
+    }
+
+    #[test]
+    fn with_write_lock_releases_lock_when_callback_errors() {
+        let dir = TempDir::new().expect("tempdir");
+        let repo = dir.path();
+        let paths = get_paths(repo);
+
+        let err = with_write_lock(repo, || {
+            Err::<(), TsqError>(TsqError::new("CALLBACK_FAILED", "callback failed", 2))
+        })
+        .expect_err("callback should fail");
+
+        assert_eq!(err.code, "CALLBACK_FAILED");
+        assert!(!paths.lock_file.exists());
+    }
 }

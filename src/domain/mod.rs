@@ -8,4 +8,5 @@ pub mod projector;
 pub mod query;
 pub mod resolve;
 pub mod state;
+pub(crate) mod state_invariants;
 pub mod validate;

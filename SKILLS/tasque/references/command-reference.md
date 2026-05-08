@@ -26,9 +26,11 @@ and sets upstream automatically when needed. Non-git directories use local `.tas
 ```
 
 - `tsq show <id> [--with-spec]`
-- `tsq find ready [--lane <planning|coding>] [--assignee <name>] [--unassigned] [--kind ...] [--label ...] [--planning <needs_planning|planned>] [--tree] [--full]`
-- `tsq find <blocked|open|in-progress|deferred|done|canceled> [filters...] [--tree] [--full]`
+- `tsq find ready [--lane <planning|coding>] [--assignee <name>] [--unassigned] [--kind ...] [--label ...] [--planning <needs_planning|planned>] [--tree [--full]]`
+- `tsq find <blocked|open|in-progress|deferred|done|canceled> [filters...] [--tree [--full]]`
 - `tsq find search <query> [--full]`
+
+Note: for `find ready` and status-based `find` commands, `--full` is only valid with `--tree`. `--tree --full` keeps the full status set instead of applying the default tree status narrowing. `find search --full` remains valid without `--tree`.
 - `tsq edit <id> [--title ...] [--description ...] [--clear-description] [--priority ...] [--external-ref <ref>] [--clear-external-ref] [--discovered-from <id>] [--clear-discovered-from]`
 - `tsq claim <id> [--assignee <a>] [--start] [--require-spec]`
 - `tsq assign <id> --assignee <a>`

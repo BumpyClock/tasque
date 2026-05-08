@@ -118,18 +118,16 @@ fn validate_lifecycle_status(id: &str, task: &Task, status: TaskStatus) -> Resul
                 ));
             }
         }
-        TaskStatus::Open => {
-            if task.status != TaskStatus::Closed {
-                return Err(TsqError::new(
-                    "VALIDATION_ERROR",
-                    format!(
-                        "cannot reopen task {} with status {}",
-                        id,
-                        status_to_string(task.status)
-                    ),
-                    1,
-                ));
-            }
+        TaskStatus::Open if task.status != TaskStatus::Closed => {
+            return Err(TsqError::new(
+                "VALIDATION_ERROR",
+                format!(
+                    "cannot reopen task {} with status {}",
+                    id,
+                    status_to_string(task.status)
+                ),
+                1,
+            ));
         }
         TaskStatus::InProgress if task.status == TaskStatus::Canceled => {
             return Err(TsqError::new(

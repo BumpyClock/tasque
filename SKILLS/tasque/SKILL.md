@@ -5,43 +5,35 @@ description: Operational guide for Tasque (tsq) local task tracking and manageme
 
 <!-- tsq-managed-skill:v1 -->
 
-Tasque = durable, local-first task memory for agent work.
-Default day-to-day playbook.
+Tasque (`tsq`) = durable local task graph for agent work.
 
-## When to use tsq
+## Use
 
-- Use `tsq` for multi-step, multi-session, dependency-blocked, shared-agent work.
-- Use transient checklist for short linear single-session work.
+- Use `tsq`: multi-step, multi-session, blocked, shared-agent, release, or follow-up work.
+- Use transient checklist: short linear same-session work.
 
-## Session routine (default)
+## Start
 
 ```bash
 tsq find ready --lane planning
 tsq find ready --lane coding
 tsq find blocked
-```
-
-Pick one task; inspect context:
-
-```bash
 tsq show <id>
 ```
 
+Pick one task. Inspect before edit.
 
-### 1) Capture new work
+## Create
 
 ```bash
 tsq create "Implement <feature>" --kind feature -p 1 --needs-plan
 tsq create "Fix <bug>" --kind task -p 1 --needs-plan
-```
-
-Planning already done:
-
-```bash
 tsq create "Implement <feature>" --planned
 ```
 
-### 2) Split parent into many children
+Good task = verb + object + scope. Set `kind`, priority, labels, spec/deps when useful.
+
+## Split
 
 ```bash
 tsq create --parent <parent-id> \
@@ -50,7 +42,7 @@ tsq create --parent <parent-id> \
   "Add regression tests"
 ```
 
-Shared defaults for all children:
+Shared defaults:
 
 ```bash
 tsq create --parent <parent-id> --kind task -p 2 --planned \
@@ -59,7 +51,7 @@ tsq create --parent <parent-id> --kind task -p 2 --planned \
   "Add integration tests"
 ```
 
-Safe reruns without duplicate children:
+Safe rerun:
 
 ```bash
 tsq create --parent <parent-id> --ensure \
@@ -68,7 +60,7 @@ tsq create --parent <parent-id> --ensure \
   "Add integration tests"
 ```
 
-Batch from `tasks.md`:
+`tasks.md` batch. Two-space nested bullets create child hierarchy.
 
 ```md
 - Add parser tests
@@ -82,56 +74,50 @@ Batch from `tasks.md`:
 tsq create --parent <parent-id> --from-file tasks.md
 ```
 
-Use `tsq create --parent <id> --from-file tasks.md` for many tasks.
-
-### 3) Planning handoff -> coding
+## Plan -> Code
 
 ```bash
 tsq spec <id> --text "## Plan\n...\n## Acceptance\n..."
+tsq spec <id> --show
 tsq planned <id>
 tsq claim <id> --assignee <name> --start
 ```
 
-Use `tsq spec <id> --show` when you need spec markdown from sync worktree.
+Use `tsq spec <id> --show` when spec markdown lives in sync worktree.
 
-### 4) Model deps for parallel agents
+## Parallel Work
 
-Hard blocker (changes readiness):
+Hard blocker; affects readiness:
 
 ```bash
 tsq block <child-id> by <blocker-id>
 ```
 
-Soft ordering only:
+Soft order; no readiness block:
 
 ```bash
 tsq order <later-id> after <earlier-id>
 ```
 
-Check actionable tasks:
+Check next:
 
 ```bash
 tsq find ready --lane coding
 tsq find ready --lane planning
 ```
 
-### 5) Capture discovered follow-up work
+Prefer many independent tasks. Use `blocks` only for true gates. Use `starts_after`/`order` for sequence.
+
+## Follow-Up
 
 ```bash
 tsq create "Handle edge case <x>" --discovered-from <current-id> --needs-plan
 tsq relate <new-id> <current-id>
 ```
 
-### 5b) Idempotent root/parent create for automation
+Follow-up work belongs in `tsq`, not chat TODOs.
 
-```bash
-tsq create "Implement auth module" --ensure
-tsq create --parent <parent-id> "Add tests" --ensure
-```
-
-`--ensure` returns existing task when same normalized title already exists under the same parent.
-
-### 6) Park / unpark work
+## Park / Resume
 
 ```bash
 tsq defer <id> --note "waiting"
@@ -139,7 +125,7 @@ tsq find deferred
 tsq open <id>
 ```
 
-### 7) Resolve duplicate/superseded work
+## Duplicate / Replace
 
 ```bash
 tsq duplicate <id> of <canonical-id> --note "same root issue"
@@ -149,7 +135,7 @@ tsq merge <source-id...> --into <target-id> --force
 tsq supersede <old-id> with <new-id> --note "replaced approach"
 ```
 
-### 8) Close / report
+## Close / Report
 
 ```bash
 tsq done <id> --note "verified"
@@ -157,47 +143,19 @@ tsq history <id> --limit 20
 tsq find open --tree
 ```
 
-Use `--format json` only when scripting/parsing; human output is fine for inspection.
+Use `--format json` for scripts/parsers. Human output fine for inspection.
 
-## Built-in task authoring checklist
+## Habits
 
-### Minimum quality bar
+- Keep `status` and `planning_state` separate.
+- Use deps/relations to expose parallel shape.
+- Use `--ensure` in rerunnable automation.
+- Keep task small enough for one focused agent pass.
+- Need edge flags? Run `tsq <cmd> --help`.
 
-- Titles: clear, action-oriented (verb + object + scope).
-- Set `kind`: `task|feature|epic`.
-- Set priority intentionally: `0..3`.
-- Add labels with consistent naming.
-- Attach spec when scope/acceptance non-trivial.
-- Add explicit deps/relations when relevant.
+## Need More
 
-### Parallelization guidance
-
-- Prefer multiple independent tasks over one large task.
-- Use `blocks` only when work truly gates another task.
-- Use `starts_after` for sequencing without blocking readiness.
-- Add discovered work as new tasks via `--discovered-from`.
-- Keep each task small enough for one focused agent pass.
-
-### Practical authoring starter
-
-```bash
-tsq create "<title>" --kind task -p 2 --needs-plan
-tsq spec <id> --text "<markdown spec>"
-tsq block <child> by <blocker>
-tsq relate <src> <dst>
-```
-
-## Required habits
-
-- Keep lifecycle `status` and `planning_state` separate.
-- Use deps to make parallel execution explicit.
-- Create follow-up tasks; avoid chat TODOs.
-- Prefer `--format json` for automation; inspect with human output.
-- Use `--ensure` in scripts to prevent duplicate creates on rerun.
-
-## Read when needed
-
-- Planning/deferred semantics: `references/planning-workflow.md`
-- JSON schema + durability details: `references/machine-output-and-durability.md`
-- Full option matrix (edge cases): `references/command-reference.md`
-- Install if missing: `npm install -g @bumpyclock/tasque`
+- Edge flags/full command matrix: `references/command-reference.md` or `tsq <cmd> --help`.
+- Planning/deferred semantics: `references/planning-workflow.md`.
+- JSON/durability: `references/machine-output-and-durability.md`.
+- Missing install: `npm install -g @bumpyclock/tasque`.

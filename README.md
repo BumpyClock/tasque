@@ -7,6 +7,37 @@ Local-first task tracker for coding agents.
 - No DB/service
 - Durable restart + replay
 
+## Install
+
+```bash
+npm install -g @bumpyclock/tasque
+tsq --version
+```
+
+From source:
+
+```bash
+cargo build --release
+target/release/tsq --version
+```
+
+## Quickstart
+
+```bash
+tsq init --no-wizard
+tsq create "First task" --kind task -p 1
+tsq find open
+tsq find ready --lane coding --format json
+```
+
+Install or refresh the bundled agent skill:
+
+```bash
+tsq init --install-skill --force-skill-overwrite
+```
+
+Skill install updates agent skill directories. Sync worktree setup belongs to
+plain `tsq init`, `tsq migrate`, or explicit `--sync-branch`.
 
 ## Command List
 
@@ -79,6 +110,11 @@ Non-git directories use local `.tasque/` storage.
 
 ## `tasks.md` Batch Format
 
+Use `tasks.md` when a plan naturally reads as a checklist. Each bullet creates
+one task. Two-space indentation creates parent/child hierarchy. Checkbox bullets
+are accepted. Tabs, odd indentation, indentation jumps, and indented first
+bullets are rejected with line-numbered validation errors.
+
 ```md
 - Parent task
   - Child task
@@ -89,17 +125,7 @@ Non-git directories use local `.tasque/` storage.
 ```bash
 tsq create --from-file tasks.md
 tsq create --parent <id> --from-file tasks.md
-```
-
-
-
-## Quickstart
-
-```bash
-cargo run -- init --no-wizard
-cargo run -- create "First task" --kind task -p 1
-cargo run -- find open
-cargo run -- --format json find ready --lane coding
+tsq create --from-file tasks.md --ensure
 ```
 
 ## Version

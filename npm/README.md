@@ -3,10 +3,34 @@
 Local-first task tracker for coding agents.
 
 - JSONL source of truth
-- Repo-local storage in `.tasque/`
+- Git worktree-backed `.tasque/` storage by default in git repos
 - No DB/service
 - Durable restart + replay
 
+## Install
+
+```bash
+npm install -g @bumpyclock/tasque
+tsq --version
+```
+
+## Quickstart
+
+```bash
+tsq init --no-wizard
+tsq create "First task" --kind task -p 1
+tsq find open
+tsq find ready --lane coding --format json
+```
+
+Install or refresh the bundled agent skill:
+
+```bash
+tsq init --install-skill --force-skill-overwrite
+```
+
+Skill install updates agent skill directories. Sync worktree setup belongs to
+plain `tsq init`, `tsq migrate`, or explicit `--sync-branch`.
 
 ## Command List
 
@@ -19,7 +43,7 @@ Global options:
 Commands:
 
 - `tsq` (no args, TTY): open read-only TUI (List/Board views)
-- `tsq init [--wizard|--no-wizard] [--yes] [--preset <name>] [--sync-branch <branch>]`
+- `tsq init [--wizard|--no-wizard] [--yes] [--preset <name>] [--sync-branch|--worktree-name <name>]`
 - `tsq init --install-skill|--uninstall-skill [--skill-targets ...] [--skill-name <name>] [--force-skill-overwrite]`
 - `tsq create <title...> [--kind ...] [-p ...] [--parent <id>] [--from-file tasks.md] [--description <text>] [--external-ref <ref>] [--discovered-from <id>] [--planned|--needs-plan] [--ensure] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
 - `tsq show <id> [--with-spec]`
@@ -66,10 +90,23 @@ Commands:
 - `tsq sync [--no-push]`
 - `tsq hooks install [--force]`
 - `tsq hooks uninstall`
-- `tsq migrate --sync-branch <branch>`
+- `tsq migrate [--sync-branch|--worktree-name <name>]`
 - `tsq merge-driver <ancestor> <ours> <theirs>`
 
+Git repos default to worktree mode: `tsq init` creates/configures the `tsq-sync`
+branch and stores task data in a dedicated git worktree. Use `--sync-branch <name>`
+or `--worktree-name <name>` to choose a different branch/worktree name. Existing git repos with main-tree `.tasque`
+data and no `sync_branch` migrate automatically on the next `tsq` command. Fresh clones fetch
+the configured sync branch and create the worktree on first use. `tsq sync` pushes
+the sync branch to `origin` and sets upstream automatically when needed.
+Non-git directories use local `.tasque/` storage.
+
 ## `tasks.md` Batch Format
+
+Use `tasks.md` when a plan naturally reads as a checklist. Each bullet creates
+one task. Two-space indentation creates parent/child hierarchy. Checkbox bullets
+are accepted. Tabs, odd indentation, indentation jumps, and indented first
+bullets are rejected with line-numbered validation errors.
 
 ```md
 - Parent task
@@ -81,17 +118,7 @@ Commands:
 ```bash
 tsq create --from-file tasks.md
 tsq create --parent <id> --from-file tasks.md
-```
-
-
-
-## Quickstart
-
-```bash
-cargo run -- init --no-wizard
-cargo run -- create "First task" --kind task -p 1
-cargo run -- find open
-cargo run -- --format json find ready --lane coding
+tsq create --from-file tasks.md --ensure
 ```
 
 ## Version
@@ -153,7 +180,17 @@ All steps must pass before merging.
 
 ## Storage Layout
 
-Repo-local `.tasque/`:
+Git repos default to a dedicated sync worktree:
+
+- `tsq init` configures `tsq-sync` by default and redirects data operations there.
+- Fresh clones fetch the configured sync branch and create the worktree on first use.
+- `tsq sync` pushes the sync branch to `origin` and sets upstream automatically when needed.
+- Existing git repos with main-tree `.tasque` data migrate automatically when `tsq`
+  next resolves the project root.
+- The main worktree keeps `.tasque/config.json` so `tsq` can find the sync branch.
+- The sync worktree owns the canonical `.tasque/events.jsonl`, specs, snapshots, and cache.
+
+Non-git directories use repo-local `.tasque/`:
 
 - `events.jsonl`: canonical append-only event log
 - `state.json`: derived projection cache (rebuildable, gitignored)

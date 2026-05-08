@@ -1,6 +1,6 @@
 mod common;
 
-use common::{make_repo, run_cli};
+use common::{make_repo, run_cli, run_json};
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
@@ -86,6 +86,42 @@ fn init_defaults_to_sync_branch_configuration_in_git_repo() {
     assert_eq!(result.code, 0, "stderr: {}", result.stderr);
     let envelope: Value = serde_json::from_str(result.stdout.trim()).expect("json envelope");
     assert_eq!(envelope.get("ok").and_then(Value::as_bool), Some(true));
+}
+
+#[test]
+fn init_install_skill_preserves_existing_sync_branch_config() {
+    let repo = make_repo();
+    let root = repo.path();
+    git(root, &["init"]);
+    git(root, &["config", "user.name", "rust-test"]);
+    git(root, &["config", "user.email", "rust-test@example.com"]);
+    fs::create_dir_all(root.join(".tasque")).expect("mkdir .tasque");
+    let config_path = root.join(".tasque").join("config.json");
+    let original_config = "{\n  \"schema_version\": 1,\n  \"snapshot_every\": 200,\n  \"sync_branch\": \"tasque-sync\"\n}\n";
+    fs::write(&config_path, original_config).expect("write config");
+
+    let skill_dir = root.join("skill-target");
+    let skill_dir_arg = skill_dir.to_string_lossy().to_string();
+    let result = run_json(
+        root,
+        [
+            "init",
+            "--install-skill",
+            "--skill-targets",
+            "codex",
+            "--skill-dir-codex",
+            &skill_dir_arg,
+        ],
+    );
+
+    assert_eq!(result.cli.code, 0, "stderr: {}", result.cli.stderr);
+    assert_eq!(
+        fs::read_to_string(&config_path).expect("read config"),
+        original_config
+    );
+    let data = result.envelope.get("data").expect("data");
+    assert!(data.get("sync_setup").is_none());
+    assert!(skill_dir.join("tasque").join("SKILL.md").exists());
 }
 
 #[test]

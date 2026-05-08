@@ -66,12 +66,22 @@ impl TasqueService {
             ".tasque/.gitignore".to_string(),
         ];
 
-        let default_sync_branch =
-            if input.sync_branch.is_none() && should_default_to_sync_branch(&self.ctx.repo_root) {
-                Some(DEFAULT_SYNC_BRANCH.to_string())
-            } else {
-                None
-            };
+        let skill_action = if input.install_skill {
+            Some(SkillAction::Install)
+        } else if input.uninstall_skill {
+            Some(SkillAction::Uninstall)
+        } else {
+            None
+        };
+
+        let default_sync_branch = if input.sync_branch.is_none()
+            && skill_action.is_none()
+            && should_default_to_sync_branch(&self.ctx.repo_root)
+        {
+            Some(DEFAULT_SYNC_BRANCH.to_string())
+        } else {
+            None
+        };
         let sync_branch = input.sync_branch.as_ref().or(default_sync_branch.as_ref());
         let sync_setup = if let Some(branch) = sync_branch {
             Some(crate::app::sync::setup_sync_branch(
@@ -83,15 +93,7 @@ impl TasqueService {
             None
         };
 
-        let action = if input.install_skill {
-            Some(SkillAction::Install)
-        } else if input.uninstall_skill {
-            Some(SkillAction::Uninstall)
-        } else {
-            None
-        };
-
-        if let Some(action) = action {
+        if let Some(action) = skill_action {
             let skill_operation =
                 apply_skill_operation(crate::skills::types::SkillOperationOptions {
                     action,

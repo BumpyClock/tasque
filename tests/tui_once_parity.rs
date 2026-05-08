@@ -1,6 +1,6 @@
 mod common;
 
-use common::{create_task, create_task_with_args, init_repo, run_cli, update_task};
+use common::{create_task, create_task_with_args, init_repo, run_cli, run_json};
 
 #[test]
 fn tui_once_renders_tasks_view_tabs_table_and_spec_indicators() {
@@ -8,13 +8,12 @@ fn tui_once_renders_tasks_view_tabs_table_and_spec_indicators() {
     init_repo(repo.path());
 
     let in_progress_id = create_task(repo.path(), "TUI in-progress task");
-    let status_update = update_task(repo.path(), &in_progress_id, &["--status", "in_progress"]);
+    let status_update = run_json(repo.path(), ["start", &in_progress_id]);
     assert_eq!(status_update.cli.code, 0);
     let spec_attach = run_cli(
         repo.path(),
         [
             "spec",
-            "attach",
             &in_progress_id,
             "--text",
             "# Spec\n## Overview\nAttached for parity coverage.",
@@ -65,16 +64,14 @@ fn tui_once_renders_board_view_with_three_columns_and_spec_indicators_on_cards()
     let open_id = create_task(repo.path(), "TUI open board task");
     let in_progress_id = create_task(repo.path(), "TUI in-progress board task");
     let closed_id = create_task(repo.path(), "TUI closed board task");
-    let in_progress_update =
-        update_task(repo.path(), &in_progress_id, &["--status", "in_progress"]);
+    let in_progress_update = run_json(repo.path(), ["start", &in_progress_id]);
     assert_eq!(in_progress_update.cli.code, 0);
-    let closed_update = update_task(repo.path(), &closed_id, &["--status", "closed"]);
+    let closed_update = run_json(repo.path(), ["done", &closed_id]);
     assert_eq!(closed_update.cli.code, 0);
     let spec_attach = run_cli(
         repo.path(),
         [
             "spec",
-            "attach",
             &in_progress_id,
             "--text",
             "# Spec\n## Overview\nBoard indicator parity coverage.",
@@ -160,7 +157,6 @@ fn tui_once_epics_renders_progress_header_and_spec_states() {
         repo.path(),
         [
             "spec",
-            "attach",
             &child_with_spec_id,
             "--text",
             "# Spec\n## Overview\nEpics indicator parity coverage.",

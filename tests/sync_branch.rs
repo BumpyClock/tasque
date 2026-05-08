@@ -20,7 +20,7 @@ fn sync_branch_requires_git_repo() {
     )
     .unwrap();
 
-    let result = run_cli(root, ["list", "--json"]);
+    let result = run_cli(root, ["find", "open", "--json"]);
     assert_eq!(result.code, 2);
     let envelope: Value = serde_json::from_str(result.stdout.trim()).unwrap();
     let code = envelope

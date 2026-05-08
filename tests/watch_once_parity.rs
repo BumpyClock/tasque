@@ -2,7 +2,7 @@ mod common;
 
 use common::{
     assert_validation_error, create_task, create_task_with_args, ids_from_task_list, init_repo,
-    run_json, update_task,
+    run_json,
 };
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -59,9 +59,9 @@ fn watch_once_json_applies_status_and_assignee_filters() {
 
     create_task(repo.path(), "Unfiltered task");
     let target_id = create_task(repo.path(), "Filtered in-progress task");
-    let status_update = update_task(repo.path(), &target_id, &["--status", "in_progress"]);
+    let status_update = run_json(repo.path(), ["start", &target_id]);
     assert_eq!(status_update.cli.code, 0);
-    let claim_update = update_task(repo.path(), &target_id, &["--claim", "--assignee", "alice"]);
+    let claim_update = run_json(repo.path(), ["claim", &target_id, "--assignee", "alice"]);
     assert_eq!(claim_update.cli.code, 0);
 
     let result = run_json(
@@ -106,9 +106,9 @@ fn watch_once_default_status_filter_excludes_closed_and_canceled_tasks() {
     let closed = create_task(repo.path(), "Will be closed");
     let canceled = create_task(repo.path(), "Will be canceled");
 
-    let close_result = update_task(repo.path(), &closed, &["--status", "closed"]);
+    let close_result = run_json(repo.path(), ["done", &closed]);
     assert_eq!(close_result.cli.code, 0);
-    let cancel_result = update_task(repo.path(), &canceled, &["--status", "canceled"]);
+    let cancel_result = run_json(repo.path(), ["cancel", &canceled]);
     assert_eq!(cancel_result.cli.code, 0);
 
     let result = run_json(repo.path(), ["watch", "--once"]);

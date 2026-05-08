@@ -8,6 +8,18 @@ pub struct GlobalOpts {
     pub exact_id: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputFormat {
+    Human,
+    Json,
+}
+
+impl GlobalOpts {
+    pub fn json(self) -> bool {
+        self.json
+    }
+}
+
 pub fn run_action<T, J, F, M, H>(
     command_line: &str,
     opts: GlobalOpts,
@@ -23,7 +35,7 @@ where
 {
     match action() {
         Ok(value) => {
-            if opts.json {
+            if opts.json() {
                 let envelope = ok_envelope(command_line, map_json(&value));
                 match serde_json::to_string_pretty(&envelope) {
                     Ok(text) => println!("{}", text),
@@ -42,7 +54,7 @@ where
             0
         }
         Err(error) => {
-            if opts.json {
+            if opts.json() {
                 let envelope = err_envelope(
                     command_line,
                     error.code.clone(),
@@ -71,7 +83,7 @@ where
 }
 
 pub fn emit_error(command_line: &str, opts: GlobalOpts, error: TsqError) -> i32 {
-    if opts.json {
+    if opts.json() {
         let envelope = err_envelope(
             command_line,
             error.code.clone(),

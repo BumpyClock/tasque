@@ -14,37 +14,57 @@ Use `--sync-branch <name>` or `--worktree-name <name>` to choose another branch/
 and create the worktree on first use. `tsq sync` pushes the sync branch to `origin`
 and sets upstream automatically when needed. Non-git directories use local `.tasque/` storage.
 
-- `tsq create [<title>] [--child <title> ...] [--kind ...] [-p ...] [--parent <id>] [--description <text>] [--external-ref <ref>] [--discovered-from <id>] [--planning <needs_planning|planned>] [--needs-planning] [--ensure] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
-- `tsq show <id>`
-- `tsq list [--status ...] [--assignee ...] [--unassigned] [--external-ref <ref>] [--discovered-from <id>] [--kind ...] [--label ...] [--label-any ...] [--created-after <iso>] [--updated-after <iso>] [--closed-after <iso>] [--id <id,...>] [--planning <needs_planning|planned>] [--dep-type <blocks|starts_after>] [--dep-direction <in|out|any>] [--tree] [--full]`
-- `tsq search <query>`
-- `tsq update <id> [--title ...] [--description ...] [--clear-description] [--status ...] [--priority ...] [--external-ref <ref>] [--clear-external-ref] [--discovered-from <id>] [--clear-discovered-from] [--planning <needs_planning|planned>]`
-- `tsq update <id> --claim [--assignee <a>] [--require-spec]`
-- `tsq close <id...> [--reason <text>]`
-- `tsq reopen <id...>`
-- `tsq ready [--lane <planning|coding>]`
+- `tsq create <title...> [--kind ...] [-p ...] [--parent <id>] [--from-file tasks.md] [--description <text>] [--external-ref <ref>] [--discovered-from <id>] [--planned|--needs-plan] [--ensure] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
+
+`tasks.md` supports nested two-space bullets:
+
+```md
+- Parent task
+  - Child task
+    - Grandchild task
+- [ ] Another parent task
+```
+
+- `tsq show <id> [--with-spec]`
+- `tsq find ready [--lane <planning|coding>] [--assignee <name>] [--unassigned] [--kind ...] [--label ...] [--planning <needs_planning|planned>] [--tree] [--full]`
+- `tsq find <blocked|open|in-progress|deferred|done|canceled> [filters...] [--tree] [--full]`
+- `tsq find search <query> [--full]`
+- `tsq edit <id> [--title ...] [--description ...] [--clear-description] [--priority ...] [--external-ref <ref>] [--clear-external-ref] [--discovered-from <id>] [--clear-discovered-from]`
+- `tsq claim <id> [--assignee <a>] [--start] [--require-spec]`
+- `tsq assign <id> --assignee <a>`
+- `tsq start <id>`
+- `tsq planned <id>`
+- `tsq needs-plan <id>`
+- `tsq open <id>`
+- `tsq blocked <id>`
+- `tsq defer <id> [--note <text>]`
+- `tsq done <id...> [--note <text>]`
+- `tsq reopen <id...> [--note <text>]`
+- `tsq cancel <id...> [--note <text>]`
 
 ## Dependencies and relations
 
-- `tsq dep add <child> <blocker> [--type <blocks|starts_after>]`
-- `tsq dep remove <child> <blocker> [--type <blocks|starts_after>]`
-- `tsq dep tree <id> [--direction <up|down|both>] [--depth <n>]`
-- `tsq link add <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
-- `tsq link remove <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
-- `tsq duplicate <id> --of <canonical-id> [--reason <text>]`
+- `tsq block <task> by <blocker>`
+- `tsq unblock <task> by <blocker>`
+- `tsq order <later> after <earlier>`
+- `tsq unorder <later> after <earlier>`
+- `tsq deps <id> [--direction <up|down|both>] [--depth <n>]`
+- `tsq relate <src> <dst>`
+- `tsq unrelate <src> <dst>`
+- `tsq duplicate <id> of <canonical-id> [--note <text>]`
 - `tsq duplicates [--limit <n>]`
 - `tsq merge <source-id...> --into <target-id> [--reason <text>] [--force] [--dry-run]`
-- `tsq supersede <old-id> --with <new-id> [--reason <text>]`
+- `tsq supersede <old-id> with <new-id> [--note <text>]`
 
 ## Specs, notes, labels, history
 
-- `tsq spec attach <id> [source] [--file <path> | --stdin | --text <markdown>]`
-- `tsq spec check <id>`
-- `tsq note add <id> <text>`
-- `tsq note list <id>`
-- `tsq label add <id> <label>`
-- `tsq label remove <id> <label>`
-- `tsq label list`
+- `tsq spec <id> [--file <path> | --stdin | --text <markdown> | --show | --check] [--force]`
+- `tsq note <id> <text>`
+- `tsq note <id> --stdin`
+- `tsq notes <id>`
+- `tsq label <id> <label>`
+- `tsq unlabel <id> <label>`
+- `tsq labels`
 - `tsq history <id> [--limit <n>] [--type <event-type>] [--actor <name>] [--since <iso>]`
 
 ## Reporting and maintenance
@@ -63,6 +83,7 @@ and sets upstream automatically when needed. Non-git directories use local `.tas
 
 ## Global options and status alias
 
-- Add `--json` to any command for stable machine output.
+- Use `--format json` when scripting/parsing.
+- `--json` remains shorthand for `--format json`.
 - Add `--exact-id` to disable fuzzy id matching.
 - Status alias: `done` maps to `closed`.

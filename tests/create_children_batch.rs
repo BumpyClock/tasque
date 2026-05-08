@@ -15,9 +15,7 @@ fn create_supports_multiple_children_for_single_parent() {
             "create",
             "--parent",
             parent.as_str(),
-            "--child",
             "Draft CLI UX",
-            "--child",
             "Add service tests",
         ],
     );
@@ -47,28 +45,20 @@ fn create_supports_multiple_children_for_single_parent() {
 }
 
 #[test]
-fn create_rejects_child_without_parent() {
+fn create_supports_multiple_root_tasks_without_parent() {
     let repo = common::make_repo();
     init_repo(repo.path());
 
-    let result = run_json(repo.path(), ["create", "--child", "Needs parent"]);
-    assert_eq!(result.cli.code, 1);
-    assert_eq!(
-        result
-            .envelope
-            .get("error")
-            .and_then(|value| value.get("code"))
-            .and_then(Value::as_str),
-        Some("VALIDATION_ERROR")
-    );
-    assert_eq!(
-        result
-            .envelope
-            .get("error")
-            .and_then(|value| value.get("message"))
-            .and_then(Value::as_str),
-        Some("--child requires --parent")
-    );
+    let result = run_json(repo.path(), ["create", "Root A", "Root B"]);
+    assert_eq!(result.cli.code, 0);
+    let tasks = result
+        .envelope
+        .get("data")
+        .and_then(|value| value.get("tasks"))
+        .and_then(Value::as_array)
+        .expect("expected data.tasks array");
+    assert_eq!(tasks.len(), 2);
+    assert!(tasks.iter().all(|task| task.get("parent_id").is_none()));
 }
 
 #[test]
@@ -121,7 +111,7 @@ fn create_ensure_is_idempotent_for_root_task() {
         .to_string();
     assert_eq!(first_id, second_id);
 
-    let listed = run_json(repo.path(), ["list"]);
+    let listed = run_json(repo.path(), ["find", "open"]);
     assert_eq!(listed.cli.code, 0);
     let root_matches = listed
         .envelope
@@ -145,9 +135,7 @@ fn create_ensure_is_idempotent_for_parent_children_batch() {
         "create",
         "--parent",
         parent.as_str(),
-        "--child",
         "Design API contract",
-        "--child",
         "Implement logic",
         "--ensure",
     ];
@@ -181,7 +169,7 @@ fn create_ensure_is_idempotent_for_parent_children_batch() {
     assert_eq!(first_ids, expected_ids);
     assert_eq!(second_ids, expected_ids);
 
-    let listed = run_json(repo.path(), ["list"]);
+    let listed = run_json(repo.path(), ["find", "open"]);
     assert_eq!(listed.cli.code, 0);
     let child_count = listed
         .envelope
@@ -193,6 +181,84 @@ fn create_ensure_is_idempotent_for_parent_children_batch() {
         .filter(|task| task.get("parent_id").and_then(Value::as_str) == Some(parent.as_str()))
         .count();
     assert_eq!(child_count, 2);
+}
+
+#[test]
+fn create_ensure_is_idempotent_for_nested_file_batch() {
+    let repo = common::make_repo();
+    init_repo(repo.path());
+
+    let file = repo.path().join("tasks.md");
+    std::fs::write(
+        &file,
+        "- Parent A\n  - Child A1\n- Parent B\n  - Child B1\n",
+    )
+    .unwrap();
+    let cmd = ["create", "--from-file", "tasks.md", "--ensure"];
+
+    let first = run_json(repo.path(), cmd);
+    assert_eq!(first.cli.code, 0);
+    let second = run_json(repo.path(), cmd);
+    assert_eq!(second.cli.code, 0);
+
+    let first_tasks = first.envelope["data"]["tasks"]
+        .as_array()
+        .expect("first tasks");
+    let second_tasks = second.envelope["data"]["tasks"]
+        .as_array()
+        .expect("second tasks");
+    let first_ids: Vec<&str> = first_tasks
+        .iter()
+        .map(|task| task["id"].as_str().expect("first id"))
+        .collect();
+    let second_ids: Vec<&str> = second_tasks
+        .iter()
+        .map(|task| task["id"].as_str().expect("second id"))
+        .collect();
+    assert_eq!(first_ids, second_ids);
+
+    let listed = run_json(repo.path(), ["find", "open"]);
+    assert_eq!(listed.cli.code, 0);
+    let all_tasks = listed.envelope["data"]["tasks"].as_array().expect("tasks");
+    let matching_count = all_tasks
+        .iter()
+        .filter(|task| {
+            matches!(
+                task["title"].as_str(),
+                Some("Parent A") | Some("Child A1") | Some("Parent B") | Some("Child B1")
+            )
+        })
+        .count();
+    assert_eq!(matching_count, 4);
+}
+
+#[test]
+fn create_ensure_scopes_nested_titles_to_resolved_parent() {
+    let repo = common::make_repo();
+    init_repo(repo.path());
+
+    let file = repo.path().join("tasks.md");
+    std::fs::write(
+        &file,
+        "- Parent A\n  - Shared child\n- Parent B\n  - Shared child\n",
+    )
+    .unwrap();
+    let result = run_json(
+        repo.path(),
+        ["create", "--from-file", "tasks.md", "--ensure"],
+    );
+
+    assert_eq!(result.cli.code, 0);
+    let tasks = result.envelope["data"]["tasks"].as_array().expect("tasks");
+    assert_eq!(tasks.len(), 4);
+    let parent_a = tasks[0]["id"].as_str().expect("parent A");
+    let child_a = tasks[1]["id"].as_str().expect("child A");
+    let parent_b = tasks[2]["id"].as_str().expect("parent B");
+    let child_b = tasks[3]["id"].as_str().expect("child B");
+
+    assert_eq!(tasks[1]["parent_id"].as_str(), Some(parent_a));
+    assert_eq!(tasks[3]["parent_id"].as_str(), Some(parent_b));
+    assert_ne!(child_a, child_b);
 }
 
 #[test]

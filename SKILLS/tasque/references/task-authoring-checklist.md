@@ -22,8 +22,21 @@ Read when: creating/refining tasks or splitting work for parallel execution.
 ## Practical starter flow
 
 ```bash
-tsq create "<title>" --kind task -p 2 --needs-planning
-tsq spec attach <id> --text "<markdown spec>"
-tsq dep add <child> <blocker> --type blocks
-tsq link add <src> <dst> --type relates_to
+tsq create "<title>" --kind task -p 2 --needs-plan
+tsq spec <id> --text "<markdown spec>"
+tsq block <child> by <blocker>
+tsq relate <src> <dst>
+```
+
+For many tasks, write `tasks.md` with nested two-space bullets:
+
+```md
+- Parent task
+  - Child task
+    - Grandchild task
+- [ ] Another parent task
+```
+
+```bash
+tsq create --parent <id> --from-file tasks.md
 ```

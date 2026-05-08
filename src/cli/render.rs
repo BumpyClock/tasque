@@ -1,5 +1,5 @@
 use crate::app::service_query::ShowResult;
-use crate::app::service_types::{HistoryResult, MergeResult, OrphansResult};
+use crate::app::service_types::{HistoryResult, MergeResult, OrphansResult, SpecContentResult};
 use crate::cli::style;
 use crate::cli::terminal::{Density, resolve_density, resolve_width};
 use crate::domain::dep_tree::DepTreeNode;
@@ -173,6 +173,15 @@ pub fn print_show_result(data: &ShowResult) {
     if !data.history.is_empty() {
         println!("{}={}", style::key("history_events"), data.history.len());
     }
+}
+
+pub fn print_spec_content(data: &SpecContentResult) {
+    println!("--- spec: {} ---", data.spec_path);
+    print!("{}", data.content);
+    if !data.content.ends_with('\n') {
+        println!();
+    }
+    println!("--- end spec ---");
 }
 
 pub fn print_task_tree(nodes: &[TaskTreeNode]) {

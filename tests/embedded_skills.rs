@@ -1,6 +1,7 @@
 mod common;
 
 use common::make_repo;
+use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -38,6 +39,11 @@ fn embedded_skills_fallback_installs_skill_when_disk_sources_missing() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+
+    let contents = fs::read_to_string(&skill_marker).expect("read installed embedded skill");
+    assert!(contents.contains("tsq find ready --lane coding"));
+    assert!(contents.contains("tsq create --parent <parent-id> --from-file tasks.md"));
+    assert!(contents.contains("tsq spec <id> --show"));
 }
 
 fn tsq_bin() -> PathBuf {

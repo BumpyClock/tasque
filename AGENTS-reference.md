@@ -85,37 +85,47 @@ Relation types:
 - `tsq` (no args, TTY): open read-only TUI
 - `tsq init [--wizard|--no-wizard] [--yes] [--preset <name>] [--sync-branch|--worktree-name <name>]`
 - `tsq init --install-skill|--uninstall-skill [--skill-targets ...] [--skill-name <name>] [--force-skill-overwrite]`
-- `tsq create [<title>] [--child <title> ...] [--kind ...] [-p ...] [--parent <id>] [--description <text>] [--external-ref <ref>] [--discovered-from <id>] [--planning <needs_planning|planned>] [--needs-planning] [--ensure] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
-- `tsq show <id>`
-- `tsq list [--status ...] [--assignee ...] [--unassigned] [--external-ref <ref>] [--discovered-from <id>] [--kind ...] [--label ...] [--label-any ...] [--created-after <iso>] [--updated-after <iso>] [--closed-after <iso>] [--id <id,...>] [--planning <needs_planning|planned>] [--dep-type <blocks|starts_after>] [--dep-direction <in|out|any>] [--tree] [--full]`
-- `tsq search <query>`
-- `tsq ready [--lane <planning|coding>]`
+- `tsq create <title...> [--kind ...] [-p ...] [--parent <id>] [--from-file tasks.md] [--description <text>] [--external-ref <ref>] [--discovered-from <id>] [--planned|--needs-plan] [--ensure] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
+- `tsq show <id> [--with-spec]`
+- `tsq find ready [--lane <planning|coding>] [--assignee <name>] [--unassigned] [--kind ...] [--label ...] [--planning <needs_planning|planned>] [--tree] [--full]`
+- `tsq find <blocked|open|in-progress|deferred|done|canceled> [filters...] [--tree] [--full]`
+- `tsq find search <query> [--full]`
 - `tsq watch [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--tree]`
 - `tsq tui [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--board|--epics]`
 - `tsq stale [--days <n>] [--status <status>] [--assignee <name>] [--limit <n>]`
 - `tsq doctor`
 - `tsq repair [--fix] [--force-unlock]`
-- `tsq update <id> [--title ...] [--description ...] [--clear-description] [--status ...] [--priority ...] [--external-ref <ref>] [--clear-external-ref] [--discovered-from <id>] [--clear-discovered-from] [--planning <needs_planning|planned>]`
-- `tsq update <id> --claim [--assignee <a>] [--require-spec]`
-- `tsq close <id...> [--reason <text>]`
-- `tsq reopen <id...>`
+- `tsq edit <id> [--title ...] [--description ...] [--clear-description] [--priority ...] [--external-ref <ref>] [--clear-external-ref] [--discovered-from <id>] [--clear-discovered-from]`
+- `tsq claim <id> [--assignee <a>] [--start] [--require-spec]`
+- `tsq assign <id> --assignee <a>`
+- `tsq start <id>`
+- `tsq planned <id>`
+- `tsq needs-plan <id>`
+- `tsq open <id>`
+- `tsq blocked <id>`
+- `tsq defer <id> [--note <text>]`
+- `tsq done <id...> [--note <text>]`
+- `tsq reopen <id...> [--note <text>]`
+- `tsq cancel <id...> [--note <text>]`
 - `tsq orphans`
-- `tsq spec attach <id> [source] [--file <path> | --stdin | --text <markdown>]`
-- `tsq spec check <id>`
-- `tsq dep add <child> <blocker> [--type <blocks|starts_after>]`
-- `tsq dep tree <id> [--direction <up|down|both>] [--depth <n>]`
-- `tsq dep remove <child> <blocker> [--type <blocks|starts_after>]`
-- `tsq link add <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
-- `tsq link remove <src> <dst> --type <relates_to|replies_to|duplicates|supersedes>`
-- `tsq duplicate <id> --of <canonical-id> [--reason <text>]`
+- `tsq spec <id> [--file <path> | --stdin | --text <markdown> | --show | --check] [--force]`
+- `tsq block <task> by <blocker>`
+- `tsq unblock <task> by <blocker>`
+- `tsq order <later> after <earlier>`
+- `tsq unorder <later> after <earlier>`
+- `tsq deps <id> [--direction <up|down|both>] [--depth <n>]`
+- `tsq relate <src> <dst>`
+- `tsq unrelate <src> <dst>`
+- `tsq duplicate <id> of <canonical-id> [--note <text>]`
 - `tsq duplicates [--limit <n>]`
 - `tsq merge <source-id...> --into <target-id> [--reason <text>] [--force] [--dry-run]`
-- `tsq supersede <old-id> --with <new-id> [--reason <text>]`
-- `tsq note add <id> <text>`
-- `tsq note list <id>`
-- `tsq label add <id> <label>`
-- `tsq label remove <id> <label>`
-- `tsq label list`
+- `tsq supersede <old-id> with <new-id> [--note <text>]`
+- `tsq note <id> <text>`
+- `tsq note <id> --stdin`
+- `tsq notes <id>`
+- `tsq label <id> <label>`
+- `tsq unlabel <id> <label>`
+- `tsq labels`
 - `tsq history <id> [--limit <n>] [--type <event-type>] [--actor <name>] [--since <iso>]`
 - `tsq sync [--no-push]`
 - `tsq hooks install [--force]`
@@ -124,7 +134,8 @@ Relation types:
 - `tsq merge-driver <ancestor> <ours> <theirs>`
 
 Global options:
-- `--json`
+- `--format human|json`
+- `--json` shorthand for `--format json`
 - `--exact-id`
 
 Status alias:
@@ -132,9 +143,9 @@ Status alias:
 
 Planning workflow guidance:
 - Treat lifecycle `status` and `planning_state` as separate dimensions.
-- `tsq ready --lane planning` surfaces tasks that need planning work (`planning_state=needs_planning`).
+- `tsq find ready --lane planning` surfaces tasks that need planning work (`planning_state=needs_planning`).
 - Planning-lane work should collaborate with the user and update specs/task body as needed before coding.
-- `tsq ready --lane coding` surfaces tasks already planned (`planning_state=planned`).
+- `tsq find ready --lane coding` surfaces tasks already planned (`planning_state=planned`).
 - Use `status=deferred` for valid work intentionally parked for later.
 
 Exit codes:

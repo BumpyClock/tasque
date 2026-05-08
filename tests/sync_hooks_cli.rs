@@ -313,7 +313,7 @@ fn fresh_clone_fetches_remote_sync_branch_and_creates_worktree() {
         &["remote", "set-url", "origin", missing_remote_arg.as_str()],
     );
 
-    let list = run_cli(&clone, ["list", "--json"]);
+    let list = run_cli(&clone, ["find", "open", "--json"]);
     assert_eq!(list.code, 0, "stderr: {}", list.stderr);
     assert!(
         list.stdout.contains("Remote sync task"),

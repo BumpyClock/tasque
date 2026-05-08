@@ -20,12 +20,12 @@ Durable across restarts and context compaction.
 - deferred lifecycle status for parked work
 - atomic claim
 - optional claim spec gate (`--require-spec`)
-- spec attach/check workflow
+- spec workflow
 - supersede workflow
 - orphans reporting (`tsq orphans`, read-only)
 - append-only audit trail
 - stable machine output (`--json`)
-- tree list view (`tsq list --tree`)
+- tree find view (`tsq find open --tree`)
 - skill install/uninstall via `tsq init`
 
 ## Non-Goals

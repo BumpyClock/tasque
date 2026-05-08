@@ -2,7 +2,7 @@ mod common;
 
 use common::{
     assert_validation_error, create_task, ids_from_task_list, init_repo, label_add, run_json,
-    run_json_explicit, update_task,
+    run_json_explicit,
 };
 use serde_json::Value;
 
@@ -22,11 +22,17 @@ fn list_rejects_assignee_and_unassigned_flag_combinations() {
     let repo = common::make_repo();
     init_repo(repo.path());
 
-    let arg_form = run_json(repo.path(), ["list", "--assignee", "alice", "--unassigned"]);
+    let arg_form = run_json(
+        repo.path(),
+        ["find", "open", "--assignee", "alice", "--unassigned"],
+    );
     assert_eq!(arg_form.cli.code, 1);
     assert_validation_error(&arg_form);
 
-    let equals_form = run_json(repo.path(), ["list", "--assignee=alice", "--unassigned"]);
+    let equals_form = run_json(
+        repo.path(),
+        ["find", "open", "--assignee=alice", "--unassigned"],
+    );
     assert_eq!(equals_form.cli.code, 1);
     assert_validation_error(&equals_form);
 }
@@ -36,7 +42,7 @@ fn list_requires_dep_type_when_dep_direction_is_set() {
     let repo = common::make_repo();
     init_repo(repo.path());
 
-    let result = run_json(repo.path(), ["list", "--dep-direction", "in"]);
+    let result = run_json(repo.path(), ["find", "open", "--dep-direction", "in"]);
     assert_eq!(result.cli.code, 1);
     assert_validation_error(&result);
 }
@@ -46,12 +52,12 @@ fn list_rejects_empty_only_repeatable_csv_values() {
     let repo = common::make_repo();
     init_repo(repo.path());
 
-    let empty_id = run_json(repo.path(), ["list", "--id", ""]);
+    let empty_id = run_json(repo.path(), ["find", "open", "--id", ""]);
     assert_eq!(empty_id.cli.code, 1);
     assert_validation_error(&empty_id);
     assert_error_message(&empty_id, "--id must not be empty");
 
-    let empty_label_any = run_json(repo.path(), ["list", "--label-any", "   "]);
+    let empty_label_any = run_json(repo.path(), ["find", "open", "--label-any", "   "]);
     assert_eq!(empty_label_any.cli.code, 1);
     assert_validation_error(&empty_label_any);
     assert_error_message(&empty_label_any, "--label-any must not be empty");
@@ -62,12 +68,13 @@ fn list_rejects_repeatable_csv_values_with_empty_tokens() {
     let repo = common::make_repo();
     init_repo(repo.path());
 
-    let trailing_id = run_json(repo.path(), ["list", "--id", "tsq-aaaaaaaa,"]);
+    let trailing_id = run_json(repo.path(), ["find", "open", "--id", "tsq-aaaaaaaa,"]);
     assert_eq!(trailing_id.cli.code, 1);
     assert_validation_error(&trailing_id);
     assert_error_message(&trailing_id, "--id values must not be empty");
 
-    let double_comma_label_any = run_json(repo.path(), ["list", "--label-any", "ops,,infra"]);
+    let double_comma_label_any =
+        run_json(repo.path(), ["find", "open", "--label-any", "ops,,infra"]);
     assert_eq!(double_comma_label_any.cli.code, 1);
     assert_validation_error(&double_comma_label_any);
     assert_error_message(
@@ -89,7 +96,7 @@ fn list_label_filter_normalizes_mixed_case_values() {
     let other_label = label_add(repo.path(), &other, "infra");
     assert_eq!(other_label.cli.code, 0);
 
-    let result = run_json(repo.path(), ["list", "--label", "OPS-Team"]);
+    let result = run_json(repo.path(), ["find", "open", "--label", "OPS-Team"]);
     assert_eq!(result.cli.code, 0);
 
     let ids = ids_from_task_list(&result.envelope);
@@ -113,7 +120,7 @@ fn list_label_any_filter_normalizes_mixed_case_values() {
     let other_label = label_add(repo.path(), &other, "infra");
     assert_eq!(other_label.cli.code, 0);
 
-    let result = run_json(repo.path(), ["list", "--label-any", "OPS,FrontEnd"]);
+    let result = run_json(repo.path(), ["find", "open", "--label-any", "OPS,FrontEnd"]);
     assert_eq!(result.cli.code, 0);
 
     let ids = ids_from_task_list(&result.envelope);
@@ -127,7 +134,7 @@ fn list_rejects_invalid_label_filters() {
     let repo = common::make_repo();
     init_repo(repo.path());
 
-    let invalid_label = run_json(repo.path(), ["list", "--label", "bad label"]);
+    let invalid_label = run_json(repo.path(), ["find", "open", "--label", "bad label"]);
     assert_eq!(invalid_label.cli.code, 1);
     assert_validation_error(&invalid_label);
     assert_error_message(
@@ -135,7 +142,10 @@ fn list_rejects_invalid_label_filters() {
         "label must only contain characters [a-z0-9:_/-]",
     );
 
-    let invalid_label_any = run_json(repo.path(), ["list", "--label-any", "ops,bad label"]);
+    let invalid_label_any = run_json(
+        repo.path(),
+        ["find", "open", "--label-any", "ops,bad label"],
+    );
     assert_eq!(invalid_label_any.cli.code, 1);
     assert_validation_error(&invalid_label_any);
     assert_error_message(
@@ -152,7 +162,7 @@ fn search_parses_field_prefixed_quoted_terms_as_single_token() {
     let target = create_task(repo.path(), "my special task");
     let other = create_task(repo.path(), "unrelated work");
 
-    let result = run_json(repo.path(), ["search", r#"title:"my special""#]);
+    let result = run_json(repo.path(), ["find", "search", r#"title:"my special""#]);
     assert_eq!(result.cli.code, 0);
 
     let ids = ids_from_task_list(&result.envelope);
@@ -165,7 +175,7 @@ fn search_rejects_ambiguous_dep_type_field() {
     let repo = common::make_repo();
     init_repo(repo.path());
 
-    let result = run_json(repo.path(), ["search", "dep_type:blocks"]);
+    let result = run_json(repo.path(), ["find", "search", "dep_type:blocks"]);
     assert_eq!(result.cli.code, 1);
     assert_validation_error(&result);
 }
@@ -175,7 +185,7 @@ fn search_rejects_invalid_dep_type_direction_value() {
     let repo = common::make_repo();
     init_repo(repo.path());
 
-    let result = run_json(repo.path(), ["search", "dep_type_in:nope"]);
+    let result = run_json(repo.path(), ["find", "search", "dep_type_in:nope"]);
     assert_eq!(result.cli.code, 1);
     assert_validation_error(&result);
 }
@@ -190,25 +200,15 @@ fn search_matches_incoming_and_outgoing_dependency_types() {
     let starts_after_blocker = create_task(repo.path(), "Starts after blocker");
     let unrelated = create_task(repo.path(), "Unrelated task");
 
-    let blocks_dep = run_json(
-        repo.path(),
-        ["dep", "add", &child, &blocks_blocker, "--type", "blocks"],
-    );
+    let blocks_dep = run_json(repo.path(), ["block", &child, "by", &blocks_blocker]);
     assert_eq!(blocks_dep.cli.code, 0);
     let starts_after_dep = run_json(
         repo.path(),
-        [
-            "dep",
-            "add",
-            &child,
-            &starts_after_blocker,
-            "--type",
-            "starts_after",
-        ],
+        ["order", &child, "after", &starts_after_blocker],
     );
     assert_eq!(starts_after_dep.cli.code, 0);
 
-    let incoming_blocks = run_json(repo.path(), ["search", "dep_type_in:blocks"]);
+    let incoming_blocks = run_json(repo.path(), ["find", "search", "dep_type_in:blocks"]);
     assert_eq!(incoming_blocks.cli.code, 0);
     let incoming_block_ids = ids_from_task_list(&incoming_blocks.envelope);
     assert!(incoming_block_ids.contains(&blocks_blocker));
@@ -216,7 +216,8 @@ fn search_matches_incoming_and_outgoing_dependency_types() {
     assert!(!incoming_block_ids.contains(&child));
     assert!(!incoming_block_ids.contains(&unrelated));
 
-    let incoming_starts_after = run_json(repo.path(), ["search", "dep_type_in:starts_after"]);
+    let incoming_starts_after =
+        run_json(repo.path(), ["find", "search", "dep_type_in:starts_after"]);
     assert_eq!(incoming_starts_after.cli.code, 0);
     let incoming_starts_after_ids = ids_from_task_list(&incoming_starts_after.envelope);
     assert!(incoming_starts_after_ids.contains(&starts_after_blocker));
@@ -224,7 +225,7 @@ fn search_matches_incoming_and_outgoing_dependency_types() {
     assert!(!incoming_starts_after_ids.contains(&child));
     assert!(!incoming_starts_after_ids.contains(&unrelated));
 
-    let outgoing_blocks = run_json(repo.path(), ["search", "dep_type_out:blocks"]);
+    let outgoing_blocks = run_json(repo.path(), ["find", "search", "dep_type_out:blocks"]);
     assert_eq!(outgoing_blocks.cli.code, 0);
     let outgoing_block_ids = ids_from_task_list(&outgoing_blocks.envelope);
     assert!(outgoing_block_ids.contains(&child));
@@ -232,7 +233,8 @@ fn search_matches_incoming_and_outgoing_dependency_types() {
     assert!(!outgoing_block_ids.contains(&starts_after_blocker));
     assert!(!outgoing_block_ids.contains(&unrelated));
 
-    let outgoing_starts_after = run_json(repo.path(), ["search", "dep_type_out:starts_after"]);
+    let outgoing_starts_after =
+        run_json(repo.path(), ["find", "search", "dep_type_out:starts_after"]);
     assert_eq!(outgoing_starts_after.cli.code, 0);
     let outgoing_starts_after_ids = ids_from_task_list(&outgoing_starts_after.envelope);
     assert!(outgoing_starts_after_ids.contains(&child));
@@ -248,10 +250,13 @@ fn search_handles_negated_filters_with_double_dash_separator() {
 
     let open = create_task(repo.path(), "Negation open task");
     let closed = create_task(repo.path(), "Negation closed task");
-    let update = update_task(repo.path(), &closed, &["--status", "closed"]);
+    let update = run_json(repo.path(), ["done", &closed]);
     assert_eq!(update.cli.code, 0);
 
-    let result = run_json_explicit(repo.path(), ["--json", "search", "--", "-status:closed"]);
+    let result = run_json_explicit(
+        repo.path(),
+        ["--json", "find", "search", "--", "-status:closed"],
+    );
     assert_eq!(result.cli.code, 0);
 
     let ids = ids_from_task_list(&result.envelope);
@@ -275,7 +280,8 @@ fn list_json_output_is_stable_for_equivalent_repeatable_csv_inputs() {
     let baseline = run_json(
         repo.path(),
         vec![
-            "list".to_string(),
+            "find".to_string(),
+            "open".to_string(),
             "--id".to_string(),
             format!("{},{}", first, second),
             "--label-any".to_string(),
@@ -285,7 +291,8 @@ fn list_json_output_is_stable_for_equivalent_repeatable_csv_inputs() {
     let equivalent = run_json(
         repo.path(),
         vec![
-            "list".to_string(),
+            "find".to_string(),
+            "open".to_string(),
             "--id".to_string(),
             second.clone(),
             "--id".to_string(),

@@ -59,14 +59,8 @@ pub fn create_task_with_args(repo: &Path, title: &str, extra_args: &[&str]) -> S
         .expect("create response did not include data.task.id")
 }
 
-pub fn update_task(repo: &Path, id: &str, extra_args: &[&str]) -> JsonOutput {
-    let mut args = vec!["update".to_string(), id.to_string()];
-    args.extend(extra_args.iter().map(|value| (*value).to_string()));
-    run_json(repo, args)
-}
-
 pub fn label_add(repo: &Path, id: &str, label: &str) -> JsonOutput {
-    run_json(repo, ["label", "add", id, label])
+    run_json(repo, ["label", id, label])
 }
 
 pub fn assert_envelope_shape(envelope: &Value) {

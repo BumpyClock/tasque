@@ -14,7 +14,7 @@ fn main() {
         match sync::resolve_effective_root(&repo_root.to_string_lossy()) {
             Ok(root) => root,
             Err(error) => {
-                let wants_json = std::env::args().any(|arg| arg == "--json");
+                let wants_json = preparse_wants_json();
                 let exit_code = emit_error(
                     "tsq",
                     GlobalOpts {
@@ -34,8 +34,39 @@ fn main() {
 }
 
 fn should_use_repo_root() -> bool {
-    let Some(command) = std::env::args().skip(1).find(|arg| !arg.starts_with('-')) else {
+    let Some(command) = preparse_command() else {
         return false;
     };
     matches!(command.as_str(), "init" | "migrate" | "merge-driver")
+}
+
+fn preparse_wants_json() -> bool {
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == "--json" || arg == "--format=json" {
+            return true;
+        }
+        if arg == "--format"
+            && let Some(value) = args.next()
+            && value == "json"
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn preparse_command() -> Option<String> {
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == "--format" {
+            args.next();
+            continue;
+        }
+        if arg.starts_with('-') {
+            continue;
+        }
+        return Some(arg);
+    }
+    None
 }

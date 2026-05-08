@@ -138,7 +138,7 @@ pub fn execute_init(service: &TasqueService, args: InitArgs, opts: GlobalOpts) -
                 &InitResolutionContext {
                     raw_args,
                     is_tty: std::io::stdin().is_terminal() && std::io::stdout().is_terminal(),
-                    json: opts.json,
+                    json: opts.json(),
                 },
             )?;
             match plan {
@@ -268,10 +268,10 @@ pub fn execute_history(service: &TasqueService, args: HistoryArgs, opts: GlobalO
 }
 
 pub fn execute_watch(service: &TasqueService, args: WatchArgs, opts: GlobalOpts) -> i32 {
-    let watch_options = match build_watch_options(args, opts.json) {
+    let watch_options = match build_watch_options(args, opts.json()) {
         Ok(options) => options,
         Err(error) => {
-            if opts.json {
+            if opts.json() {
                 let envelope = err_envelope(
                     "tsq watch",
                     error.code.clone(),
@@ -292,10 +292,10 @@ pub fn execute_watch(service: &TasqueService, args: WatchArgs, opts: GlobalOpts)
 }
 
 pub fn execute_tui(service: &TasqueService, args: TuiArgs, opts: GlobalOpts) -> i32 {
-    let tui_options = match build_tui_options(args, opts.json) {
+    let tui_options = match build_tui_options(args, opts.json()) {
         Ok(options) => options,
         Err(error) => {
-            if opts.json {
+            if opts.json() {
                 let envelope = err_envelope(
                     "tsq tui",
                     error.code.clone(),

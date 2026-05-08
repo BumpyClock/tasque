@@ -10,7 +10,7 @@ fn list_and_search_success_envelopes_keep_schema_and_command_values() {
 
     create_task(repo.path(), "Envelope target task");
 
-    let list = run_json(repo.path(), ["list"]);
+    let list = run_json(repo.path(), ["find", "open"]);
     assert_eq!(list.cli.code, 0);
     assert_eq!(
         list.envelope
@@ -22,7 +22,7 @@ fn list_and_search_success_envelopes_keep_schema_and_command_values() {
         list.envelope
             .get("command")
             .and_then(|value| value.as_str()),
-        Some("tsq list")
+        Some("tsq find open")
     );
     assert_eq!(
         list.envelope.get("ok").and_then(|value| value.as_bool()),
@@ -36,7 +36,7 @@ fn list_and_search_success_envelopes_keep_schema_and_command_values() {
             .is_some()
     );
 
-    let search = run_json(repo.path(), ["search", "Envelope"]);
+    let search = run_json(repo.path(), ["find", "search", "Envelope"]);
     assert_eq!(search.cli.code, 0);
     assert_eq!(
         search
@@ -50,7 +50,7 @@ fn list_and_search_success_envelopes_keep_schema_and_command_values() {
             .envelope
             .get("command")
             .and_then(|value| value.as_str()),
-        Some("tsq search")
+        Some("tsq find search")
     );
     assert_eq!(
         search.envelope.get("ok").and_then(|value| value.as_bool()),
@@ -71,7 +71,10 @@ fn list_validation_error_envelope_keeps_stable_shape() {
     let repo = common::make_repo();
     init_repo(repo.path());
 
-    let invalid = run_json(repo.path(), ["list", "--created-after", "not-an-iso"]);
+    let invalid = run_json(
+        repo.path(),
+        ["find", "open", "--created-after", "not-an-iso"],
+    );
     assert_eq!(invalid.cli.code, 1);
     assert_eq!(
         invalid
@@ -85,7 +88,7 @@ fn list_validation_error_envelope_keeps_stable_shape() {
             .envelope
             .get("command")
             .and_then(|value| value.as_str()),
-        Some("tsq list")
+        Some("tsq find open")
     );
     assert_validation_error(&invalid);
 }
@@ -95,7 +98,7 @@ fn list_csv_validation_error_envelope_keeps_stable_shape() {
     let repo = common::make_repo();
     init_repo(repo.path());
 
-    let invalid = run_json(repo.path(), ["list", "--id", ""]);
+    let invalid = run_json(repo.path(), ["find", "open", "--id", ""]);
     assert_eq!(invalid.cli.code, 1);
     assert_eq!(
         invalid
@@ -109,7 +112,7 @@ fn list_csv_validation_error_envelope_keeps_stable_shape() {
             .envelope
             .get("command")
             .and_then(|value| value.as_str()),
-        Some("tsq list")
+        Some("tsq find open")
     );
     assert_eq!(
         invalid

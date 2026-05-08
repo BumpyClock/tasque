@@ -1,6 +1,6 @@
 mod common;
 
-use common::{create_task, init_repo, run_json, update_task};
+use common::{create_task, init_repo, run_json};
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
@@ -11,7 +11,7 @@ fn spec_check_before_attach_reports_not_attached() {
     init_repo(repo.path());
     let task_id = create_task(repo.path(), "Spec check before attach");
 
-    let check = run_json(repo.path(), ["spec", "check", &task_id]);
+    let check = run_json(repo.path(), ["spec", &task_id, "--check"]);
 
     assert_eq!(check.cli.code, 0);
     assert_eq!(
@@ -32,10 +32,7 @@ fn spec_attach_with_complete_required_sections_checks_ok() {
     init_repo(repo.path());
     let task_id = create_task(repo.path(), "Spec attach complete sections");
 
-    let attach = run_json(
-        repo.path(),
-        ["spec", "attach", &task_id, "--text", complete_spec()],
-    );
+    let attach = run_json(repo.path(), ["spec", &task_id, "--text", complete_spec()]);
     assert_eq!(
         attach.cli.code, 0,
         "spec attach failed\nstdout:\n{}\nstderr:\n{}",
@@ -51,7 +48,7 @@ fn spec_attach_with_complete_required_sections_checks_ok() {
         Some(expected_spec_path.as_str())
     );
 
-    let check = run_json(repo.path(), ["spec", "check", &task_id]);
+    let check = run_json(repo.path(), ["spec", &task_id, "--check"]);
     assert_eq!(check.cli.code, 0);
     let check_data = data(&check.envelope);
     assert_eq!(check_data.get("ok").and_then(Value::as_bool), Some(true));
@@ -71,16 +68,13 @@ fn spec_check_reports_fingerprint_drift_after_attached_file_edit() {
     let repo = common::make_repo();
     init_repo(repo.path());
     let task_id = create_task(repo.path(), "Spec fingerprint drift");
-    let attach = run_json(
-        repo.path(),
-        ["spec", "attach", &task_id, "--text", complete_spec()],
-    );
+    let attach = run_json(repo.path(), ["spec", &task_id, "--text", complete_spec()]);
     assert_eq!(attach.cli.code, 0);
 
     let spec_path = attached_spec_path(repo.path(), data(&attach.envelope));
     fs::write(spec_path, format!("{}\n\nExtra drift.\n", complete_spec())).expect("edit spec");
 
-    let check = run_json(repo.path(), ["spec", "check", &task_id]);
+    let check = run_json(repo.path(), ["spec", &task_id, "--check"]);
 
     assert_eq!(check.cli.code, 0);
     let check_data = data(&check.envelope);
@@ -97,13 +91,10 @@ fn spec_check_reports_missing_required_sections_for_attached_incomplete_spec() {
     let repo = common::make_repo();
     init_repo(repo.path());
     let task_id = create_task(repo.path(), "Spec missing required sections");
-    let attach = run_json(
-        repo.path(),
-        ["spec", "attach", &task_id, "--text", incomplete_spec()],
-    );
+    let attach = run_json(repo.path(), ["spec", &task_id, "--text", incomplete_spec()]);
     assert_eq!(attach.cli.code, 0);
 
-    let check = run_json(repo.path(), ["spec", "check", &task_id]);
+    let check = run_json(repo.path(), ["spec", &task_id, "--check"]);
 
     assert_eq!(check.cli.code, 0);
     let check_data = data(&check.envelope);
@@ -130,10 +121,15 @@ fn update_claim_require_spec_rejects_missing_or_invalid_spec_and_accepts_valid_s
     init_repo(repo.path());
 
     let missing_id = create_task(repo.path(), "Claim requires missing spec");
-    let missing_claim = update_task(
+    let missing_claim = run_json(
         repo.path(),
-        &missing_id,
-        &["--claim", "--assignee", "alice", "--require-spec"],
+        [
+            "claim",
+            &missing_id,
+            "--assignee",
+            "alice",
+            "--require-spec",
+        ],
     );
     assert_eq!(missing_claim.cli.code, 1);
     assert_eq!(
@@ -149,13 +145,18 @@ fn update_claim_require_spec_rejects_missing_or_invalid_spec_and_accepts_valid_s
     let invalid_id = create_task(repo.path(), "Claim requires valid spec");
     let attach_invalid = run_json(
         repo.path(),
-        ["spec", "attach", &invalid_id, "--text", incomplete_spec()],
+        ["spec", &invalid_id, "--text", incomplete_spec()],
     );
     assert_eq!(attach_invalid.cli.code, 0);
-    let invalid_claim = update_task(
+    let invalid_claim = run_json(
         repo.path(),
-        &invalid_id,
-        &["--claim", "--assignee", "alice", "--require-spec"],
+        [
+            "claim",
+            &invalid_id,
+            "--assignee",
+            "alice",
+            "--require-spec",
+        ],
     );
     assert_eq!(invalid_claim.cli.code, 1);
     assert_eq!(
@@ -170,15 +171,11 @@ fn update_claim_require_spec_rejects_missing_or_invalid_spec_and_accepts_valid_s
     );
 
     let valid_id = create_task(repo.path(), "Claim requires valid attached spec");
-    let attach_valid = run_json(
-        repo.path(),
-        ["spec", "attach", &valid_id, "--text", complete_spec()],
-    );
+    let attach_valid = run_json(repo.path(), ["spec", &valid_id, "--text", complete_spec()]);
     assert_eq!(attach_valid.cli.code, 0);
-    let valid_claim = update_task(
+    let valid_claim = run_json(
         repo.path(),
-        &valid_id,
-        &["--claim", "--assignee", "alice", "--require-spec"],
+        ["claim", &valid_id, "--assignee", "alice", "--require-spec"],
     );
 
     assert_eq!(
@@ -209,7 +206,7 @@ Complete direct workflow coverage.
 No production behavior changes.
 
 ## Interfaces (CLI/API)
-Exercise tsq spec attach, tsq spec check, and tsq update --claim --require-spec.
+Exercise tsq spec <id> --text, tsq spec <id> --check, and tsq claim --require-spec.
 
 ## Data model / schema changes
 No schema changes.

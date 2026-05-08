@@ -183,6 +183,9 @@ pub fn update(ctx: &ServiceContext, input: &UpdateInput) -> Result<Task, TsqErro
                 serde_json::json!(planning_state),
             );
         }
+        if let Some(assignee) = input.assignee.as_ref() {
+            patch.insert("assignee".to_string(), Value::String(assignee.clone()));
+        }
         if let Some(discovered_from_raw) = input.discovered_from.as_ref() {
             let discovered_from =
                 must_resolve_existing(&loaded.state, discovered_from_raw, input.exact_id)?;

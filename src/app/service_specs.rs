@@ -1,6 +1,7 @@
+use super::TasqueService;
 use crate::app::service_types::{
     ServiceContext, SpecAttachInput, SpecAttachResult, SpecAttachSpec, SpecCheckInput,
-    SpecCheckResult,
+    SpecCheckResult, SpecContentInput, SpecContentResult,
 };
 use crate::app::service_utils::{must_resolve_existing, must_task};
 use crate::app::storage::{
@@ -12,6 +13,13 @@ use crate::domain::events::make_event;
 use crate::domain::projector::apply_events;
 use crate::errors::TsqError;
 use crate::types::EventType;
+use std::path::PathBuf;
+
+impl TasqueService {
+    pub fn spec_content(&self, input: SpecContentInput) -> Result<SpecContentResult, TsqError> {
+        spec_content(&self.ctx, &input)
+    }
+}
 
 pub fn spec_attach(
     ctx: &ServiceContext,
@@ -108,4 +116,70 @@ pub fn spec_check(
     let id = must_resolve_existing(&loaded.state, &input.id, input.exact_id)?;
     let task = must_task(&loaded.state, &id)?;
     evaluate_task_spec(&ctx.repo_root, &id, &task)
+}
+
+pub fn spec_content(
+    ctx: &ServiceContext,
+    input: &SpecContentInput,
+) -> Result<SpecContentResult, TsqError> {
+    let loaded = load_projected_state(&ctx.repo_root)?;
+    let id = must_resolve_existing(&loaded.state, &input.id, input.exact_id)?;
+    let task = must_task(&loaded.state, &id)?;
+    let spec_path = normalize_optional_input(task.spec_path.as_deref()).ok_or_else(|| {
+        TsqError::new(
+            "VALIDATION_ERROR",
+            format!(
+                "task {} has no attached spec; use `tsq spec {} --file spec.md`",
+                id, id
+            ),
+            1,
+        )
+    })?;
+    let spec_fingerprint =
+        normalize_optional_input(task.spec_fingerprint.as_deref()).ok_or_else(|| {
+            TsqError::new(
+                "VALIDATION_ERROR",
+                format!("task {} has no attached spec fingerprint", id),
+                1,
+            )
+        })?;
+    let resolved_path = resolve_spec_path(&ctx.repo_root, &spec_path);
+    let content = std::fs::read_to_string(&resolved_path).map_err(|error| {
+        let (code, exit_code, message) = if error.kind() == std::io::ErrorKind::NotFound {
+            (
+                "VALIDATION_ERROR",
+                1,
+                format!(
+                    "attached spec file not found for task {}; use `tsq spec {} --file spec.md`",
+                    id, id
+                ),
+            )
+        } else {
+            (
+                "IO_ERROR",
+                2,
+                format!("failed reading attached spec file: {}", spec_path),
+            )
+        };
+        TsqError::new(code, message, exit_code).with_details(serde_json::json!({
+            "spec_path": spec_path.clone(),
+            "message": error.to_string(),
+        }))
+    })?;
+
+    Ok(SpecContentResult {
+        task_id: id,
+        spec_path,
+        spec_fingerprint,
+        content,
+    })
+}
+
+fn resolve_spec_path(repo_root: &str, spec_path: &str) -> PathBuf {
+    let path = PathBuf::from(spec_path);
+    if path.is_absolute() {
+        path
+    } else {
+        PathBuf::from(repo_root).join(path)
+    }
 }

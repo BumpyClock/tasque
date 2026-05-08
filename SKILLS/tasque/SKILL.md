@@ -16,9 +16,9 @@ Default day-to-day playbook.
 ## Session routine (default)
 
 ```bash
-tsq ready --lane planning
-tsq ready --lane coding
-tsq list --status blocked
+tsq find ready --lane planning
+tsq find ready --lane coding
+tsq find blocked
 ```
 
 Pick one task; inspect context:
@@ -31,85 +31,102 @@ tsq show <id>
 ### 1) Capture new work
 
 ```bash
-tsq create "Implement <feature>" --kind feature -p 1 --needs-planning
-tsq create "Fix <bug>" --kind task -p 1 --needs-planning
+tsq create "Implement <feature>" --kind feature -p 1 --needs-plan
+tsq create "Fix <bug>" --kind task -p 1 --needs-plan
 ```
 
 Planning already done:
 
 ```bash
-tsq create "Implement <feature>" --planning planned
+tsq create "Implement <feature>" --planned
 ```
 
-### 2) Split parent into many children (single command)
+### 2) Split parent into many children
 
 ```bash
 tsq create --parent <parent-id> \
-  --child "Design API contract" \
-  --child "Implement service logic" \
-  --child "Add regression tests"
+  "Design API contract" \
+  "Implement service logic" \
+  "Add regression tests"
 ```
 
 Shared defaults for all children:
 
 ```bash
-tsq create --parent <parent-id> --kind task -p 2 --planning planned \
-  --child "Wire CLI args" \
-  --child "Update docs" \
-  --child "Add integration tests"
+tsq create --parent <parent-id> --kind task -p 2 --planned \
+  "Wire CLI args" \
+  "Update docs" \
+  "Add integration tests"
 ```
 
 Safe reruns without duplicate children:
 
 ```bash
 tsq create --parent <parent-id> --ensure \
-  --child "Wire CLI args" \
-  --child "Update docs" \
-  --child "Add integration tests"
+  "Wire CLI args" \
+  "Update docs" \
+  "Add integration tests"
 ```
+
+Batch from `tasks.md`:
+
+```md
+- Add parser tests
+  - Cover nested task hierarchy
+  - Cover invalid indentation
+- Wire CLI command
+- Update skill docs
+```
+
+```bash
+tsq create --parent <parent-id> --from-file tasks.md
+```
+
+Use `tsq create --parent <id> --from-file tasks.md` for many tasks.
 
 ### 3) Planning handoff -> coding
 
 ```bash
-tsq spec attach <id> --text "## Plan\n...\n## Acceptance\n..."
-tsq update <id> --planning planned
-tsq update <id> --claim --assignee <name>
-tsq update <id> --status in_progress
+tsq spec <id> --text "## Plan\n...\n## Acceptance\n..."
+tsq planned <id>
+tsq claim <id> --assignee <name> --start
 ```
+
+Use `tsq spec <id> --show` when you need spec markdown from sync worktree.
 
 ### 4) Model deps for parallel agents
 
 Hard blocker (changes readiness):
 
 ```bash
-tsq dep add <child-id> <blocker-id> --type blocks
+tsq block <child-id> by <blocker-id>
 ```
 
 Soft ordering only:
 
 ```bash
-tsq dep add <later-id> <earlier-id> --type starts_after
+tsq order <later-id> after <earlier-id>
 ```
 
 Check actionable tasks:
 
 ```bash
-tsq ready --lane coding
-tsq ready --lane planning
+tsq find ready --lane coding
+tsq find ready --lane planning
 ```
 
 ### 5) Capture discovered follow-up work
 
 ```bash
-tsq create "Handle edge case <x>" --discovered-from <current-id> --needs-planning
-tsq link add <new-id> <current-id> --type relates_to
+tsq create "Handle edge case <x>" --discovered-from <current-id> --needs-plan
+tsq relate <new-id> <current-id>
 ```
 
 ### 5b) Idempotent root/parent create for automation
 
 ```bash
 tsq create "Implement auth module" --ensure
-tsq create --parent <parent-id> --child "Add tests" --ensure
+tsq create --parent <parent-id> "Add tests" --ensure
 ```
 
 `--ensure` returns existing task when same normalized title already exists under the same parent.
@@ -117,30 +134,30 @@ tsq create --parent <parent-id> --child "Add tests" --ensure
 ### 6) Park / unpark work
 
 ```bash
-tsq update <id> --status deferred
-tsq list --status deferred
-tsq update <id> --status open
+tsq defer <id> --note "waiting"
+tsq find deferred
+tsq open <id>
 ```
 
 ### 7) Resolve duplicate/superseded work
 
 ```bash
-tsq duplicate <id> --of <canonical-id> --reason "same root issue"
+tsq duplicate <id> of <canonical-id> --note "same root issue"
 tsq duplicates
 tsq merge <source-id...> --into <target-id> --dry-run
 tsq merge <source-id...> --into <target-id> --force
-tsq supersede <old-id> --with <new-id> --reason "replaced approach"
+tsq supersede <old-id> with <new-id> --note "replaced approach"
 ```
 
 ### 8) Close / report
 
 ```bash
-tsq update <id> --status closed
+tsq done <id> --note "verified"
 tsq history <id> --limit 20
-tsq list --tree
+tsq find open --tree
 ```
 
-Agent/tool handoff: add `--json`.
+Use `--format json` only when scripting/parsing; human output is fine for inspection.
 
 ## Built-in task authoring checklist
 
@@ -164,10 +181,10 @@ Agent/tool handoff: add `--json`.
 ### Practical authoring starter
 
 ```bash
-tsq create "<title>" --kind task -p 2 --needs-planning
-tsq spec attach <id> --text "<markdown spec>"
-tsq dep add <child> <blocker> --type blocks
-tsq link add <src> <dst> --type relates_to
+tsq create "<title>" --kind task -p 2 --needs-plan
+tsq spec <id> --text "<markdown spec>"
+tsq block <child> by <blocker>
+tsq relate <src> <dst>
 ```
 
 ## Required habits
@@ -175,7 +192,7 @@ tsq link add <src> <dst> --type relates_to
 - Keep lifecycle `status` and `planning_state` separate.
 - Use deps to make parallel execution explicit.
 - Create follow-up tasks; avoid chat TODOs.
-- Prefer `--json` for automation.
+- Prefer `--format json` for automation; inspect with human output.
 - Use `--ensure` in scripts to prevent duplicate creates on rerun.
 
 ## Read when needed

@@ -246,6 +246,13 @@ impl TasqueService {
         service_lifecycle::reopen(&self.ctx, &input)
     }
 
+    pub fn set_lifecycle_status(
+        &self,
+        input: LifecycleStatusInput,
+    ) -> Result<LifecycleStatusResult, TsqError> {
+        service_lifecycle::set_lifecycle_status(&self.ctx, &input)
+    }
+
     pub fn history(&self, input: HistoryInput) -> Result<HistoryResult, TsqError> {
         service_query::history(&self.ctx, &input)
     }

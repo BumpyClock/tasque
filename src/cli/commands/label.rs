@@ -23,6 +23,18 @@ pub struct LabelRemoveArgs {
     pub label: String,
 }
 
+#[derive(Debug, Args)]
+pub struct LabelArgs {
+    pub id: String,
+    pub label: String,
+}
+
+#[derive(Debug, Args)]
+pub struct UnlabelArgs {
+    pub id: String,
+    pub label: String,
+}
+
 pub fn execute_label(service: &TasqueService, command: LabelCommand, opts: GlobalOpts) -> i32 {
     match command {
         LabelCommand::Add(args) => run_action(
@@ -68,4 +80,55 @@ pub fn execute_label(service: &TasqueService, command: LabelCommand, opts: Globa
             },
         ),
     }
+}
+
+pub fn execute_label_add(service: &TasqueService, args: LabelArgs, opts: GlobalOpts) -> i32 {
+    run_action(
+        "tsq label",
+        opts,
+        || {
+            service.label_add(LabelInput {
+                id: args.id.clone(),
+                label: args.label.clone(),
+                exact_id: opts.exact_id,
+            })
+        },
+        |task| serde_json::json!({ "task": task }),
+        |task| {
+            print_task(task);
+            Ok(())
+        },
+    )
+}
+
+pub fn execute_unlabel(service: &TasqueService, args: UnlabelArgs, opts: GlobalOpts) -> i32 {
+    run_action(
+        "tsq unlabel",
+        opts,
+        || {
+            service.label_remove(LabelInput {
+                id: args.id.clone(),
+                label: args.label.clone(),
+                exact_id: opts.exact_id,
+            })
+        },
+        |task| serde_json::json!({ "task": task }),
+        |task| {
+            print_task(task);
+            Ok(())
+        },
+    )
+}
+
+pub fn execute_labels(service: &TasqueService, opts: GlobalOpts) -> i32 {
+    run_action(
+        "tsq labels",
+        opts,
+        || service.label_list(),
+        |labels| serde_json::json!({ "labels": labels }),
+        |labels| {
+            print_label_list(labels);
+            Ok(())
+        },
+    )
 }

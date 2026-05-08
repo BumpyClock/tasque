@@ -64,6 +64,7 @@ pub struct UpdateInput {
     pub priority: Option<Priority>,
     pub exact_id: bool,
     pub planning_state: Option<PlanningState>,
+    pub assignee: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,6 +119,21 @@ pub struct CloseInput {
 pub struct ReopenInput {
     pub ids: Vec<String>,
     pub exact_id: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LifecycleStatusInput {
+    pub ids: Vec<String>,
+    pub status: TaskStatus,
+    pub note: Option<String>,
+    pub reason: Option<String>,
+    pub exact_id: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LifecycleStatusResult {
+    pub tasks: Vec<Task>,
+    pub notes: Vec<NoteAddResult>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -202,6 +218,12 @@ pub struct SpecCheckInput {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpecContentInput {
+    pub id: String,
+    pub exact_id: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoteAddResult {
     pub task_id: String,
     pub note: TaskNote,
@@ -227,6 +249,14 @@ pub struct SpecAttachSpec {
     pub spec_attached_at: String,
     pub spec_attached_by: String,
     pub bytes: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpecContentResult {
+    pub task_id: String,
+    pub spec_path: String,
+    pub spec_fingerprint: String,
+    pub content: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

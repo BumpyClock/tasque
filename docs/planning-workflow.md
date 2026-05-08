@@ -1,8 +1,8 @@
 ---
-summary: Planning-aware task workflow, deferred status, and lane-aware ready behavior.
+summary: Planning-aware task workflow, deferred status, and lane-aware find-ready behavior.
 read_when:
-  - Changing task planning_state, deferred lifecycle status, or ready lane filtering.
-  - Updating CLI docs for planning, deferred, ready, list, or create/update flows.
+  - Changing task planning_state, deferred lifecycle status, or find-ready lane filtering.
+  - Updating CLI docs for planning, deferred, find, create, or lifecycle flows.
 ---
 
 # Planning Workflow
@@ -26,22 +26,22 @@ New tasks default to `planning_state: "needs_planning"`. Legacy tasks (created b
 
 The `deferred` status is an active-but-parked lifecycle state. Tasks with `status: deferred`:
 
-- Are **not ready** (excluded from the `ready` command output)
+- Are **not ready** (excluded from `tsq find ready` output)
 - **Are** included in `stale` scans (they can become stale like any non-terminal task)
 - Can transition to any non-terminal status (`open`, `in_progress`, `blocked`)
 - Are **not terminal** — unlike `closed` or `canceled`, deferral is reversible
 
 Use `deferred` when a task is valid but not actionable right now (e.g., waiting on external input, deprioritized, or parked for a future iteration).
 
-## Lane-Aware Ready
+## Lane-Aware Find Ready
 
-The `ready` command supports lane filtering to separate planning work from coding work:
+`tsq find ready` supports lane filtering to separate planning work from coding work:
 
 | Command | Returns |
 |---|---|
-| `tsq ready` | All ready tasks (both planning and coding) |
-| `tsq ready --lane planning` | Ready tasks with `planning_state` = `needs_planning` (or unset) |
-| `tsq ready --lane coding` | Ready tasks with `planning_state` = `planned` |
+| `tsq find ready` | All ready tasks (both planning and coding) |
+| `tsq find ready --lane planning` | Ready tasks with `planning_state` = `needs_planning` (or unset) |
+| `tsq find ready --lane coding` | Ready tasks with `planning_state` = `planned` |
 
 A task is "ready" when:
 - Its status is `open` or `in_progress`
@@ -56,49 +56,48 @@ Lane filtering is applied on top of the standard ready check.
 
 ```bash
 # Explicit planning state
-tsq create "Design auth module" --planning needs_planning
-tsq create "Design auth module" --needs-planning    # shorthand for --planning needs_planning
+tsq create "Design auth module" --needs-plan
 
 # Mark as already planned
-tsq create "Implement auth module" --planning planned
+tsq create "Implement auth module" --planned
 ```
 
 ### Filter by planning state
 
 ```bash
-tsq list --planning needs_planning   # tasks that still need planning
-tsq list --planning planned          # tasks with planning complete
+tsq find open --planning needs_planning   # tasks that still need planning
+tsq find open --planning planned          # tasks with planning complete
 ```
 
 ### Update planning state
 
 ```bash
-tsq update <id> --planning planned          # mark planning as done
-tsq update <id> --planning needs_planning   # revert to needs-planning
+tsq planned <id>      # mark planning as done
+tsq needs-plan <id>   # revert to needs-planning
 ```
 
 ### Lane-aware ready
 
 ```bash
-tsq ready                    # all ready tasks
-tsq ready --lane planning    # what needs planning?
-tsq ready --lane coding      # what's ready to code?
-tsq ready --lane coding --json   # machine-readable output
+tsq find ready                    # all ready tasks
+tsq find ready --lane planning    # what needs planning?
+tsq find ready --lane coding      # what's ready to code?
+tsq --format json find ready --lane coding   # machine-readable output
 ```
 
 ### Deferred status
 
 ```bash
-tsq update <id> --status deferred    # park a task
-tsq list --status deferred           # see parked tasks
-tsq update <id> --status open        # un-park a task
+tsq defer <id> --note "waiting"      # park a task
+tsq find deferred                    # see parked tasks
+tsq open <id>                        # un-park a task
 ```
 
 ## Typical Workflow
 
 1. Create tasks — they start as `open` + `needs_planning`
-2. Run `tsq ready --lane planning` to find tasks needing planning work
-3. Do planning; mark complete with `tsq update <id> --planning planned`
-4. Run `tsq ready --lane coding` to find tasks ready for implementation
+2. Run `tsq find ready --lane planning` to find tasks needing planning work
+3. Do planning; mark complete with `tsq planned <id>`
+4. Run `tsq find ready --lane coding` to find tasks ready for implementation
 5. Claim and work on tasks normally
-6. Use `tsq update <id> --status deferred` to park tasks that are valid but not actionable yet
+6. Use `tsq defer <id>` to park tasks that are valid but not actionable yet

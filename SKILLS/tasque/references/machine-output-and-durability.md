@@ -4,7 +4,8 @@ Read when: automating `tsq` or reasoning about storage/recovery behavior.
 
 ## Stable machine output
 
-Use `--json` on any command.
+Use `--format json` only when scripting/parsing. Human output is fine for inspection.
+`--json` remains shorthand for `--format json`.
 
 Success envelope:
 

@@ -140,6 +140,11 @@ fn watch_once_human_defaults_to_tree_and_flat_opt_out_keeps_list_view() {
         "expected child in tree output\nstdout:\n{}",
         tree.stdout
     );
+    assert!(
+        tree.stdout.contains(&parent),
+        "expected parent in tree output\nstdout:\n{}",
+        tree.stdout
+    );
 
     let flat = run_cli(repo.path(), ["watch", "--once", "--flat"]);
     assert_eq!(flat.code, 0);
@@ -154,6 +159,7 @@ fn watch_once_human_defaults_to_tree_and_flat_opt_out_keeps_list_view() {
 fn watch_rejects_tree_and_flat_together() {
     let repo = common::make_repo();
     init_repo(repo.path());
+    create_task(repo.path(), "Validation test task");
 
     let result = run_cli(repo.path(), ["watch", "--once", "--tree", "--flat"]);
 

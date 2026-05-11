@@ -1,6 +1,6 @@
 {
   "name": "@bumpyclock/tasque",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "Simple local-first task tracker. Git-friendly. No DB.",
   "license": "MIT",
   "repository": {
@@ -24,12 +24,12 @@
   },
   "preferUnplugged": true,
   "optionalDependencies": {
-    "@bumpyclock/tasque-darwin-arm64": "0.6.4",
-    "@bumpyclock/tasque-darwin-x64": "0.6.4",
-    "@bumpyclock/tasque-linux-x64-gnu": "0.6.4",
-    "@bumpyclock/tasque-linux-arm64-gnu": "0.6.4",
-    "@bumpyclock/tasque-win32-x64-msvc": "0.6.4",
-    "@bumpyclock/tasque-win32-arm64-msvc": "0.6.4"
+    "@bumpyclock/tasque-darwin-arm64": "0.6.5",
+    "@bumpyclock/tasque-darwin-x64": "0.6.5",
+    "@bumpyclock/tasque-linux-x64-gnu": "0.6.5",
+    "@bumpyclock/tasque-linux-arm64-gnu": "0.6.5",
+    "@bumpyclock/tasque-win32-x64-msvc": "0.6.5",
+    "@bumpyclock/tasque-win32-arm64-msvc": "0.6.5"
   },
   "publishConfig": {
     "access": "public",

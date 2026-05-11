@@ -1,12 +1,9 @@
 use crate::types::State;
-use rand::RngCore;
-use rand::rngs::OsRng;
 
 const CROCKFORD: &[u8; 32] = b"0123456789abcdefghjkmnpqrstvwxyz";
 
 pub fn make_root_id(_title: Option<&str>, _nonce: Option<&str>) -> String {
-    let mut bytes = [0u8; 5];
-    OsRng.fill_bytes(&mut bytes);
+    let bytes: [u8; 5] = rand::random();
     let mut id = String::with_capacity(8);
     let mut bits = 0u32;
     let mut acc = 0u64;

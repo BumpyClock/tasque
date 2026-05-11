@@ -15,3 +15,5 @@ npm/platforms/*/tsq.exe
 npm/bin/tsq
 npm/bin/tsq.exe
 artifacts/
+.pi-lens/
+context.md

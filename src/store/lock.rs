@@ -1,7 +1,7 @@
 use crate::errors::TsqError;
 use crate::store::paths::get_paths;
 use chrono::{DateTime, Utc};
-use rand::Rng;
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs::{OpenOptions, create_dir_all, read_to_string, remove_file, rename};
@@ -30,7 +30,7 @@ fn lock_timeout_ms() -> u64 {
 }
 
 fn jitter_ms() -> u64 {
-    rand::thread_rng().gen_range(JITTER_MIN_MS..=JITTER_MAX_MS)
+    rand::rng().random_range(JITTER_MIN_MS..=JITTER_MAX_MS)
 }
 
 fn parse_lock_payload(raw: &str) -> Option<LockPayload> {
@@ -75,9 +75,10 @@ fn try_cleanup_stale_lock(lock_file: &Path, current_host: &str) -> bool {
         return false;
     }
 
+    let mut rng = rand::rng();
     let mut suffix = String::new();
     for _ in 0..4 {
-        suffix.push_str(&format!("{:02x}", rand::thread_rng().r#gen::<u8>()));
+        suffix.push_str(&format!("{:02x}", rng.random::<u8>()));
     }
     let temp_file = format!("{}.stale-{}", lock_file.display(), suffix);
     if let Err(error) = rename(lock_file, &temp_file) {

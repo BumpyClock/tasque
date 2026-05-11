@@ -13,8 +13,7 @@ use chrono::Utc;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Write};
 use std::thread;
 use std::time::Duration;
 
@@ -52,6 +51,8 @@ pub struct WatchFrameData {
     pub filters: WatchFrameFilters,
     pub summary: WatchSummary,
     pub tasks: Vec<Task>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tree: Option<Vec<TaskTreeNode>>,
 }
 
 enum FrameResult {
@@ -280,6 +281,20 @@ fn load_frame(service: &TasqueService, options: &WatchOptions) -> FrameResult {
         Ok(tasks) => {
             let sorted = sort_watch_tasks(tasks);
             let summary = compute_summary(&sorted);
+            let tree = if options.tree && !options.json {
+                match service.list_tree(&filter) {
+                    Ok(tree) => Some(tree),
+                    Err(error) => {
+                        return FrameResult::Err {
+                            error: error.message,
+                            code: error.code,
+                            exit_code: error.exit_code,
+                        };
+                    }
+                }
+            } else {
+                None
+            };
             FrameResult::Ok(WatchFrameData {
                 frame_ts: Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
                 interval_s: options.interval,
@@ -289,6 +304,7 @@ fn load_frame(service: &TasqueService, options: &WatchOptions) -> FrameResult {
                 },
                 summary,
                 tasks: sorted,
+                tree,
             })
         }
         Err(error) => FrameResult::Err {
@@ -338,13 +354,18 @@ fn output_human_frame(
     paused: bool,
 ) {
     let width = resolve_width(None);
+    let is_tty = std::io::stdout().is_terminal();
     if clear_screen {
         print!("{}", ANSI_CLEAR);
     }
 
     match frame {
         FrameResult::Err { error, .. } => {
-            println!("{}: {}", style::error("refresh failed"), error);
+            print_watch_line(
+                &format!("{}: {}", style::error("refresh failed"), error),
+                is_tty,
+            );
+            let _ = std::io::stdout().flush();
         }
         FrameResult::Ok(data) => {
             let mut lines = Vec::new();
@@ -354,9 +375,10 @@ fn output_human_frame(
             if data.tasks.is_empty() {
                 lines.push(style::muted("no active tasks"));
             } else if options.tree {
-                let tree_nodes = build_watch_tree(&data.tasks);
-                let tree_lines =
-                    render_task_tree(&tree_nodes, TreeRenderOptions { width: Some(width) });
+                let tree_lines = render_task_tree(
+                    data.tree.as_deref().unwrap_or(&[]),
+                    TreeRenderOptions { width: Some(width) },
+                );
                 lines.extend(
                     tree_lines
                         .into_iter()
@@ -366,7 +388,7 @@ fn output_human_frame(
                 lines.extend(render_flat_tasks(&data.tasks, width));
             }
             lines.push(style::muted(&"─".repeat(width)));
-            if std::io::stdout().is_terminal() {
+            if is_tty {
                 lines.push(if paused {
                     style::muted("q quit  r refresh  p resume")
                 } else {
@@ -374,9 +396,18 @@ fn output_human_frame(
                 });
             }
             for line in lines {
-                println!("{}", line);
+                print_watch_line(&line, is_tty);
             }
+            let _ = std::io::stdout().flush();
         }
+    }
+}
+
+fn print_watch_line(line: &str, is_tty: bool) {
+    if is_tty {
+        print!("{}\r\n", line);
+    } else {
+        println!("{}", line);
     }
 }
 
@@ -508,54 +539,6 @@ fn compute_summary(tasks: &[Task]) -> WatchSummary {
         }
     }
     summary
-}
-
-fn build_watch_tree(tasks: &[Task]) -> Vec<TaskTreeNode> {
-    let by_id: HashMap<String, Task> = tasks
-        .iter()
-        .cloned()
-        .map(|task| (task.id.clone(), task))
-        .collect();
-    let mut children_by_parent: HashMap<String, Vec<Task>> = HashMap::new();
-    let mut roots = Vec::new();
-
-    for task in tasks {
-        if let Some(parent) = task.parent_id.as_ref()
-            && by_id.contains_key(parent)
-        {
-            children_by_parent
-                .entry(parent.clone())
-                .or_default()
-                .push(task.clone());
-            continue;
-        }
-        roots.push(task.clone());
-    }
-
-    fn build_node(task: &Task, children_by_parent: &HashMap<String, Vec<Task>>) -> TaskTreeNode {
-        let children = children_by_parent
-            .get(&task.id)
-            .map(|values| {
-                values
-                    .iter()
-                    .map(|child| build_node(child, children_by_parent))
-                    .collect()
-            })
-            .unwrap_or_default();
-        TaskTreeNode {
-            task: task.clone(),
-            blockers: Vec::new(),
-            dependents: Vec::new(),
-            blocker_edges: None,
-            dependent_edges: None,
-            children,
-        }
-    }
-
-    roots
-        .iter()
-        .map(|task| build_node(task, &children_by_parent))
-        .collect()
 }
 
 fn status_to_string(status: TaskStatus) -> &'static str {

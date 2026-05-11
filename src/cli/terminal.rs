@@ -11,6 +11,12 @@ pub fn resolve_width(raw: Option<usize>) -> usize {
     {
         return width;
     }
+    if let Ok(value) = std::env::var("COLUMNS")
+        && let Ok(width) = value.parse::<usize>()
+        && width > 0
+    {
+        return width;
+    }
     if let Some((terminal_size::Width(width), _)) = terminal_size::terminal_size()
         && width > 0
     {

@@ -71,7 +71,9 @@ Note: for `find ready` and status-based `find` commands, `--full` is only valid 
 
 ## Reporting and maintenance
 
-- `tsq watch [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--tree]`
+- `tsq watch [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--tree] [--flat]`
+
+`watch` renders the task tree by default for human output. Use `--flat` for the compact list view.
 - `tsq tui [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--board|--epics]`
 - `tsq stale [--days <n>] [--status <status>] [--assignee <name>] [--limit <n>]`
 - `tsq orphans`

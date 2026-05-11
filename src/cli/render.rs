@@ -10,6 +10,8 @@ pub struct TreeRenderOptions {
     pub width: Option<usize>,
 }
 
+const MAX_NARROW_TREE_PREFIX_WIDTH: usize = 24;
+
 pub fn print_task_list(tasks: &[Task]) {
     if tasks.is_empty() {
         println!("{}", style::muted("no tasks"));
@@ -241,6 +243,7 @@ fn render_tree_node(
         "├── "
     };
     let line_prefix = format!("{}{}", prefix, connector);
+    let display_line_prefix = compact_tree_prefix(&line_prefix, density, width);
     let child_prefix = if root {
         prefix.to_string()
     } else if is_last {
@@ -261,50 +264,57 @@ fn render_tree_node(
     let status = format_status(node.task.status);
     let status_text = format_status_text(node.task.status);
     let flow = format_flow(node);
-    let task_id = style::task_id(&node.task.id);
-    let mut primary_parts = vec![
-        status,
-        task_id,
-        if density == Density::Narrow {
+    let meta_text = format_meta_badge_text(&node.task);
+    let meta = style::meta(&meta_text);
+    let prefix_width = display_line_prefix.chars().count();
+    let meta_width = meta_text.chars().count();
+    let task_id_text = if density == Density::Narrow {
+        compact_task_id(
+            &node.task.id,
+            width,
+            prefix_width,
+            status_text.len(),
+            meta_width,
+        )
+    } else {
+        node.task.id.clone()
+    };
+    let task_id = style::task_id(&task_id_text);
+    let mut primary_parts = vec![status, task_id];
+    match density {
+        Density::Narrow => {
+            primary_parts.push(meta.clone());
             let max_title_width = compute_title_width(
                 width,
-                line_prefix.len(),
+                prefix_width,
                 status_text.len(),
-                node.task.id.len(),
+                task_id_text.chars().count(),
+                meta_width,
             );
-            truncate_with_ellipsis(&node.task.title, max_title_width)
-        } else {
-            node.task.title.clone()
-        },
-    ];
-    if density != Density::Narrow {
-        primary_parts.push(format_meta_badge(&node.task));
-    }
-    if density == Density::Wide
-        && let Some(flow) = &flow
-    {
-        primary_parts.push(flow.clone());
+            if max_title_width > 0 {
+                primary_parts.push(truncate_with_ellipsis(&node.task.title, max_title_width));
+            }
+        }
+        Density::Medium | Density::Wide => {
+            primary_parts.push(node.task.title.clone());
+            primary_parts.push(meta);
+            if density == Density::Wide
+                && let Some(flow) = &flow
+            {
+                primary_parts.push(flow.clone());
+            }
+        }
     }
 
     lines.push(format!(
         "{}{}",
-        style::tree_prefix(&line_prefix),
+        style::tree_prefix(&display_line_prefix),
         primary_parts.join(" ")
     ));
     if density == Density::Medium
         && let Some(flow) = &flow
     {
         lines.push(format!("{}{}", style::tree_prefix(&meta_prefix), flow));
-    }
-    if density == Density::Narrow {
-        lines.push(format!(
-            "{}{}",
-            style::tree_prefix(&meta_prefix),
-            format_meta_badge(&node.task)
-        ));
-        if let Some(flow) = &flow {
-            lines.push(format!("{}{}", style::tree_prefix(&meta_prefix), flow));
-        }
     }
 
     for (index, child) in node.children.iter().enumerate() {
@@ -430,12 +440,16 @@ pub fn print_merge_result(result: &MergeResult) {
 }
 
 pub fn format_meta_badge(task: &Task) -> String {
+    style::meta(&format_meta_badge_text(task))
+}
+
+fn format_meta_badge_text(task: &Task) -> String {
     let assignee = task
         .assignee
         .as_ref()
         .map(|value| format!(" @{}", value))
         .unwrap_or_default();
-    style::meta(&format!("[p{}{}]", task.priority, assignee))
+    format!("[p{}{}]", task.priority, assignee)
 }
 
 fn format_flow(node: &TaskTreeNode) -> Option<String> {
@@ -478,10 +492,64 @@ fn compute_title_width(
     prefix_length: usize,
     status_length: usize,
     task_id_length: usize,
+    meta_length: usize,
 ) -> usize {
-    let fixed_length = prefix_length + status_length + 1 + task_id_length + 1;
-    let remaining = width.saturating_sub(fixed_length);
-    remaining.max(12)
+    let fixed_length = prefix_length + status_length + 1 + task_id_length + 1 + meta_length + 1;
+    width.saturating_sub(fixed_length)
+}
+
+fn compact_tree_prefix(prefix: &str, density: Density, width: usize) -> String {
+    let limit = narrow_tree_prefix_limit(width);
+    if density != Density::Narrow || prefix.chars().count() <= limit {
+        return prefix.to_string();
+    }
+
+    let keep = limit.saturating_sub(2);
+    let start = prefix.chars().count().saturating_sub(keep);
+    let suffix: String = prefix.chars().skip(start).collect();
+    format!("… {}", suffix)
+}
+
+fn narrow_tree_prefix_limit(width: usize) -> usize {
+    (width / 3).clamp(8, MAX_NARROW_TREE_PREFIX_WIDTH)
+}
+
+fn compact_task_id(
+    id: &str,
+    width: usize,
+    prefix_length: usize,
+    status_length: usize,
+    meta_length: usize,
+) -> String {
+    let title_floor = if width >= 50 { 12 } else { 6 };
+    let fixed_without_id = prefix_length + status_length + 1 + 1 + meta_length + 1 + title_floor;
+    let budget = width.saturating_sub(fixed_without_id);
+    let min_budget = id.chars().count().min(6);
+    let budget = budget.max(min_budget);
+    truncate_middle(id, budget)
+}
+
+fn truncate_middle(value: &str, max_length: usize) -> String {
+    let len = value.chars().count();
+    if len <= max_length {
+        return value.to_string();
+    }
+    if max_length <= 3 {
+        return value.chars().take(max_length).collect();
+    }
+    let keep = max_length - 3;
+    let head = keep.div_ceil(2);
+    let tail = keep / 2;
+    let prefix: String = value.chars().take(head).collect();
+    let suffix: String = value
+        .chars()
+        .rev()
+        .take(tail)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    format!("{}...{}", prefix, suffix)
 }
 
 pub fn truncate_with_ellipsis(value: &str, max_length: usize) -> String {
@@ -771,5 +839,119 @@ fn event_type_to_string(event_type: crate::types::EventType) -> &'static str {
         crate::types::EventType::DepRemoved => "dep.removed",
         crate::types::EventType::LinkAdded => "link.added",
         crate::types::EventType::LinkRemoved => "link.removed",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{PlanningState, TaskKind};
+
+    #[test]
+    fn narrow_tree_lines_fit_terminal_width_for_deep_hierarchies() {
+        let width = 80;
+        let tree = vec![nested_node(12)];
+
+        let lines = render_task_tree(&tree, TreeRenderOptions { width: Some(width) });
+
+        for line in lines.iter().filter(|line| !line.starts_with("total=")) {
+            assert!(
+                line.chars().count() <= width,
+                "line exceeded width {width}: {line:?} ({})",
+                line.chars().count()
+            );
+            assert!(
+                !line.trim_start().starts_with("[p"),
+                "priority metadata should not render as detached wrapped line: {line:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn narrow_tree_compacts_nested_child_ids_when_fixed_parts_are_wide() {
+        let width = 40;
+        let tree = vec![nested_child_id_node(8, "tsq-root".to_string())];
+
+        let lines = render_task_tree(&tree, TreeRenderOptions { width: Some(width) });
+
+        assert!(
+            lines.iter().any(|line| line.contains("...")),
+            "expected long nested ids or titles to be compacted\n{}",
+            lines.join("\n")
+        );
+        for line in lines.iter().filter(|line| !line.starts_with("total=")) {
+            assert!(
+                line.chars().count() <= width,
+                "line exceeded width {width}: {line:?} ({})",
+                line.chars().count()
+            );
+        }
+    }
+
+    fn nested_node(depth: usize) -> TaskTreeNode {
+        let id = format!("tsq-deepnode{depth}");
+        let child = if depth == 0 {
+            Vec::new()
+        } else {
+            vec![nested_node(depth - 1)]
+        };
+        TaskTreeNode {
+            task: task(
+                &id,
+                "Long task title that used to wrap inside narrow tmux panes",
+            ),
+            blockers: Vec::new(),
+            dependents: Vec::new(),
+            blocker_edges: None,
+            dependent_edges: None,
+            children: child,
+        }
+    }
+
+    fn nested_child_id_node(depth: usize, id: String) -> TaskTreeNode {
+        let child = if depth == 0 {
+            Vec::new()
+        } else {
+            vec![nested_child_id_node(depth - 1, format!("{}.1", id))]
+        };
+        TaskTreeNode {
+            task: task(
+                &id,
+                "Long task title that used to wrap inside narrow tmux panes",
+            ),
+            blockers: Vec::new(),
+            dependents: Vec::new(),
+            blocker_edges: None,
+            dependent_edges: None,
+            children: child,
+        }
+    }
+
+    fn task(id: &str, title: &str) -> Task {
+        Task {
+            id: id.to_string(),
+            kind: TaskKind::Task,
+            title: title.to_string(),
+            description: None,
+            notes: Vec::new(),
+            spec_path: None,
+            spec_fingerprint: None,
+            spec_attached_at: None,
+            spec_attached_by: None,
+            status: TaskStatus::Open,
+            priority: 1,
+            assignee: None,
+            external_ref: None,
+            discovered_from: None,
+            parent_id: None,
+            superseded_by: None,
+            duplicate_of: None,
+            planning_state: Some(PlanningState::NeedsPlanning),
+            replies_to: None,
+            labels: Vec::new(),
+            created_at: "2026-05-11T00:00:00Z".to_string(),
+            updated_at: "2026-05-11T00:00:00Z".to_string(),
+            closed_at: None,
+        }
     }
 }

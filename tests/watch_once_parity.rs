@@ -2,7 +2,7 @@ mod common;
 
 use common::{
     assert_validation_error, create_task, create_task_with_args, ids_from_task_list, init_repo,
-    run_json,
+    run_cli, run_json,
 };
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -114,6 +114,55 @@ fn watch_once_default_status_filter_excludes_closed_and_canceled_tasks() {
     let result = run_json(repo.path(), ["watch", "--once"]);
     assert_eq!(result.cli.code, 0);
     assert_eq!(ids_from_task_list(&result.envelope), vec![active]);
+}
+
+#[test]
+fn watch_once_human_defaults_to_tree_and_flat_opt_out_keeps_list_view() {
+    let repo = common::make_repo();
+    init_repo(repo.path());
+
+    let parent = create_task(repo.path(), "Parent task");
+    let child = create_task_with_args(repo.path(), "Child task", &["--parent", &parent]);
+
+    let tree = run_cli(repo.path(), ["watch", "--once"]);
+    assert_eq!(
+        tree.code, 0,
+        "watch tree failed\nstdout:\n{}\nstderr:\n{}",
+        tree.stdout, tree.stderr
+    );
+    assert!(
+        tree.stdout.contains("└──"),
+        "expected default watch output to render tree connectors\nstdout:\n{}",
+        tree.stdout
+    );
+    assert!(
+        tree.stdout.contains(&child),
+        "expected child in tree output\nstdout:\n{}",
+        tree.stdout
+    );
+
+    let flat = run_cli(repo.path(), ["watch", "--once", "--flat"]);
+    assert_eq!(flat.code, 0);
+    assert!(
+        !flat.stdout.contains("└──"),
+        "expected --flat output to omit tree connectors\nstdout:\n{}",
+        flat.stdout
+    );
+}
+
+#[test]
+fn watch_rejects_tree_and_flat_together() {
+    let repo = common::make_repo();
+    init_repo(repo.path());
+
+    let result = run_cli(repo.path(), ["watch", "--once", "--tree", "--flat"]);
+
+    assert_ne!(result.code, 0);
+    assert!(
+        result.stderr.contains("--flat"),
+        "expected conflict error to mention --flat\nstderr:\n{}",
+        result.stderr
+    );
 }
 
 #[test]

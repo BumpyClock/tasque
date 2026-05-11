@@ -76,8 +76,12 @@ pub struct WatchArgs {
     pub status: String,
     #[arg(long)]
     pub assignee: Option<String>,
-    #[arg(long, default_value_t = false)]
+    /// Render task hierarchy. Default for human output.
+    #[arg(long, default_value_t = false, conflicts_with = "flat")]
     pub tree: bool,
+    /// Render compact flat task list instead of the default tree.
+    #[arg(long, default_value_t = false)]
+    pub flat: bool,
     #[arg(long, default_value_t = false)]
     pub once: bool,
 }
@@ -332,7 +336,7 @@ fn build_watch_options(args: WatchArgs, json: bool) -> Result<WatchOptions, TsqE
         interval,
         statuses,
         assignee: as_optional_string(args.assignee.as_deref()),
-        tree: args.tree,
+        tree: args.tree || !args.flat,
         once: args.once,
         json,
     })

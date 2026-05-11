@@ -61,7 +61,7 @@ Commands:
 Note: for `find ready` and status-based `find` commands, `--full` is only valid with `--tree`. `--tree --full` keeps the full status set instead of applying the default tree status narrowing. `find search --full` remains valid without `--tree`.
 - `tsq watch [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--tree] [--flat]`
 
-`watch` renders the task tree by default for human output. Use `--flat` for the compact list view.
+`watch` renders the task tree by default for human output. Use `--tree` to explicitly request tree view or `--flat` for the compact list view. These options are mutually exclusive.
 - `tsq tui [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--board|--epics]`
 - `tsq stale [--days <n>] [--status <status>] [--assignee <name>] [--limit <n>]`
 - `tsq doctor`

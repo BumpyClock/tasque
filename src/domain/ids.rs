@@ -34,10 +34,13 @@ impl RootIdAllocator {
     pub fn next_id(&mut self) -> Result<String, TsqError> {
         loop {
             let candidate = format!("tsq-{}", self.next);
-            self.next = self.next.checked_add(1).ok_or_else(id_overflow_error)?;
             if self.reserved_ids.insert(candidate.clone()) {
+                if let Some(next) = self.next.checked_add(1) {
+                    self.next = next;
+                }
                 return Ok(candidate);
             }
+            self.next = self.next.checked_add(1).ok_or_else(id_overflow_error)?;
         }
     }
 }

@@ -68,6 +68,8 @@ Notes:
 ## Specs, notes, labels, history
 
 - `tsq spec <id> [--file <path> | --stdin | --text <markdown> | --show | --check] [--force]`
+- `tsq spec <id> --update [--file <path> | --stdin | --text <markdown>]`
+- `tsq spec <id> --patch [--file <path> | --stdin | --text <patch>]`
 - `tsq note <id> <text>`
 - `tsq note <id> --stdin`
 - `tsq notes <id>`
@@ -75,6 +77,11 @@ Notes:
 - `tsq unlabel <id> <label>`
 - `tsq labels`
 - `tsq history <id> [--limit <n>] [--type <event-type>] [--actor <name>] [--since <iso>]`
+
+Spec update notes:
+- `--update` requires an existing attached spec and atomically replaces the whole spec.
+- `--patch` requires an existing attached spec, applies one unified diff to the current spec in memory, rejects multi-file patches, and fails when patch context is stale.
+- Prefer `--patch --stdin` or `--patch --file spec.patch`; unified diffs begin with `---`, which can confuse shell/arg parsing when passed via `--text`.
 
 ## Reporting and maintenance
 

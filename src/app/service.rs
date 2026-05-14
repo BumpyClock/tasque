@@ -189,6 +189,14 @@ impl TasqueService {
         service_specs::spec_attach(&self.ctx, &input)
     }
 
+    pub fn spec_update(&self, input: SpecUpdateInput) -> Result<SpecUpdateResult, TsqError> {
+        service_specs::spec_update(&self.ctx, &input)
+    }
+
+    pub fn spec_patch(&self, input: SpecPatchInput) -> Result<SpecUpdateResult, TsqError> {
+        service_specs::spec_patch(&self.ctx, &input)
+    }
+
     pub fn spec_check(&self, input: SpecCheckInput) -> Result<SpecCheckResult, TsqError> {
         service_specs::spec_check(&self.ctx, &input)
     }

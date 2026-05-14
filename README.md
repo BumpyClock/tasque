@@ -87,6 +87,8 @@ Notes:
 - `tsq cancel <id...> [--note <text>]`
 - `tsq orphans`
 - `tsq spec <id> [--file <path> | --stdin | --text <markdown> | --show | --check] [--force]`
+- `tsq spec <id> --update [--file <path> | --stdin | --text <markdown>]`
+- `tsq spec <id> --patch [--file <path> | --stdin | --text <patch>]`
 - `tsq block <task> by <blocker>`
 - `tsq unblock <task> by <blocker>`
 - `tsq order <later> after <earlier>`

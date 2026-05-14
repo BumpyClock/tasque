@@ -120,6 +120,8 @@ Notes:
 - `tsq cancel <id...> [--note <text>]`
 - `tsq orphans`
 - `tsq spec <id> [--file <path> | --stdin | --text <markdown> | --show | --check] [--force]`
+- `tsq spec <id> --update [--file <path> | --stdin | --text <markdown>]`
+- `tsq spec <id> --patch [--file <path> | --stdin | --text <patch>]`
 - `tsq block <task> by <blocker>`
 - `tsq unblock <task> by <blocker>`
 - `tsq order <later> after <earlier>`
@@ -156,6 +158,7 @@ Planning workflow guidance:
 - Treat lifecycle `status` and `planning_state` as separate dimensions.
 - `tsq find ready --lane planning` surfaces tasks that need planning work (`planning_state=needs_planning`).
 - Planning-lane work should collaborate with the user and update specs/task body as needed before coding.
+- Use `tsq spec <id> --update` for full spec replacement and `tsq spec <id> --patch` for small agent edits. Prefer patch input via stdin/file so unified-diff `---` headers are parsed as content.
 - `tsq find ready --lane coding` surfaces tasks already planned (`planning_state=planned`).
 - Use `status=deferred` for valid work intentionally parked for later.
 

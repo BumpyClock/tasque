@@ -37,12 +37,21 @@ pub fn init_repo(repo: &Path) {
 }
 
 pub fn create_task(repo: &Path, title: &str) -> String {
-    create_task_with_args(repo, title, &[])
+    // Most tests want duplicate detection out of the way; pass --ensure or
+    // --force into create_task_with_args when a test needs explicit behavior.
+    create_task_with_args(repo, title, &["--force"])
 }
 
 pub fn create_task_with_args(repo: &Path, title: &str, extra_args: &[&str]) -> String {
     let mut args = vec!["create".to_string(), title.to_string()];
     args.extend(extra_args.iter().map(|value| (*value).to_string()));
+    // Auto-force unless caller already selected duplicate behavior.
+    if !extra_args
+        .iter()
+        .any(|value| matches!(*value, "--force" | "--ensure"))
+    {
+        args.push("--force".to_string());
+    }
     let result = run_json(repo, args);
     assert_eq!(
         result.cli.code, 0,

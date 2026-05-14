@@ -146,7 +146,16 @@ fn matches_all(
 
 fn match_term(task: &Task, term: &QueryTerm, state: &State, context: &QueryEvalContext) -> bool {
     match term.field.as_str() {
-        "id" => task.id == term.value || task.id.starts_with(&term.value),
+        "id" => {
+            let value = term.value.to_lowercase();
+            let id = task.id.to_lowercase();
+            id == value || id.starts_with(&value)
+        }
+        "alias" => {
+            let value = term.value.to_lowercase();
+            let alias = task.alias.to_lowercase();
+            alias == value || alias.starts_with(&value)
+        }
         "text" => match_task_text(task, &term.value),
         "title" => task
             .title
@@ -227,21 +236,41 @@ fn has_incoming_dep_type(context: &QueryEvalContext, task_id: &str, raw_type: &s
 
 fn match_task_text(task: &Task, value: &str) -> bool {
     let needle = value.to_lowercase();
-    if task.title.to_lowercase().contains(&needle) {
+    let id = task.id.to_lowercase();
+    if id == needle || id.starts_with(&needle) {
         return true;
     }
     if task
-        .description
-        .as_deref()
-        .unwrap_or("")
+        .alias
         .to_lowercase()
-        .contains(&needle)
+        .contains(&needle.replace(' ', "-"))
     {
+        return true;
+    }
+    if text_matches(&task.title, &needle) {
+        return true;
+    }
+    if text_matches(task.description.as_deref().unwrap_or(""), &needle) {
+        return true;
+    }
+    if text_matches(task.external_ref.as_deref().unwrap_or(""), &needle) {
+        return true;
+    }
+    if task.labels.iter().any(|label| text_matches(label, &needle)) {
         return true;
     }
     task.notes
         .iter()
-        .any(|note| note.text.to_lowercase().contains(&needle))
+        .any(|note| text_matches(&note.text, &needle))
+}
+
+fn text_matches(haystack: &str, needle: &str) -> bool {
+    let haystack_lower = haystack.to_lowercase();
+    if haystack_lower.contains(needle) {
+        return true;
+    }
+    let tokens: Vec<&str> = needle.split_whitespace().collect();
+    tokens.len() > 1 && tokens.iter().all(|token| haystack_lower.contains(token))
 }
 
 fn tokenize(input: &str) -> Vec<String> {
@@ -327,7 +356,8 @@ fn unquote(value: &str) -> String {
 fn is_supported_field(field: &str) -> bool {
     matches!(
         field,
-        "id" | "text"
+        "id" | "alias"
+            | "text"
             | "title"
             | "description"
             | "notes"
@@ -343,4 +373,118 @@ fn is_supported_field(field: &str) -> bool {
             | "dep_type_in"
             | "dep_type_out"
     )
+}
+
+pub fn rank_search_results(mut tasks: Vec<Task>, filter: &QueryFilter) -> Vec<Task> {
+    let ranking_text = extract_ranking_text(filter);
+    let deterministic_fallback = |a: &Task, b: &Task| -> std::cmp::Ordering {
+        a.priority
+            .cmp(&b.priority)
+            .then_with(|| a.created_at.cmp(&b.created_at))
+            .then_with(|| a.id.cmp(&b.id))
+    };
+    if ranking_text.is_empty() {
+        tasks.sort_by(deterministic_fallback);
+        return tasks;
+    }
+    let query_norm = ranking_text.to_lowercase();
+    let query_alias = query_norm.replace(' ', "-");
+    let query_tokens = query_norm.split_whitespace().collect::<Vec<_>>();
+    let mut ranked = tasks
+        .into_iter()
+        .map(|task| {
+            let index = SearchIndex::from_task(&task);
+            let score = search_score(&index, &query_norm, &query_alias, &query_tokens);
+            (task, score)
+        })
+        .collect::<Vec<_>>();
+    ranked.sort_by(|(a, a_score), (b, b_score)| {
+        b_score
+            .cmp(a_score)
+            .then_with(|| deterministic_fallback(a, b))
+    });
+    ranked.into_iter().map(|(task, _)| task).collect()
+}
+
+/// Extract text relevant for ranking from parsed query terms.
+/// Includes bare text terms and text-like field terms (title, description, notes, alias).
+/// Excludes hard filters (status, kind, priority, id, etc.).
+fn extract_ranking_text(filter: &QueryFilter) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for term in &filter.terms {
+        if term.negated {
+            continue;
+        }
+        match term.field.as_str() {
+            "text" | "title" | "description" | "notes" | "alias" => {
+                parts.push(&term.value);
+            }
+            _ => {}
+        }
+    }
+    parts.join(" ")
+}
+
+struct SearchIndex {
+    id: String,
+    alias: String,
+    title: String,
+    labels: Vec<String>,
+    external_ref: String,
+    description: String,
+    notes: Vec<String>,
+}
+
+impl SearchIndex {
+    fn from_task(task: &Task) -> Self {
+        Self {
+            id: task.id.to_lowercase(),
+            alias: task.alias.to_lowercase(),
+            title: task.title.to_lowercase(),
+            labels: task
+                .labels
+                .iter()
+                .map(|label| label.to_lowercase())
+                .collect(),
+            external_ref: task.external_ref.as_deref().unwrap_or("").to_lowercase(),
+            description: task.description.as_deref().unwrap_or("").to_lowercase(),
+            notes: task
+                .notes
+                .iter()
+                .map(|note| note.text.to_lowercase())
+                .collect(),
+        }
+    }
+}
+
+fn search_score(
+    task: &SearchIndex,
+    query_norm: &str,
+    query_alias: &str,
+    query_tokens: &[&str],
+) -> u32 {
+    if task.id == query_norm || task.alias == query_alias {
+        return 100;
+    }
+    if task.id.starts_with(query_norm) || task.alias.starts_with(query_alias) {
+        return 90;
+    }
+    if task.title.contains(query_norm) {
+        return 80;
+    }
+    if !query_tokens.is_empty() && query_tokens.iter().all(|token| task.title.contains(token)) {
+        return 70;
+    }
+    if task.labels.iter().any(|label| label.contains(query_norm))
+        || task.external_ref.contains(query_norm)
+    {
+        return 60;
+    }
+    if task.description.contains(query_norm) {
+        return 50;
+    }
+    if task.notes.iter().any(|note| note.contains(query_norm)) {
+        return 40;
+    }
+    0
 }

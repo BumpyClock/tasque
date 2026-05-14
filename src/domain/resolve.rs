@@ -7,41 +7,71 @@ pub fn resolve_task_id(state: &State, raw: &str, exact_id: bool) -> Result<Strin
         if state.tasks.contains_key(raw) {
             return Ok(raw.to_string());
         }
-        return Err(
-            TsqError::new("TASK_NOT_FOUND", "Task ID not found", 1).with_details(json!({
-              "input": raw
-            })),
-        );
+        return Err(not_found(raw));
     }
 
     if state.tasks.contains_key(raw) {
         return Ok(raw.to_string());
     }
 
-    let mut matches: Vec<String> = state
+    let raw_alias = raw.to_lowercase();
+    if let Some(task) = state
         .tasks
-        .keys()
-        .filter(|task_id| task_id.starts_with(raw))
-        .cloned()
+        .values()
+        .find(|task| task.alias.to_lowercase() == raw_alias)
+    {
+        return Ok(task.id.clone());
+    }
+
+    let mut id_matches: Vec<(String, String)> = state
+        .tasks
+        .values()
+        .filter(|task| task.id.starts_with(raw))
+        .map(|task| (task.id.clone(), task.alias.clone()))
         .collect();
-    matches.sort();
+    id_matches.sort_by(|a, b| a.0.cmp(&b.0));
 
-    if matches.len() == 1 {
-        return Ok(matches[0].clone());
+    match id_matches.len() {
+        1 => return Ok(id_matches[0].0.clone()),
+        n if n > 1 => {
+            return Err(
+                TsqError::new("TASK_ID_AMBIGUOUS", "Task ID is ambiguous", 1).with_details(json!({
+                    "input": raw,
+                    "candidates": id_matches
+                        .into_iter()
+                        .map(|(id, alias)| json!({ "id": id, "alias": alias }))
+                        .collect::<Vec<_>>()
+                })),
+            );
+        }
+        _ => {}
     }
 
-    if matches.is_empty() {
-        return Err(
-            TsqError::new("TASK_NOT_FOUND", "Task ID not found", 1).with_details(json!({
-              "input": raw
+    let mut alias_matches: Vec<(String, String)> = state
+        .tasks
+        .values()
+        .filter(|task| task.alias.to_lowercase().starts_with(&raw_alias))
+        .map(|task| (task.id.clone(), task.alias.clone()))
+        .collect();
+    alias_matches.sort_by(|a, b| a.0.cmp(&b.0));
+
+    match alias_matches.len() {
+        0 => Err(not_found(raw)),
+        1 => Ok(alias_matches[0].0.clone()),
+        _ => Err(
+            TsqError::new("TASK_ID_AMBIGUOUS", "Task ID is ambiguous", 1).with_details(json!({
+                "input": raw,
+                "candidates": alias_matches
+                    .into_iter()
+                    .map(|(id, alias)| json!({ "id": id, "alias": alias }))
+                    .collect::<Vec<_>>()
             })),
-        );
+        ),
     }
+}
 
-    Err(
-        TsqError::new("TASK_ID_AMBIGUOUS", "Task ID is ambiguous", 1).with_details(json!({
-          "input": raw,
-          "candidates": matches
-        })),
-    )
+fn not_found(raw: &str) -> TsqError {
+    TsqError::new("TASK_NOT_FOUND", "Task ID not found", 1).with_details(json!({
+      "input": raw
+    }))
 }

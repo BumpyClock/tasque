@@ -1,5 +1,5 @@
 use crate::app::service::TasqueService;
-use crate::app::service_types::CreateInput;
+use crate::app::service_types::{CreateBatchInput, CreateBatchItem, CreateInput};
 use crate::cli::action::{GlobalOpts, run_action};
 use crate::cli::parsers::{
     as_optional_string, parse_kind, parse_priority_value, validate_explicit_id,
@@ -7,7 +7,6 @@ use crate::cli::parsers::{
 use crate::cli::render::print_task;
 use crate::errors::TsqError;
 use clap::Args;
-use std::collections::HashSet;
 use std::fs;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,6 +53,8 @@ pub struct CreateArgs {
     pub body_file: Option<String>,
     #[arg(long, default_value_t = false)]
     pub ensure: bool,
+    #[arg(long, default_value_t = false)]
+    pub force: bool,
 }
 
 pub fn execute_create(service: &TasqueService, args: CreateArgs, opts: GlobalOpts) -> i32 {
@@ -67,6 +68,13 @@ pub fn execute_create(service: &TasqueService, args: CreateArgs, opts: GlobalOpt
                 return Err(TsqError::new(
                     "VALIDATION_ERROR",
                     "cannot combine --planned with --needs-plan",
+                    1,
+                ));
+            }
+            if args.ensure && args.force {
+                return Err(TsqError::new(
+                    "VALIDATION_ERROR",
+                    "cannot combine --ensure with --force",
                     1,
                 ));
             }
@@ -184,71 +192,66 @@ pub fn execute_create(service: &TasqueService, args: CreateArgs, opts: GlobalOpt
             let external_ref = as_optional_string(args.external_ref.as_deref());
             let discovered_from = as_optional_string(args.discovered_from.as_deref());
 
-            let mut created = Vec::with_capacity(create_count);
-            if let Some(file_tasks) = parsed_file_tasks {
-                let mut parent_stack: Vec<String> = Vec::new();
-                for item in file_tasks {
-                    let parent = if item.depth == 0 {
-                        args.parent.clone()
-                    } else {
-                        Some(parent_stack.get(item.depth - 1).cloned().ok_or_else(|| {
-                            TsqError::new(
-                                "VALIDATION_ERROR",
-                                format!(
-                                    "line {} has no parent at depth {}",
-                                    item.line_no,
-                                    item.depth - 1
-                                ),
-                                1,
-                            )
-                        })?)
-                    };
-                    let task = service.create(CreateInput {
-                        title: item.title,
-                        kind,
-                        priority,
-                        description: description.clone(),
-                        external_ref: external_ref.clone(),
-                        discovered_from: discovered_from.clone(),
-                        parent,
-                        exact_id: opts.exact_id,
-                        planning_state,
-                        explicit_id: None,
-                        body_file: body_file.clone(),
-                        ensure: args.ensure,
-                    })?;
-                    parent_stack.truncate(item.depth);
-                    parent_stack.push(task.id.clone());
-                    created.push(task);
-                }
-            } else {
-                for (index, title) in positional_titles.into_iter().enumerate() {
-                    created.push(service.create(CreateInput {
-                        title,
-                        kind,
-                        priority,
-                        description: description.clone(),
-                        external_ref: external_ref.clone(),
-                        discovered_from: discovered_from.clone(),
-                        parent: args.parent.clone(),
-                        exact_id: opts.exact_id,
-                        planning_state,
-                        explicit_id: if index == 0 {
-                            explicit_id.clone()
-                        } else {
-                            None
-                        },
-                        body_file: body_file.clone(),
-                        ensure: args.ensure,
-                    })?);
-                }
-            }
-            if args.ensure {
-                let mut seen = HashSet::new();
-                created.retain(|task| seen.insert(task.id.clone()));
+            // Single create: keep existing service.create path.
+            if create_count == 1 && parsed_file_tasks.is_none() {
+                let title = positional_titles.into_iter().next().unwrap();
+                let task = service.create(CreateInput {
+                    title,
+                    kind,
+                    priority,
+                    description,
+                    external_ref,
+                    discovered_from,
+                    parent: args.parent.clone(),
+                    exact_id: opts.exact_id,
+                    planning_state,
+                    explicit_id,
+                    body_file,
+                    ensure: args.ensure,
+                    force: args.force,
+                    skip_duplicate_check: false,
+                })?;
+                return Ok(vec![task]);
             }
 
-            Ok(created)
+            // Batch create: build items and delegate to atomic service API.
+            let from_file = parsed_file_tasks.is_some();
+            let items: Vec<CreateBatchItem> = if let Some(file_tasks) = parsed_file_tasks {
+                file_tasks
+                    .into_iter()
+                    .map(|item| CreateBatchItem {
+                        title: item.title,
+                        depth: item.depth,
+                        marker: Some(item.line_no),
+                    })
+                    .collect()
+            } else {
+                positional_titles
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, title)| CreateBatchItem {
+                        title,
+                        depth: 0,
+                        marker: Some(index + 1),
+                    })
+                    .collect()
+            };
+
+            service.create_batch(CreateBatchInput {
+                items,
+                kind,
+                priority,
+                description,
+                external_ref,
+                discovered_from,
+                parent: args.parent.clone(),
+                exact_id: opts.exact_id,
+                planning_state,
+                body_file,
+                ensure: args.ensure,
+                force: args.force,
+                from_file,
+            })
         },
         |tasks| {
             if tasks.len() == 1 {

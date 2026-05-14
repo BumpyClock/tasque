@@ -18,12 +18,13 @@ pub fn print_task_list(tasks: &[Task]) {
         return;
     }
 
-    let header = ["ID", "P", "KIND", "STATUS", "ASSIGNEE", "TITLE"];
+    let header = ["ID", "ALIAS", "P", "KIND", "STATUS", "ASSIGNEE", "TITLE"];
     let rows: Vec<Vec<String>> = tasks
         .iter()
         .map(|task| {
             vec![
                 task.id.clone(),
+                task.alias.clone(),
                 task.priority.to_string(),
                 task_kind_to_string(task.kind).to_string(),
                 status_to_string(task.status).to_string(),
@@ -63,7 +64,7 @@ pub fn print_task_list(tasks: &[Task]) {
                 let padded = format!("{:width$}", cell, width = widths[index]);
                 if index == 0 {
                     style::task_id(&padded)
-                } else if index == 3 {
+                } else if index == 4 {
                     style::status(
                         &padded,
                         parse_status_label(cell.as_str()).unwrap_or(TaskStatus::Open),
@@ -78,7 +79,7 @@ pub fn print_task_list(tasks: &[Task]) {
 }
 
 pub fn print_task(task: &Task) {
-    println!("{} {}", style::task_id(&task.id), task.title);
+    println!("{} {} {}", style::task_id(&task.id), task.alias, task.title);
     println!(
         "{}={} {}={} {}={}",
         style::key("kind"),
@@ -855,10 +856,11 @@ mod tests {
         let lines = render_task_tree(&tree, TreeRenderOptions { width: Some(width) });
 
         for line in lines.iter().filter(|line| !line.starts_with("total=")) {
+            let visible_width = visible_char_count(line);
             assert!(
-                line.chars().count() <= width,
+                visible_width <= width,
                 "line exceeded width {width}: {line:?} ({})",
-                line.chars().count()
+                visible_width
             );
             assert!(
                 !line.trim_start().starts_with("[p"),
@@ -880,12 +882,31 @@ mod tests {
             lines.join("\n")
         );
         for line in lines.iter().filter(|line| !line.starts_with("total=")) {
+            let visible_width = visible_char_count(line);
             assert!(
-                line.chars().count() <= width,
+                visible_width <= width,
                 "line exceeded width {width}: {line:?} ({})",
-                line.chars().count()
+                visible_width
             );
         }
+    }
+
+    fn visible_char_count(value: &str) -> usize {
+        let mut count = 0;
+        let mut chars = value.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if ch == '\u{1b}' && chars.peek() == Some(&'[') {
+                chars.next();
+                for ansi_ch in chars.by_ref() {
+                    if ansi_ch.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+                continue;
+            }
+            count += 1;
+        }
+        count
     }
 
     fn nested_node(depth: usize) -> TaskTreeNode {
@@ -930,6 +951,7 @@ mod tests {
     fn task(id: &str, title: &str) -> Task {
         Task {
             id: id.to_string(),
+            alias: crate::domain::alias::base_alias(title),
             kind: TaskKind::Task,
             title: title.to_string(),
             description: None,

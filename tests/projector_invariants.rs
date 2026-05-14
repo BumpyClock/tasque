@@ -2,6 +2,9 @@ use serde_json::{Map, Value, json};
 use tasque::app::repair::scan_orphaned_graph;
 use tasque::app::storage::evaluate_task_spec;
 use tasque::domain::projector::apply_events;
+use tasque::domain::query::{evaluate_query, parse_query};
+use tasque::domain::resolve::resolve_task_id;
+use tasque::domain::similarity::is_blocking_duplicate;
 use tasque::domain::state::create_empty_state;
 use tasque::types::{EventRecord, EventType, PlanningState, TaskStatus};
 
@@ -58,6 +61,75 @@ fn task_created_rejects_invalid_optional_typed_fields() {
         payload.insert(field.to_string(), value);
         assert_invalid_event(&[created("tsq-bad00001", Value::Object(payload))]);
     }
+}
+
+#[test]
+fn task_created_rejects_alias_collisions() {
+    assert_invalid_event(&[
+        created(
+            "tsq-root0001",
+            json!({"title": "root", "alias": "shared-alias"}),
+        ),
+        created(
+            "tsq-root0002",
+            json!({"title": "other", "alias": "shared-alias"}),
+        ),
+    ]);
+
+    assert_invalid_event(&[created(
+        "tsq-root0001",
+        json!({"title": "root", "alias": "tsq-root0001"}),
+    )]);
+}
+
+#[test]
+fn task_created_normalizes_explicit_alias() {
+    let state = apply_events(
+        &create_empty_state(),
+        &[created(
+            "tsq-root0001",
+            json!({"title": "root", "alias": "Mixed Alias!"}),
+        )],
+    )
+    .expect("create should apply");
+
+    let task = state.tasks.get("tsq-root0001").expect("task projected");
+    assert_eq!(task.alias, "mixed-alias");
+}
+
+#[test]
+fn legacy_mixed_case_alias_still_resolves_and_queries() {
+    let mut state = apply_events(
+        &create_empty_state(),
+        &[created(
+            "tsq-root0001",
+            json!({"title": "root", "alias": "stable-alias"}),
+        )],
+    )
+    .expect("create should apply");
+    state
+        .tasks
+        .get_mut("tsq-root0001")
+        .expect("task projected")
+        .alias = "Stable-Alias".to_string();
+
+    assert_eq!(
+        resolve_task_id(&state, "STABLE-ALIAS", false).expect("exact alias"),
+        "tsq-root0001"
+    );
+    assert_eq!(
+        resolve_task_id(&state, "stable", false).expect("alias prefix"),
+        "tsq-root0001"
+    );
+
+    let filter = parse_query("alias:STABLE-ALIAS").expect("query parses");
+    let tasks = state.tasks.values().cloned().collect::<Vec<_>>();
+    let matches = evaluate_query(&tasks, &filter, &state);
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].id, "tsq-root0001");
+
+    let similar = is_blocking_duplicate("stable alias", &matches[0]).expect("alias similarity");
+    assert_eq!(similar.reason, "alias_exact");
 }
 
 #[test]

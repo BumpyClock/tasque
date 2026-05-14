@@ -87,6 +87,153 @@ fn spec_check_reports_fingerprint_drift_after_attached_file_edit() {
 }
 
 #[test]
+fn spec_update_replaces_spec_and_updates_fingerprint() {
+    let repo = common::make_repo();
+    init_repo(repo.path());
+    let task_id = create_task(repo.path(), "Spec update target");
+    let attach = run_json(repo.path(), ["spec", &task_id, "--text", complete_spec()]);
+    assert_eq!(attach.cli.code, 0);
+    let old_fingerprint = attach.envelope["data"]["spec"]["spec_fingerprint"]
+        .as_str()
+        .expect("old fingerprint");
+
+    let updated = run_json(
+        repo.path(),
+        ["spec", &task_id, "--update", "--text", updated_spec()],
+    );
+
+    assert_eq!(
+        updated.cli.code, 0,
+        "spec update failed\nstdout:\n{}\nstderr:\n{}",
+        updated.cli.stdout, updated.cli.stderr
+    );
+    let update_data = data(&updated.envelope);
+    assert_eq!(
+        update_data["spec"]["old_fingerprint"].as_str(),
+        Some(old_fingerprint)
+    );
+    assert_ne!(
+        update_data["spec"]["new_fingerprint"].as_str(),
+        Some(old_fingerprint)
+    );
+    let show = run_json(repo.path(), ["spec", &task_id, "--show"]);
+    assert_eq!(
+        show.envelope["data"]["spec"]["content"].as_str(),
+        Some(updated_spec())
+    );
+}
+
+#[test]
+fn spec_update_rejects_fingerprint_drift_before_replace() {
+    let repo = common::make_repo();
+    init_repo(repo.path());
+    let task_id = create_task(repo.path(), "Spec update drift target");
+    let attach = run_json(repo.path(), ["spec", &task_id, "--text", complete_spec()]);
+    assert_eq!(attach.cli.code, 0);
+    let spec_path = attached_spec_path(repo.path(), data(&attach.envelope));
+    fs::write(spec_path, format!("{}\n\nExtra drift.\n", complete_spec())).expect("edit spec");
+
+    let updated = run_json(
+        repo.path(),
+        ["spec", &task_id, "--update", "--text", updated_spec()],
+    );
+
+    assert_eq!(updated.cli.code, 1);
+    assert_eq!(error_code(&updated.envelope), Some("SPEC_CONFLICT"));
+    assert_eq!(
+        updated.envelope["error"]["details"]["task_id"].as_str(),
+        Some(task_id.as_str())
+    );
+}
+
+#[test]
+fn spec_patch_updates_existing_spec_in_memory() {
+    let repo = common::make_repo();
+    init_repo(repo.path());
+    let task_id = create_task(repo.path(), "Spec patch target");
+    let attach = run_json(repo.path(), ["spec", &task_id, "--text", complete_spec()]);
+    assert_eq!(attach.cli.code, 0);
+    let patch = patch_overview(
+        &task_id,
+        "Complete direct workflow coverage.",
+        "Patched workflow coverage.",
+    );
+    let patch_path = repo.path().join("spec.patch");
+    fs::write(&patch_path, patch).expect("write patch");
+
+    let patched = run_json(
+        repo.path(),
+        ["spec", &task_id, "--patch", "--file", "spec.patch"],
+    );
+
+    assert_eq!(
+        patched.cli.code, 0,
+        "spec patch failed\nstdout:\n{}\nstderr:\n{}",
+        patched.cli.stdout, patched.cli.stderr
+    );
+    let show = run_json(repo.path(), ["spec", &task_id, "--show"]);
+    assert!(
+        show.envelope["data"]["spec"]["content"]
+            .as_str()
+            .expect("content")
+            .contains("Patched workflow coverage.")
+    );
+}
+
+#[test]
+fn spec_patch_rejects_fingerprint_drift_before_apply() {
+    let repo = common::make_repo();
+    init_repo(repo.path());
+    let task_id = create_task(repo.path(), "Spec patch drift target");
+    let attach = run_json(repo.path(), ["spec", &task_id, "--text", complete_spec()]);
+    assert_eq!(attach.cli.code, 0);
+    let spec_path = attached_spec_path(repo.path(), data(&attach.envelope));
+    fs::write(spec_path, format!("{}\n\nExtra drift.\n", complete_spec())).expect("edit spec");
+    let patch = patch_overview(
+        &task_id,
+        "Complete direct workflow coverage.",
+        "Patched workflow coverage.",
+    );
+    let patch_path = repo.path().join("drift.patch");
+    fs::write(&patch_path, patch).expect("write patch");
+
+    let patched = run_json(
+        repo.path(),
+        ["spec", &task_id, "--patch", "--file", "drift.patch"],
+    );
+
+    assert_eq!(patched.cli.code, 1);
+    assert_eq!(error_code(&patched.envelope), Some("SPEC_CONFLICT"));
+    assert_eq!(
+        patched.envelope["error"]["details"]["task_id"].as_str(),
+        Some(task_id.as_str())
+    );
+}
+
+#[test]
+fn spec_patch_rejects_stale_context() {
+    let repo = common::make_repo();
+    init_repo(repo.path());
+    let task_id = create_task(repo.path(), "Spec stale patch target");
+    let attach = run_json(repo.path(), ["spec", &task_id, "--text", complete_spec()]);
+    assert_eq!(attach.cli.code, 0);
+    let patch = patch_overview(&task_id, "Text from stale agent.", "New stale text.");
+    let patch_path = repo.path().join("stale.patch");
+    fs::write(&patch_path, patch).expect("write patch");
+
+    let patched = run_json(
+        repo.path(),
+        ["spec", &task_id, "--patch", "--file", "stale.patch"],
+    );
+
+    assert_eq!(patched.cli.code, 1);
+    assert_eq!(
+        patched.envelope["error"]["code"].as_str(),
+        Some("SPEC_PATCH_FAILED")
+    );
+}
+
+#[test]
 fn spec_check_reports_missing_required_sections_for_attached_incomplete_spec() {
     let repo = common::make_repo();
     init_repo(repo.path());
@@ -225,6 +372,47 @@ fn incomplete_spec() -> &'static str {
 ## Overview
 Missing required sections by design.
 "#
+}
+
+fn updated_spec() -> &'static str {
+    r#"# Spec
+
+## Overview
+Updated direct workflow coverage.
+
+## Constraints / Non-goals
+No production behavior changes.
+
+## Interfaces (CLI/API)
+Exercise tsq spec <id> --update, tsq spec <id> --patch, and tsq spec <id> --check.
+
+## Data model / schema changes
+No schema changes.
+
+## Acceptance criteria
+Required spec checks pass before claim.
+
+## Test plan
+Run cargo test --test spec_workflow --quiet.
+"#
+}
+
+fn patch_overview(task_id: &str, old: &str, new: &str) -> String {
+    let path = format!(".tasque/specs/{task_id}/spec.md");
+    format!(
+        r#"--- {path}
++++ {path}
+@@ -1,7 +1,7 @@
+ # Spec
+ 
+ ## Overview
+-{old}
++{new}
+ 
+ ## Constraints / Non-goals
+ No production behavior changes.
+"#
+    )
 }
 
 fn data(envelope: &Value) -> &Value {

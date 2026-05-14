@@ -1,3 +1,4 @@
+pub mod alias;
 pub mod dep_tree;
 pub mod deps;
 pub mod event_payload_codecs;
@@ -7,6 +8,7 @@ pub mod labels;
 pub mod projector;
 pub mod query;
 pub mod resolve;
+pub mod similarity;
 pub mod state;
 pub(crate) mod state_invariants;
 pub mod validate;

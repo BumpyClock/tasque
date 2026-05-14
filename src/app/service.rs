@@ -135,6 +135,13 @@ impl TasqueService {
         service_create_update::create(&self.ctx, &input)
     }
 
+    pub fn create_batch(
+        &self,
+        input: crate::app::service_types::CreateBatchInput,
+    ) -> Result<Vec<Task>, TsqError> {
+        service_create_update::create_batch(&self.ctx, &input)
+    }
+
     pub fn show(&self, id_raw: &str, exact_id: bool) -> Result<ShowResult, TsqError> {
         service_query::show(&self.ctx, id_raw, exact_id)
     }
@@ -180,6 +187,14 @@ impl TasqueService {
 
     pub fn spec_attach(&self, input: SpecAttachInput) -> Result<SpecAttachResult, TsqError> {
         service_specs::spec_attach(&self.ctx, &input)
+    }
+
+    pub fn spec_update(&self, input: SpecUpdateInput) -> Result<SpecUpdateResult, TsqError> {
+        service_specs::spec_update(&self.ctx, &input)
+    }
+
+    pub fn spec_patch(&self, input: SpecPatchInput) -> Result<SpecUpdateResult, TsqError> {
+        service_specs::spec_patch(&self.ctx, &input)
     }
 
     pub fn spec_check(&self, input: SpecCheckInput) -> Result<SpecCheckResult, TsqError> {
@@ -289,6 +304,13 @@ impl TasqueService {
 
     pub fn search(&self, input: &SearchInput) -> Result<Vec<Task>, TsqError> {
         service_query::search(&self.ctx, input)
+    }
+
+    pub fn similar(
+        &self,
+        input: &crate::app::service_types::SimilarInput,
+    ) -> Result<Vec<crate::domain::similarity::SimilarTaskCandidate>, TsqError> {
+        service_query::similar(&self.ctx, input)
     }
 
     pub fn migrate(&self, branch: &str) -> Result<crate::types::MigrateResult, TsqError> {

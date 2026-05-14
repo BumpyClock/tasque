@@ -294,3 +294,63 @@ fn create_rejects_ensure_with_explicit_id() {
         Some("cannot combine --ensure with --id")
     );
 }
+
+#[test]
+fn ensure_deduplicates_identical_incoming_root_tasks() {
+    let repo = common::make_repo();
+    init_repo(repo.path());
+
+    let result = run_json(
+        repo.path(),
+        ["create", "--ensure", "Root task", "Root task"],
+    );
+
+    assert_eq!(result.cli.code, 0);
+    // Verify only one open task with that title exists.
+    let listed = run_json(repo.path(), ["find", "open"]);
+    assert_eq!(listed.cli.code, 0);
+    let root_matches = listed
+        .envelope
+        .get("data")
+        .and_then(|value| value.get("tasks"))
+        .and_then(Value::as_array)
+        .expect("expected data.tasks array")
+        .iter()
+        .filter(|task| task.get("title").and_then(Value::as_str) == Some("Root task"))
+        .count();
+    assert_eq!(
+        root_matches, 1,
+        "ensure must deduplicate identical incoming root tasks"
+    );
+}
+
+#[test]
+fn ensure_from_file_deduplicates_identical_children_under_same_parent() {
+    let repo = common::make_repo();
+    init_repo(repo.path());
+
+    let file = repo.path().join("tasks.md");
+    std::fs::write(&file, "- Parent\n  - Child task\n  - Child task\n").unwrap();
+
+    let result = run_json(
+        repo.path(),
+        ["create", "--from-file", "tasks.md", "--ensure"],
+    );
+
+    assert_eq!(result.cli.code, 0);
+    let listed = run_json(repo.path(), ["find", "open"]);
+    assert_eq!(listed.cli.code, 0);
+    let child_matches = listed
+        .envelope
+        .get("data")
+        .and_then(|value| value.get("tasks"))
+        .and_then(Value::as_array)
+        .expect("expected data.tasks array")
+        .iter()
+        .filter(|task| task.get("title").and_then(Value::as_str) == Some("Child task"))
+        .count();
+    assert_eq!(
+        child_matches, 1,
+        "ensure must deduplicate identical children under same parent"
+    );
+}

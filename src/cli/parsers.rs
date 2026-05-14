@@ -1,6 +1,7 @@
 use crate::app::runtime::{normalize_status, parse_priority};
 use crate::app::service_types::{DepDirectionFilter, ListFilter};
 use crate::domain::dep_tree::DepDirection;
+use crate::domain::ids::is_valid_root_id;
 use crate::domain::labels::normalize_label;
 use crate::domain::validate::PlanningLane;
 use crate::errors::TsqError;
@@ -9,8 +10,6 @@ use crate::types::{DependencyType, PlanningState, RelationType, TaskKind, TaskSt
 use once_cell::sync::Lazy;
 use regex::Regex;
 
-static EXPLICIT_ID_PATTERN: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^tsq-[0-9a-hjkmnp-tv-z]{8}$").expect("valid explicit id pattern"));
 static ISO_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$")
         .expect("valid iso timestamp pattern")
@@ -105,10 +104,10 @@ pub fn parse_init_preset(raw: &str) -> Result<InitPreset, TsqError> {
 
 pub fn validate_explicit_id(raw: &str) -> Result<String, TsqError> {
     let trimmed = raw.trim();
-    if !EXPLICIT_ID_PATTERN.is_match(trimmed) {
+    if !is_valid_root_id(trimmed) {
         return Err(TsqError::new(
             "VALIDATION_ERROR",
-            "explicit --id must match tsq-<8 crockford base32 chars>",
+            "explicit --id must match tsq-<number> or legacy tsq-<8 crockford base32 chars>",
             1,
         ));
     }

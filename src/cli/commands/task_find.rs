@@ -1,5 +1,5 @@
 use crate::app::service::TasqueService;
-use crate::app::service_types::{ListFilter, SearchInput};
+use crate::app::service_types::{ListFilter, SearchInput, SimilarInput};
 use crate::cli::action::{GlobalOpts, run_action};
 use crate::cli::parsers::{ListParseInput, apply_tree_defaults, parse_lane, parse_list_filter};
 use crate::cli::render::{print_task, print_task_list, print_task_tree};
@@ -28,6 +28,7 @@ pub enum FindCommand {
     Done(FindListArgs),
     Canceled(FindListArgs),
     Search(FindSearchArgs),
+    Similar(FindSimilarArgs),
 }
 
 #[derive(Debug, Args)]
@@ -81,6 +82,11 @@ pub struct FindSearchArgs {
     pub full: bool,
 }
 
+#[derive(Debug, Args)]
+pub struct FindSimilarArgs {
+    pub query: String,
+}
+
 pub fn execute_find(service: &TasqueService, args: FindArgs, opts: GlobalOpts) -> i32 {
     match args.command {
         FindCommand::Ready(args) => execute_find_ready(service, args, opts),
@@ -107,6 +113,7 @@ pub fn execute_find(service: &TasqueService, args: FindArgs, opts: GlobalOpts) -
             execute_find_list(service, args, Some("canceled"), "tsq find canceled", opts)
         }
         FindCommand::Search(args) => execute_find_search(service, args, opts),
+        FindCommand::Similar(args) => execute_find_similar(service, args, opts),
     }
 }
 
@@ -228,6 +235,35 @@ pub fn execute_find_search(service: &TasqueService, args: FindSearchArgs, opts: 
                 }
             } else {
                 print_task_list(tasks);
+            }
+            Ok(())
+        },
+    )
+}
+
+pub fn execute_find_similar(
+    service: &TasqueService,
+    args: FindSimilarArgs,
+    opts: GlobalOpts,
+) -> i32 {
+    run_action(
+        "tsq find similar",
+        opts,
+        || {
+            service.similar(&SimilarInput {
+                query: args.query.clone(),
+            })
+        },
+        |candidates| serde_json::json!({ "candidates": candidates }),
+        |candidates| {
+            if !candidates.is_empty() {
+                println!("{:>5} {:25} {:12} TITLE", "SCORE", "REASON", "ID");
+            }
+            for candidate in candidates {
+                println!(
+                    "{:>5.2} {:25} {:12} {}",
+                    candidate.score, candidate.reason, candidate.task.id, candidate.task.title
+                );
             }
             Ok(())
         },

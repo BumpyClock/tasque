@@ -48,6 +48,8 @@ pub struct CreateInput {
     pub explicit_id: Option<String>,
     pub body_file: Option<String>,
     pub ensure: bool,
+    pub force: bool,
+    pub skip_duplicate_check: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -224,6 +226,24 @@ pub struct SpecContentInput {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpecUpdateInput {
+    pub id: String,
+    pub file: Option<String>,
+    pub text: Option<String>,
+    pub stdin: bool,
+    pub exact_id: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpecPatchInput {
+    pub id: String,
+    pub file: Option<String>,
+    pub text: Option<String>,
+    pub stdin: bool,
+    pub exact_id: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoteAddResult {
     pub task_id: String,
     pub note: TaskNote,
@@ -260,7 +280,28 @@ pub struct SpecContentResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpecUpdateResult {
+    pub task: Task,
+    pub spec: SpecUpdateSpec,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpecUpdateSpec {
+    pub spec_path: String,
+    pub old_fingerprint: String,
+    pub new_fingerprint: String,
+    pub spec_attached_at: String,
+    pub spec_attached_by: String,
+    pub bytes: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchInput {
+    pub query: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SimilarInput {
     pub query: String,
 }
 
@@ -384,6 +425,39 @@ pub struct OrphansResult {
     pub orphaned_deps: Vec<RepairDep>,
     pub orphaned_links: Vec<OrphanedLinkResult>,
     pub total: usize,
+}
+
+/// A single item in a batch create request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateBatchItem {
+    pub title: String,
+    /// For `--from-file`: nesting depth (0 = root-level in file).
+    /// For positional titles: always 0 (parent comes from `parent` field).
+    pub depth: usize,
+    /// Source line number or positional index (1-based) for error messages.
+    pub marker: Option<usize>,
+}
+
+/// Input for atomic batch create.  All items are validated and written under a
+/// single write lock so preflight and persistence cannot race.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateBatchInput {
+    pub items: Vec<CreateBatchItem>,
+    pub kind: TaskKind,
+    pub priority: Priority,
+    pub description: Option<String>,
+    pub external_ref: Option<String>,
+    pub discovered_from: Option<String>,
+    /// CLI-level `--parent` (existing task reference).
+    pub parent: Option<String>,
+    pub exact_id: bool,
+    pub planning_state: Option<PlanningState>,
+    pub body_file: Option<String>,
+    pub ensure: bool,
+    pub force: bool,
+    /// Whether items came from `--from-file` (depth-based parent stacking)
+    /// vs positional titles (all share `parent`).
+    pub from_file: bool,
 }
 
 #[derive(Clone)]

@@ -32,6 +32,43 @@ fn create_from_file_accepts_markdown_bullets() {
 }
 
 #[test]
+fn create_from_file_allocates_root_ids_sequentially_after_high_existing_id() {
+    let repo = common::make_repo();
+    init_repo(repo.path());
+    create_task_with_args(repo.path(), "Existing high root", &["--id", "tsq-42"]);
+    let file = repo.path().join("tasks.md");
+    std::fs::write(&file, "- First root\n- Second root\n").unwrap();
+
+    let result = run_json(repo.path(), ["create", "--from-file", "tasks.md"]);
+
+    assert_eq!(result.cli.code, 0);
+    let tasks = result.envelope["data"]["tasks"].as_array().expect("tasks");
+    assert_eq!(tasks[0]["id"].as_str(), Some("tsq-43"));
+    assert_eq!(tasks[1]["id"].as_str(), Some("tsq-44"));
+}
+
+#[test]
+fn create_from_file_can_allocate_last_u64_root_id() {
+    let repo = common::make_repo();
+    init_repo(repo.path());
+    create_task_with_args(
+        repo.path(),
+        "Penultimate root",
+        &["--id", "tsq-18446744073709551614"],
+    );
+    let file = repo.path().join("tasks.md");
+    std::fs::write(&file, "- Last root\n").unwrap();
+
+    let result = run_json(repo.path(), ["create", "--from-file", "tasks.md"]);
+
+    assert_eq!(result.cli.code, 0);
+    assert_eq!(
+        result.envelope["data"]["task"]["id"].as_str(),
+        Some("tsq-18446744073709551615")
+    );
+}
+
+#[test]
 fn create_from_file_maps_nested_bullets_to_parent_ids() {
     let repo = common::make_repo();
     init_repo(repo.path());

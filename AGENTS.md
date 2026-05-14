@@ -26,6 +26,9 @@ Durable across restarts and context compaction.
 - append-only audit trail
 - stable machine output (`--json`)
 - tree find view (`tsq find open --tree`)
+- sequential task IDs (`tsq-<number>`) with alias resolution
+- ranked search (`find search`) and duplicate detection (`find similar`)
+- create duplicate gate (refuses similar tasks unless `--force`)
 - skill install/uninstall via `tsq init`
 
 ## Non-Goals

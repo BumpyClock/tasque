@@ -400,11 +400,25 @@ pub fn history(ctx: &ServiceContext, input: &HistoryInput) -> Result<HistoryResu
 pub fn search(ctx: &ServiceContext, input: &SearchInput) -> Result<Vec<Task>, TsqError> {
     let loaded = load_projected_state(&ctx.repo_root)?;
     let filter = parse_query(&input.query)?;
-    Ok(sort_tasks(&evaluate_query(
+    let tasks = evaluate_query(
         &loaded.state.tasks.values().cloned().collect::<Vec<_>>(),
         &filter,
         &loaded.state,
-    )))
+    );
+    Ok(crate::domain::query::rank_search_results(tasks, &filter))
+}
+
+pub fn similar(
+    ctx: &ServiceContext,
+    input: &crate::app::service_types::SimilarInput,
+) -> Result<Vec<crate::domain::similarity::SimilarTaskCandidate>, TsqError> {
+    let loaded = load_projected_state(&ctx.repo_root)?;
+    Ok(crate::domain::similarity::find_similar_candidates(
+        loaded.state.tasks.values(),
+        &input.query,
+        crate::domain::similarity::DEFAULT_SIMILARITY_MIN_SCORE,
+        crate::domain::similarity::DEFAULT_SIMILARITY_LIMIT,
+    ))
 }
 
 pub fn orphans(ctx: &ServiceContext) -> Result<OrphansResult, TsqError> {

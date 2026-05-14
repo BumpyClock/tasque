@@ -61,6 +61,25 @@ fn task_created_rejects_invalid_optional_typed_fields() {
 }
 
 #[test]
+fn task_created_rejects_alias_collisions() {
+    assert_invalid_event(&[
+        created(
+            "tsq-root0001",
+            json!({"title": "root", "alias": "shared-alias"}),
+        ),
+        created(
+            "tsq-root0002",
+            json!({"title": "other", "alias": "shared-alias"}),
+        ),
+    ]);
+
+    assert_invalid_event(&[created(
+        "tsq-root0001",
+        json!({"title": "root", "alias": "tsq-root0001"}),
+    )]);
+}
+
+#[test]
 fn task_updated_rejects_invalid_optional_typed_fields() {
     for (field, value) in [
         ("kind", json!("bug")),

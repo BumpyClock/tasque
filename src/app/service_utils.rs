@@ -5,7 +5,6 @@ use crate::errors::TsqError;
 use crate::types::{RelationType, State, Task, TaskStatus};
 use once_cell::sync::Lazy;
 use regex::Regex;
-use ulid::Ulid;
 
 static DUPLICATE_TITLE_NON_ALNUM: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"[^a-z0-9]+").expect("valid duplicate title non-alnum regex"));
@@ -19,24 +18,8 @@ pub const DEFAULT_STALE_STATUSES: &[TaskStatus] = &[
     TaskStatus::Deferred,
 ];
 
-pub fn unique_root_id(state: &State, title: &str) -> Result<String, TsqError> {
-    let max_attempts = 10;
-    for idx in 0..max_attempts {
-        let nonce = if idx == 0 {
-            None
-        } else {
-            Some(Ulid::new().to_string())
-        };
-        let id = make_root_id(Some(title), nonce.as_deref());
-        if !state.tasks.contains_key(&id) {
-            return Ok(id);
-        }
-    }
-    Err(TsqError::new(
-        "ID_COLLISION",
-        "unable to allocate unique task id",
-        2,
-    ))
+pub fn unique_root_id(state: &State, _title: &str) -> Result<String, TsqError> {
+    make_root_id(state)
 }
 
 pub fn must_task(state: &State, id: &str) -> Result<Task, TsqError> {

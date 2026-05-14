@@ -8,6 +8,10 @@ use std::process::Command;
 
 fn git(repo: &Path, args: &[&str]) {
     let output = Command::new("git")
+        // Per-invocation config keeps bare-repo/worktree tests portable when
+        // global Git safety config requires explicit bare repository trust.
+        .arg("-c")
+        .arg("safe.bareRepository=all")
         .args(args)
         .current_dir(repo)
         .output()
@@ -23,6 +27,9 @@ fn git(repo: &Path, args: &[&str]) {
 
 fn git_out(repo: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
+        // Same per-command safety override as git(); this helper captures stdout.
+        .arg("-c")
+        .arg("safe.bareRepository=all")
         .args(args)
         .current_dir(repo)
         .output()

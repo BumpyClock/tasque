@@ -4,6 +4,7 @@ use super::projector_helpers::{
     optional_task_kind_field, optional_task_ref_field, optional_task_status_field, require_task,
     set_child_counter, set_task_closed_state, task_status_to_string,
 };
+use crate::domain::alias::{allocate_alias, is_alias_or_id_taken};
 use crate::errors::TsqError;
 use crate::store::paths::is_task_spec_relative_path;
 use crate::types::{EventRecord, PlanningState, Task, TaskKind, TaskNote, TaskStatus};
@@ -69,10 +70,18 @@ pub(crate) fn apply_task_created(
         require_task(state, discovered_from)?;
     }
 
+    let title = title.unwrap();
+    let alias = match as_string(payload.get("alias")) {
+        Some(alias) => alias,
+        None => allocate_alias(state, &title)?,
+    };
+    let alias = validate_created_alias(state, event, alias)?;
+
     let task = Task {
         id: event.task_id.clone(),
+        alias,
         kind,
-        title: title.unwrap(),
+        title,
         description: as_string(payload.get("description")),
         notes: Vec::new(),
         spec_path: None,
@@ -106,6 +115,26 @@ pub(crate) fn apply_task_created(
     }
 
     Ok(())
+}
+
+fn validate_created_alias(
+    state: &crate::types::State,
+    event: &EventRecord,
+    alias: String,
+) -> Result<String, TsqError> {
+    if alias.eq_ignore_ascii_case(&event.task_id) || is_alias_or_id_taken(state, &alias) {
+        return Err(TsqError::new(
+            "INVALID_EVENT",
+            "task.created alias conflicts with existing task identity",
+            1,
+        )
+        .with_details(serde_json::json!({
+            "event_id": event_id_value(event),
+            "task_id": &event.task_id,
+            "alias": alias,
+        })));
+    }
+    Ok(alias)
 }
 
 pub(crate) fn apply_task_updated(

@@ -52,14 +52,21 @@ Commands:
 - `tsq` (no args, TTY): open read-only TUI (List/Board views)
 - `tsq init [--wizard|--no-wizard] [--yes] [--preset <name>] [--sync-branch|--worktree-name <name>]`
 - `tsq init --install-skill|--uninstall-skill [--skill-targets ...] [--skill-name <name>] [--force-skill-overwrite]`
-- `tsq create <title...> [--kind ...] [-p ...] [--parent <id>] [--from-file tasks.md] [--description <text>] [--external-ref <ref>] [--discovered-from <id>] [--planned|--needs-plan] [--ensure] [--id <tsq-xxxxxxxx>] [--body-file <path|->]`
+- `tsq create <title...> [--kind ...] [-p ...] [--parent <id>] [--from-file tasks.md] [--description <text>] [--external-ref <ref>] [--discovered-from <id>] [--planned|--needs-plan] [--ensure] [--id <id>] [--body-file <path|->] [--force]`
 - `tsq show <id> [--with-spec]`
 - `tsq find ready [--lane <planning|coding>] [--assignee <name>] [--unassigned] [--kind ...] [--label ...] [--planning <needs_planning|planned>] [--tree [--full]]`
 - `tsq find <blocked|open|in-progress|deferred|done|canceled> [filters...] [--tree [--full]]`
 - `tsq find search <query> [--full]`
-
-Note: for `find ready` and status-based `find` commands, `--full` is only valid with `--tree`. `--tree --full` keeps the full status set instead of applying the default tree status narrowing. `find search --full` remains valid without `--tree`.
+- `tsq find similar "<text>"`
 - `tsq watch [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--tree] [--flat]`
+
+Notes:
+- New root task IDs use `tsq-<number>`; legacy `tsq-<8 crockford base32 chars>` IDs remain valid.
+- `--id <id>` accepts `tsq-<number>` or legacy `tsq-<8 crockford base32 chars>`.
+- Task JSON includes `alias`, generated from the creation title and stable across title edits.
+- Commands that accept a task ID also accept exact aliases and unique alias prefixes unless `--exact-id` is used.
+- `tsq find similar "<text>"` shows ranked duplicate candidates.
+- `tsq create` refuses similar open/in-progress/blocked/deferred tasks unless `--force` is passed.
 
 `watch` renders the task tree by default for human output. Use `--tree` to explicitly request tree view or `--flat` for the compact list view. These options are mutually exclusive.
 - `tsq tui [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--board|--epics]`

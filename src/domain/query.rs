@@ -153,7 +153,8 @@ fn match_term(task: &Task, term: &QueryTerm, state: &State, context: &QueryEvalC
         }
         "alias" => {
             let value = term.value.to_lowercase();
-            task.alias == value || task.alias.starts_with(&value)
+            let alias = task.alias.to_lowercase();
+            alias == value || alias.starts_with(&value)
         }
         "text" => match_task_text(task, &term.value),
         "title" => task

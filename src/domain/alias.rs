@@ -30,6 +30,10 @@ pub fn base_alias(title: &str) -> String {
     }
 }
 
+pub fn normalize_alias(raw: &str) -> String {
+    base_alias(raw)
+}
+
 pub fn allocate_alias(state: &State, title: &str) -> Result<String, TsqError> {
     let taken = taken_aliases_and_ids(state);
     allocate_alias_with_taken(title, &taken)
@@ -41,7 +45,7 @@ pub fn is_alias_or_id_taken(state: &State, value: &str) -> bool {
 }
 
 pub fn allocate_alias_with_taken(title: &str, taken: &HashSet<String>) -> Result<String, TsqError> {
-    let base = base_alias(title);
+    let base = normalize_alias(title);
     if !taken.contains(&base) {
         return Ok(base);
     }

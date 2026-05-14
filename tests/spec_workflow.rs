@@ -124,6 +124,29 @@ fn spec_update_replaces_spec_and_updates_fingerprint() {
 }
 
 #[test]
+fn spec_update_rejects_fingerprint_drift_before_replace() {
+    let repo = common::make_repo();
+    init_repo(repo.path());
+    let task_id = create_task(repo.path(), "Spec update drift target");
+    let attach = run_json(repo.path(), ["spec", &task_id, "--text", complete_spec()]);
+    assert_eq!(attach.cli.code, 0);
+    let spec_path = attached_spec_path(repo.path(), data(&attach.envelope));
+    fs::write(spec_path, format!("{}\n\nExtra drift.\n", complete_spec())).expect("edit spec");
+
+    let updated = run_json(
+        repo.path(),
+        ["spec", &task_id, "--update", "--text", updated_spec()],
+    );
+
+    assert_eq!(updated.cli.code, 1);
+    assert_eq!(error_code(&updated.envelope), Some("SPEC_CONFLICT"));
+    assert_eq!(
+        updated.envelope["error"]["details"]["task_id"].as_str(),
+        Some(task_id.as_str())
+    );
+}
+
+#[test]
 fn spec_patch_updates_existing_spec_in_memory() {
     let repo = common::make_repo();
     init_repo(repo.path());
@@ -154,6 +177,36 @@ fn spec_patch_updates_existing_spec_in_memory() {
             .as_str()
             .expect("content")
             .contains("Patched workflow coverage.")
+    );
+}
+
+#[test]
+fn spec_patch_rejects_fingerprint_drift_before_apply() {
+    let repo = common::make_repo();
+    init_repo(repo.path());
+    let task_id = create_task(repo.path(), "Spec patch drift target");
+    let attach = run_json(repo.path(), ["spec", &task_id, "--text", complete_spec()]);
+    assert_eq!(attach.cli.code, 0);
+    let spec_path = attached_spec_path(repo.path(), data(&attach.envelope));
+    fs::write(spec_path, format!("{}\n\nExtra drift.\n", complete_spec())).expect("edit spec");
+    let patch = patch_overview(
+        &task_id,
+        "Complete direct workflow coverage.",
+        "Patched workflow coverage.",
+    );
+    let patch_path = repo.path().join("drift.patch");
+    fs::write(&patch_path, patch).expect("write patch");
+
+    let patched = run_json(
+        repo.path(),
+        ["spec", &task_id, "--patch", "--file", "drift.patch"],
+    );
+
+    assert_eq!(patched.cli.code, 1);
+    assert_eq!(error_code(&patched.envelope), Some("SPEC_CONFLICT"));
+    assert_eq!(
+        patched.envelope["error"]["details"]["task_id"].as_str(),
+        Some(task_id.as_str())
     );
 }
 

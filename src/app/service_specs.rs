@@ -117,14 +117,14 @@ pub fn spec_update(
         let loaded = load_projected_state(&ctx.repo_root)?;
         let id = must_resolve_existing(&loaded.state, &input.id, input.exact_id)?;
         let existing = must_task(&loaded.state, &id)?;
-        let old_fingerprint = require_attached_spec(&existing)?.spec_fingerprint;
+        let attached = validate_attached_spec_current(&ctx.repo_root, &id, &existing)?;
         write_updated_spec(
             ctx,
             &loaded.state,
             loaded.event_count,
             &id,
             &source_content,
-            old_fingerprint,
+            attached.spec_fingerprint,
         )
     })
 }
@@ -148,8 +148,8 @@ pub fn spec_patch(
         let loaded = load_projected_state(&ctx.repo_root)?;
         let id = must_resolve_existing(&loaded.state, &input.id, input.exact_id)?;
         let existing = must_task(&loaded.state, &id)?;
-        let attached = require_attached_spec(&existing)?;
-        let current_content = read_attached_spec_content(&ctx.repo_root, &id, &attached.spec_path)?;
+        let (attached, current_content) =
+            read_current_attached_spec(&ctx.repo_root, &id, &existing)?;
         let updated_content =
             apply_spec_patch(&current_content, &patch_content, &attached.spec_path)?;
         if updated_content.trim().is_empty() {
@@ -224,6 +224,42 @@ fn require_attached_spec(task: &Task) -> Result<AttachedSpec, TsqError> {
         spec_path,
         spec_fingerprint,
     })
+}
+
+fn validate_attached_spec_current(
+    repo_root: &str,
+    task_id: &str,
+    task: &Task,
+) -> Result<AttachedSpec, TsqError> {
+    let (attached, _) = read_current_attached_spec(repo_root, task_id, task)?;
+    Ok(attached)
+}
+
+fn read_current_attached_spec(
+    repo_root: &str,
+    task_id: &str,
+    task: &Task,
+) -> Result<(AttachedSpec, String), TsqError> {
+    let attached = require_attached_spec(task)?;
+    let content = read_attached_spec_content(repo_root, task_id, &attached.spec_path)?;
+    let actual_fingerprint = sha256(&content);
+    if actual_fingerprint != attached.spec_fingerprint {
+        return Err(TsqError::new(
+            "SPEC_CONFLICT",
+            format!(
+                "attached spec for task {} has drifted from the recorded fingerprint",
+                task_id
+            ),
+            1,
+        )
+        .with_details(serde_json::json!({
+            "task_id": task_id,
+            "spec_path": attached.spec_path,
+            "expected_fingerprint": attached.spec_fingerprint,
+            "actual_fingerprint": actual_fingerprint,
+        })));
+    }
+    Ok((attached, content))
 }
 
 fn read_attached_spec_content(

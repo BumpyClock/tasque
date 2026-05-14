@@ -15,7 +15,11 @@ pub fn resolve_task_id(state: &State, raw: &str, exact_id: bool) -> Result<Strin
     }
 
     let raw_alias = raw.to_lowercase();
-    if let Some(task) = state.tasks.values().find(|task| task.alias == raw_alias) {
+    if let Some(task) = state
+        .tasks
+        .values()
+        .find(|task| task.alias.to_lowercase() == raw_alias)
+    {
         return Ok(task.id.clone());
     }
 
@@ -46,7 +50,7 @@ pub fn resolve_task_id(state: &State, raw: &str, exact_id: bool) -> Result<Strin
     let mut alias_matches: Vec<(String, String)> = state
         .tasks
         .values()
-        .filter(|task| task.alias.starts_with(&raw_alias))
+        .filter(|task| task.alias.to_lowercase().starts_with(&raw_alias))
         .map(|task| (task.id.clone(), task.alias.clone()))
         .collect();
     alias_matches.sort_by(|a, b| a.0.cmp(&b.0));

@@ -4,6 +4,7 @@ use tasque::app::storage::evaluate_task_spec;
 use tasque::domain::projector::apply_events;
 use tasque::domain::query::{evaluate_query, parse_query};
 use tasque::domain::resolve::resolve_task_id;
+use tasque::domain::similarity::is_blocking_duplicate;
 use tasque::domain::state::create_empty_state;
 use tasque::types::{EventRecord, EventType, PlanningState, TaskStatus};
 
@@ -126,6 +127,9 @@ fn legacy_mixed_case_alias_still_resolves_and_queries() {
     let matches = evaluate_query(&tasks, &filter, &state);
     assert_eq!(matches.len(), 1);
     assert_eq!(matches[0].id, "tsq-root0001");
+
+    let similar = is_blocking_duplicate("stable alias", &matches[0]).expect("alias similarity");
+    assert_eq!(similar.reason, "alias_exact");
 }
 
 #[test]

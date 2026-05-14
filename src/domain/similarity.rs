@@ -116,10 +116,11 @@ fn score_task(input: &str, task: &Task) -> Option<(f64, String)> {
         return Some((1.0, "normalized_title_exact".to_string()));
     }
     let input_alias = input_norm.replace(' ', "-");
-    if input_alias == task.alias {
+    let task_alias = task.alias.to_lowercase();
+    if input_alias == task_alias {
         return Some((1.0, "alias_exact".to_string()));
     }
-    if task.alias.starts_with(&input_alias) {
+    if task_alias.starts_with(&input_alias) {
         return Some((0.95, "alias_prefix".to_string()));
     }
     score_normalized_titles(&input_norm, &title_norm)

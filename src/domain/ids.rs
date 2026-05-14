@@ -85,9 +85,9 @@ pub fn next_child_id(state: &State, parent_id: &str) -> String {
 }
 
 fn sequential_number(raw: &str) -> Option<u64> {
-    let suffix = raw.strip_prefix("tsq-")?;
-    if suffix.is_empty() || !suffix.bytes().all(|byte| byte.is_ascii_digit()) {
+    if !is_sequential_root_id(raw) {
         return None;
     }
+    let suffix = raw.strip_prefix("tsq-")?;
     suffix.parse::<u64>().ok()
 }

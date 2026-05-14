@@ -102,6 +102,17 @@ fn explicit_sequential_id_is_allowed() {
 }
 
 #[test]
+fn numeric_legacy_root_id_does_not_advance_sequential_allocation() {
+    let repo = common::make_repo();
+    init_repo(repo.path());
+
+    common::create_task_with_args(repo.path(), "Legacy numeric ID", &["--id", "tsq-00000042"]);
+    let next = create_task(repo.path(), "First sequential after legacy");
+
+    assert_eq!(next, "tsq-1");
+}
+
+#[test]
 fn commands_accept_exact_alias() {
     let repo = common::make_repo();
     init_repo(repo.path());

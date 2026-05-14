@@ -36,12 +36,12 @@ pub struct SpecCheckArgs {
 
 #[derive(Debug, Args)]
 #[command(after_help = "Examples:
-	  tsq spec tsq-abc12345 --file docs/spec.md
-	  tsq spec tsq-abc12345 --update --stdin
-	  tsq spec tsq-abc12345 --patch --file spec.patch
-	  tsq spec tsq-abc12345 --text '# Context\n...'
-	  tsq spec tsq-abc12345 --show
-	  tsq spec tsq-abc12345 --check")]
+  tsq spec tsq-abc12345 --file docs/spec.md
+  tsq spec tsq-abc12345 --update --stdin
+  tsq spec tsq-abc12345 --patch --file spec.patch
+  tsq spec tsq-abc12345 --text '# Context\n...'
+  tsq spec tsq-abc12345 --show
+  tsq spec tsq-abc12345 --check")]
 pub struct SpecArgs {
     pub id: String,
     #[arg(long)]

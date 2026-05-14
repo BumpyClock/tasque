@@ -2,11 +2,47 @@ use crate::errors::TsqError;
 use crate::types::State;
 use once_cell::sync::Lazy;
 use regex::Regex;
+use std::collections::HashSet;
 
 static SEQUENTIAL_ROOT_ID: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^tsq-[1-9][0-9]*$").expect("sequential root id regex"));
 
 pub fn make_root_id(state: &State) -> Result<String, TsqError> {
+    let mut next = next_root_number(state)?;
+    loop {
+        let candidate = format!("tsq-{}", next);
+        if !state.tasks.contains_key(&candidate) {
+            return Ok(candidate);
+        }
+        next = next.checked_add(1).ok_or_else(id_overflow_error)?;
+    }
+}
+
+pub struct RootIdAllocator {
+    next: u64,
+    reserved_ids: HashSet<String>,
+}
+
+impl RootIdAllocator {
+    pub fn new(state: &State) -> Result<Self, TsqError> {
+        Ok(Self {
+            next: next_root_number(state)?,
+            reserved_ids: state.tasks.keys().cloned().collect(),
+        })
+    }
+
+    pub fn next_id(&mut self) -> Result<String, TsqError> {
+        loop {
+            let candidate = format!("tsq-{}", self.next);
+            self.next = self.next.checked_add(1).ok_or_else(id_overflow_error)?;
+            if self.reserved_ids.insert(candidate.clone()) {
+                return Ok(candidate);
+            }
+        }
+    }
+}
+
+fn next_root_number(state: &State) -> Result<u64, TsqError> {
     let mut max_seen = 0u64;
     for task in state.tasks.values() {
         if task.parent_id.is_none() {
@@ -15,14 +51,7 @@ pub fn make_root_id(state: &State) -> Result<String, TsqError> {
             }
         }
     }
-    let mut next = max_seen.checked_add(1).ok_or_else(id_overflow_error)?;
-    loop {
-        let candidate = format!("tsq-{}", next);
-        if !state.tasks.contains_key(&candidate) {
-            return Ok(candidate);
-        }
-        next = next.checked_add(1).ok_or_else(id_overflow_error)?;
-    }
+    max_seen.checked_add(1).ok_or_else(id_overflow_error)
 }
 
 fn id_overflow_error() -> TsqError {

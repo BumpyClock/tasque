@@ -7,7 +7,7 @@ use crate::app::storage::{
 };
 use crate::domain::alias::allocate_alias;
 use crate::domain::events::make_event;
-use crate::domain::ids::{is_valid_root_id, next_child_id};
+use crate::domain::ids::{RootIdAllocator, is_valid_root_id, next_child_id};
 use crate::domain::projector::apply_events;
 use crate::domain::similarity::{
     DEFAULT_SIMILARITY_LIMIT, DEFAULT_SIMILARITY_MIN_SCORE, blocking_status,
@@ -125,7 +125,9 @@ pub fn create(ctx: &ServiceContext, input: &CreateInput) -> Result<Task, TsqErro
             if candidates.is_empty() {
                 None
             } else {
-                Some(serde_json::json!(candidates))
+                Some(Value::Array(
+                    candidates.iter().map(duplicate_candidate_json).collect(),
+                ))
             }
         } else {
             None
@@ -394,6 +396,7 @@ pub fn create_batch(ctx: &ServiceContext, input: &CreateBatchInput) -> Result<Ve
         let mut result_tasks: Vec<Task> = Vec::with_capacity(planned.len());
         let mut working_state = loaded.state.clone();
         let mut parent_stack: Vec<String> = Vec::new(); // depth → created/reused ID
+        let mut root_id_allocator: Option<RootIdAllocator> = None;
 
         // Track tasks created in this batch by (normalized_title, parent_id)
         // so ensure can reuse earlier batch-created tasks for exact duplicates.
@@ -445,7 +448,13 @@ pub fn create_batch(ctx: &ServiceContext, input: &CreateBatchInput) -> Result<Ve
                     let id = if let Some(parent) = parent_id.as_ref() {
                         next_child_id(&working_state, parent)
                     } else {
-                        unique_root_id(&working_state, title)?
+                        if root_id_allocator.is_none() {
+                            root_id_allocator = Some(RootIdAllocator::new(&loaded.state)?);
+                        }
+                        root_id_allocator
+                            .as_mut()
+                            .expect("root id allocator initialized")
+                            .next_id()?
                     };
 
                     let description = if input.body_file.is_some() {
@@ -466,7 +475,9 @@ pub fn create_batch(ctx: &ServiceContext, input: &CreateBatchInput) -> Result<Ve
                         if candidates.is_empty() {
                             None
                         } else {
-                            Some(serde_json::json!(candidates))
+                            Some(Value::Array(
+                                candidates.iter().map(duplicate_candidate_json).collect(),
+                            ))
                         }
                     } else {
                         None

@@ -1,6 +1,8 @@
 mod common;
 
 use common::{create_task, init_repo, run_cli, run_json};
+use serde_json::Value;
+use std::fs;
 use tasque::domain::similarity::DEFAULT_SIMILARITY_MIN_SCORE;
 
 #[test]
@@ -374,6 +376,37 @@ fn create_force_bypasses_duplicate_gate() {
         forced.envelope["data"]["task"]["title"].as_str(),
         Some("Improve search warning")
     );
+}
+
+#[test]
+fn create_force_records_minimal_duplicate_candidates_in_event_payload() {
+    let repo = common::make_repo();
+    init_repo(repo.path());
+
+    let existing = create_task(repo.path(), "Improve task search warnings");
+    let forced = run_json(repo.path(), ["create", "Improve search warning", "--force"]);
+    assert_eq!(forced.cli.code, 0);
+
+    let events = fs::read_to_string(repo.path().join(".tasque/events.jsonl")).expect("events");
+    let forced_event: Value = serde_json::from_str(events.lines().last().expect("last event"))
+        .expect("forced event json");
+    let candidate = &forced_event["payload"]["duplicate_candidates"][0];
+
+    assert_eq!(candidate["id"].as_str(), Some(existing.as_str()));
+    assert_eq!(
+        candidate["alias"].as_str(),
+        Some("improve-task-search-warnings")
+    );
+    assert_eq!(
+        candidate["title"].as_str(),
+        Some("Improve task search warnings")
+    );
+    assert_eq!(candidate["status"].as_str(), Some("open"));
+    assert!(candidate["score"].as_f64().is_some());
+    assert!(candidate["reason"].as_str().is_some());
+    assert!(candidate.get("task").is_none());
+    assert!(candidate.get("notes").is_none());
+    assert!(candidate.get("spec_fingerprint").is_none());
 }
 
 #[test]

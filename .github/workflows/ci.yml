@@ -34,3 +34,9 @@ jobs:
 
       - run: bun run typecheck
         working-directory: tui-opentui
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - run: npm run test:postinstall --prefix npm

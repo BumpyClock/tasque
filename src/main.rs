@@ -37,7 +37,10 @@ fn should_use_repo_root() -> bool {
     let Some(command) = preparse_command() else {
         return false;
     };
-    matches!(command.as_str(), "init" | "migrate" | "merge-driver")
+    matches!(
+        command.as_str(),
+        "init" | "migrate" | "merge-driver" | "skills"
+    )
 }
 
 fn preparse_wants_json() -> bool {

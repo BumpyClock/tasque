@@ -34,10 +34,27 @@ Install or refresh the bundled agent skill:
 
 ```bash
 tsq init --install-skill --force-skill-overwrite
+tsq skills refresh          # update existing managed installs only
 ```
 
 Skill install updates agent skill directories. Sync worktree setup belongs to
 plain `tsq init`, `tsq migrate`, or explicit `--sync-branch`.
+
+### Managed Skill Refresh
+
+`tsq skills refresh` updates skill files in target directories that already have
+a managed install. It does **not** create missing installs — use `tsq init --install-skill`
+for first-time setup. Managed installs are identified by the `tsq-managed-skill:v1`
+marker in `SKILL.md`. Directories containing this marker will be overwritten by
+refresh. Remove the marker to opt out of automatic updates.
+
+`tsq skills refresh` is repo-independent: it does not require `tsq init` or a
+`.tasque/` directory.
+
+The npm postinstall hook runs `tsq skills refresh` automatically after install.
+It refreshes only existing managed `tasque` skill installs and does not create
+missing ones. Refresh failures produce a warning but do not fail the install.
+Set `TSQ_SKIP_SKILL_REFRESH=1` to skip postinstall refresh entirely.
 
 ## Command List
 
@@ -52,6 +69,7 @@ Commands:
 - `tsq` (no args, TTY): open read-only TUI (List/Board views)
 - `tsq init [--wizard|--no-wizard] [--yes] [--preset <name>] [--sync-branch|--worktree-name <name>]`
 - `tsq init --install-skill|--uninstall-skill [--skill-targets ...] [--skill-name <name>] [--force-skill-overwrite]`
+- `tsq skills refresh`
 - `tsq create <title...> [--kind ...] [-p ...] [--parent <id>] [--from-file tasks.md] [--description <text>] [--external-ref <ref>] [--discovered-from <id>] [--planned|--needs-plan] [--ensure] [--id <id>] [--body-file <path|->] [--force]`
 - `tsq show <id> [--with-spec]`
 - `tsq find ready [--lane <planning|coding>] [--assignee <name>] [--unassigned] [--kind ...] [--label ...] [--planning <needs_planning|planned>] [--tree [--full]]`
@@ -61,6 +79,7 @@ Commands:
 - `tsq watch [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--tree] [--flat]`
 
 Notes:
+
 - New root task IDs use `tsq-<number>`; legacy `tsq-<8 crockford base32 chars>` IDs remain valid.
 - `--id <id>` accepts `tsq-<number>` or legacy `tsq-<8 crockford base32 chars>`.
 - Task JSON includes `alias`, generated from the creation title and stable across title edits.
@@ -69,6 +88,7 @@ Notes:
 - `tsq create` refuses similar open/in-progress/blocked/deferred tasks unless `--force` is passed.
 
 `watch` renders the task tree by default for human output. Use `--tree` to explicitly request tree view or `--flat` for the compact list view. These options are mutually exclusive.
+
 - `tsq tui [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--board|--epics]`
 - `tsq stale [--days <n>] [--status <status>] [--assignee <name>] [--limit <n>]`
 - `tsq doctor`
@@ -164,6 +184,7 @@ Binary output:
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --quiet
+npm run test:postinstall --prefix npm
 ```
 
 ## CI
@@ -173,6 +194,7 @@ GitHub Actions CI (`.github/workflows/ci.yml`) runs:
 1. `cargo fmt --check`
 2. `cargo clippy --all-targets --all-features -- -D warnings`
 3. `cargo test --quiet`
+4. `npm run test:postinstall --prefix npm`
 
 All steps must pass before merging.
 

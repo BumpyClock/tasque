@@ -1,8 +1,7 @@
 pub use crate::app::storage::{SpecCheckDiagnostic, SpecCheckResult};
 use crate::domain::dep_tree::DepDirection;
 use crate::domain::validate::PlanningLane;
-use crate::skills::types::SkillOperationSummary;
-pub use crate::skills::types::SkillTarget;
+pub use crate::skills::types::{SkillOperationSummary, SkillTarget};
 use crate::types::{
     DependencyType, EventRecord, PlanningState, Priority, RelationType, RepairDep, Task, TaskKind,
     TaskNote, TaskStatus,
@@ -425,6 +424,13 @@ pub struct OrphansResult {
     pub orphaned_deps: Vec<RepairDep>,
     pub orphaned_links: Vec<OrphanedLinkResult>,
     pub total: usize,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SkillsRefreshInput {
+    pub source_root_dir: Option<String>,
+    pub home_dir: Option<String>,
+    pub codex_home: Option<String>,
 }
 
 /// A single item in a batch create request.

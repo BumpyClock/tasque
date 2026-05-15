@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -10,11 +11,29 @@ pub enum SkillTarget {
     Opencode,
 }
 
+impl SkillTarget {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SkillTarget::Claude => "claude",
+            SkillTarget::Codex => "codex",
+            SkillTarget::Copilot => "copilot",
+            SkillTarget::Opencode => "opencode",
+        }
+    }
+}
+
+impl fmt::Display for SkillTarget {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SkillAction {
     Install,
     Uninstall,
+    Refresh,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,6 +44,24 @@ pub enum SkillResultStatus {
     Skipped,
     Removed,
     NotFound,
+}
+
+impl SkillResultStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SkillResultStatus::Installed => "installed",
+            SkillResultStatus::Updated => "updated",
+            SkillResultStatus::Skipped => "skipped",
+            SkillResultStatus::Removed => "removed",
+            SkillResultStatus::NotFound => "not_found",
+        }
+    }
+}
+
+impl fmt::Display for SkillResultStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

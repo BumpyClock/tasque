@@ -1,8 +1,7 @@
 use crate::app::runtime::find_tasque_root;
 use crate::app::service::TasqueService;
 use crate::cli::action::{GlobalOpts, OutputFormat, emit_error};
-use crate::cli::commands::{dep, label, link, note, spec};
-use crate::cli::commands::{hooks, meta, sync, task};
+use crate::cli::commands::{dep, hooks, label, link, meta, note, skills, spec, sync, task};
 use crate::errors::TsqError;
 use crate::output::err_envelope;
 use clap::error::ErrorKind;
@@ -83,6 +82,11 @@ pub enum CommandKind {
     Hooks {
         #[command(subcommand)]
         command: hooks::HooksCommand,
+    },
+    /// Manage skills across AI coding targets
+    Skills {
+        #[command(subcommand)]
+        command: skills::SkillsCommand,
     },
     /// Migrate existing events into a sync branch
     Migrate(sync::MigrateArgs),
@@ -225,6 +229,7 @@ fn execute_command(service: &TasqueService, command: CommandKind, opts: GlobalOp
         CommandKind::Spec(args) => spec::execute_spec_verb(service, args, opts),
         CommandKind::Sync(args) => sync::execute_sync(service, args, opts),
         CommandKind::Hooks { command } => hooks::execute_hooks(service, command, opts),
+        CommandKind::Skills { command } => skills::execute_skills(service, command, opts),
         CommandKind::Migrate(args) => sync::execute_migrate(service, args, opts),
         CommandKind::MergeDriver(args) => sync::execute_merge_driver(args),
     }
@@ -406,7 +411,10 @@ fn clap_error_exit_code(kind: ErrorKind) -> i32 {
 fn is_init_safe_command(command: &CommandKind) -> bool {
     matches!(
         command,
-        CommandKind::Init(_) | CommandKind::Doctor | CommandKind::MergeDriver(_)
+        CommandKind::Init(_)
+            | CommandKind::Doctor
+            | CommandKind::MergeDriver(_)
+            | CommandKind::Skills { .. }
     )
 }
 
@@ -454,6 +462,7 @@ fn root_command_name(command: &CommandKind) -> &'static str {
         CommandKind::Spec(_) => "spec",
         CommandKind::Sync(_) => "sync",
         CommandKind::Hooks { .. } => "hooks",
+        CommandKind::Skills { .. } => "skills",
         CommandKind::Migrate(_) => "migrate",
         CommandKind::MergeDriver(_) => "merge-driver",
     }

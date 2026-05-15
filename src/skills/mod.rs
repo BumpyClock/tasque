@@ -1,9 +1,13 @@
 pub mod embedded;
+pub mod helpers;
 pub mod managed;
 pub mod types;
 
 use crate::errors::TsqError;
 use crate::skills::embedded::materialize_embedded_skill;
+use crate::skills::helpers::{
+    PathKind, copy_directory_recursive, inspect_path, io_error_value, normalize_directory,
+};
 use crate::skills::managed::MANAGED_MARKER;
 use crate::skills::types::{
     SkillAction, SkillOperationOptions, SkillOperationResult, SkillOperationSummary,
@@ -13,46 +17,40 @@ use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PathKind {
-    Missing,
-    File,
-    Directory,
-}
+use ulid::Ulid;
 
 pub fn apply_skill_operation(
     options: SkillOperationOptions,
 ) -> Result<SkillOperationSummary, TsqError> {
     let target_directories = resolve_target_directories(&options)?;
+    let needs_source = matches!(options.action, SkillAction::Install | SkillAction::Refresh);
     let mut embedded_temp_root: Option<PathBuf> = None;
-    let skill_source_directory = match options.action {
-        SkillAction::Install => {
-            match resolve_managed_skill_source_directory(
-                &options.skill_name,
-                options.source_root_dir.as_deref(),
-            ) {
-                Ok(path) => Some(path),
-                Err(error) => {
-                    if error.code != "VALIDATION_ERROR" {
-                        return Err(error);
-                    }
-                    let searched_details = error.details.clone();
-                    let materialized = match materialize_embedded_skill(&options.skill_name) {
-                        Ok(materialized) => materialized,
-                        Err(embed_error) => {
-                            if let Some(details) = searched_details {
-                                return Err(embed_error.with_details(details));
-                            }
-                            return Err(embed_error);
-                        }
-                    };
-                    embedded_temp_root = Some(materialized.temp_root.clone());
-                    Some(materialized.skill_root)
+    let skill_source_directory = if needs_source {
+        match resolve_managed_skill_source_directory(
+            &options.skill_name,
+            options.source_root_dir.as_deref(),
+        ) {
+            Ok(path) => Some(path),
+            Err(error) => {
+                if error.code != "VALIDATION_ERROR" {
+                    return Err(error);
                 }
+                let searched_details = error.details.clone();
+                let materialized = match materialize_embedded_skill(&options.skill_name) {
+                    Ok(materialized) => materialized,
+                    Err(embed_error) => {
+                        if let Some(details) = searched_details {
+                            return Err(embed_error.with_details(details));
+                        }
+                        return Err(embed_error);
+                    }
+                };
+                embedded_temp_root = Some(materialized.temp_root.clone());
+                Some(materialized.skill_root)
             }
         }
-        SkillAction::Uninstall => None,
+    } else {
+        None
     };
 
     let mut results = Vec::new();
@@ -66,18 +64,22 @@ pub fn apply_skill_operation(
                 let source = skill_source_directory.as_ref().ok_or_else(|| {
                     TsqError::new("INTERNAL_ERROR", "missing managed skill source", 2)
                 })?;
-                let result = install_skill(
+                results.push(install_skill(
                     *target,
                     &options.skill_name,
                     source,
                     &skill_directory,
                     options.force,
-                )?;
-                results.push(result);
+                )?);
             }
             SkillAction::Uninstall => {
-                let result = uninstall_skill(*target, &skill_directory, options.force)?;
-                results.push(result);
+                results.push(uninstall_skill(*target, &skill_directory, options.force)?);
+            }
+            SkillAction::Refresh => {
+                let source = skill_source_directory.as_ref().ok_or_else(|| {
+                    TsqError::new("INTERNAL_ERROR", "missing managed skill source", 2)
+                })?;
+                results.push(refresh_skill(*target, source, &skill_directory)?);
             }
         }
     }
@@ -115,20 +117,21 @@ fn resolve_target_directories(
         .unwrap_or_else(|| resolved_home.join(".codex"));
     let resolved_codex_home = normalize_directory(raw_codex_home, &resolved_home)?;
 
-    let mut defaults: HashMap<SkillTarget, PathBuf> = HashMap::new();
-    defaults.insert(
-        SkillTarget::Claude,
-        resolved_home.join(".claude").join("skills"),
-    );
-    defaults.insert(SkillTarget::Codex, resolved_codex_home.join("skills"));
-    defaults.insert(
-        SkillTarget::Copilot,
-        resolved_home.join(".copilot").join("skills"),
-    );
-    defaults.insert(
-        SkillTarget::Opencode,
-        resolved_home.join(".opencode").join("skills"),
-    );
+    let defaults: HashMap<SkillTarget, PathBuf> = HashMap::from([
+        (
+            SkillTarget::Claude,
+            resolved_home.join(".claude").join("skills"),
+        ),
+        (SkillTarget::Codex, resolved_codex_home.join("skills")),
+        (
+            SkillTarget::Copilot,
+            resolved_home.join(".copilot").join("skills"),
+        ),
+        (
+            SkillTarget::Opencode,
+            resolved_home.join(".opencode").join("skills"),
+        ),
+    ]);
 
     let mut result = HashMap::new();
     for target in [
@@ -149,27 +152,18 @@ fn resolve_target_directories(
     Ok(result)
 }
 
-fn normalize_directory(directory: PathBuf, home: &Path) -> Result<PathBuf, TsqError> {
-    let expanded = expand_home(&directory, home);
-    if expanded.is_absolute() {
-        return Ok(expanded);
+fn skill_result(
+    target: SkillTarget,
+    path: &Path,
+    status: SkillResultStatus,
+    message: &str,
+) -> SkillOperationResult {
+    SkillOperationResult {
+        target,
+        path: path.display().to_string(),
+        status,
+        message: Some(message.to_string()),
     }
-    let cwd = env::current_dir().map_err(|e| {
-        TsqError::new("IO_ERROR", "failed resolving current directory", 2)
-            .with_details(io_error_value(&e))
-    })?;
-    Ok(cwd.join(expanded))
-}
-
-fn expand_home(path: &Path, home: &Path) -> PathBuf {
-    let raw = path.to_string_lossy();
-    if raw == "~" {
-        return home.to_path_buf();
-    }
-    if raw.starts_with("~/") || raw.starts_with("~\\") {
-        return home.join(&raw[2..]);
-    }
-    path.to_path_buf()
 }
 
 fn install_skill(
@@ -181,67 +175,62 @@ fn install_skill(
 ) -> Result<SkillOperationResult, TsqError> {
     let path_kind = inspect_path(skill_directory)?;
     if path_kind == PathKind::Missing {
-        copy_managed_skill_directory(skill_source_directory, skill_directory)?;
-        return Ok(SkillOperationResult {
+        copy_directory_recursive(skill_source_directory, skill_directory)?;
+        return Ok(skill_result(
             target,
-            path: skill_directory.display().to_string(),
-            status: SkillResultStatus::Installed,
-            message: Some("installed new managed skill".to_string()),
-        });
+            skill_directory,
+            SkillResultStatus::Installed,
+            "installed new managed skill",
+        ));
     }
 
-    if path_kind == PathKind::File {
+    if matches!(path_kind, PathKind::File | PathKind::Symlink) {
         if !force {
-            return Ok(SkillOperationResult {
+            return Ok(skill_result(
                 target,
-                path: skill_directory.display().to_string(),
-                status: SkillResultStatus::Skipped,
-                message: Some("path exists as a non-directory and force is disabled".to_string()),
-            });
+                skill_directory,
+                SkillResultStatus::Skipped,
+                "path exists as a non-directory and force is disabled",
+            ));
         }
         fs::remove_file(skill_directory).map_err(|e| {
             TsqError::new("IO_ERROR", "failed removing existing skill path", 2)
                 .with_details(io_error_value(&e))
         })?;
-        copy_managed_skill_directory(skill_source_directory, skill_directory)?;
-        return Ok(SkillOperationResult {
+        copy_directory_recursive(skill_source_directory, skill_directory)?;
+        return Ok(skill_result(
             target,
-            path: skill_directory.display().to_string(),
-            status: SkillResultStatus::Updated,
-            message: Some(
-                "replaced non-directory path with managed skill due to force".to_string(),
-            ),
-        });
+            skill_directory,
+            SkillResultStatus::Updated,
+            "replaced non-directory path with managed skill due to force",
+        ));
     }
 
     let managed = is_managed_skill(skill_directory)?;
     if !managed && !force {
-        return Ok(SkillOperationResult {
+        return Ok(skill_result(
             target,
-            path: skill_directory.display().to_string(),
-            status: SkillResultStatus::Skipped,
-            message: Some("existing skill is not managed and force is disabled".to_string()),
-        });
+            skill_directory,
+            SkillResultStatus::Skipped,
+            "existing skill is not managed and force is disabled",
+        ));
     }
 
     fs::remove_dir_all(skill_directory).map_err(|e| {
         TsqError::new("IO_ERROR", "failed removing existing skill directory", 2)
             .with_details(io_error_value(&e))
     })?;
-    copy_managed_skill_directory(skill_source_directory, skill_directory)?;
-    Ok(SkillOperationResult {
+    copy_directory_recursive(skill_source_directory, skill_directory)?;
+    Ok(skill_result(
         target,
-        path: skill_directory.display().to_string(),
-        status: SkillResultStatus::Updated,
-        message: Some(
-            if managed {
-                "updated managed skill"
-            } else {
-                "overwrote non-managed skill due to force"
-            }
-            .to_string(),
-        ),
-    })
+        skill_directory,
+        SkillResultStatus::Updated,
+        if managed {
+            "updated managed skill"
+        } else {
+            "overwrote non-managed skill due to force"
+        },
+    ))
 }
 
 fn uninstall_skill(
@@ -251,106 +240,178 @@ fn uninstall_skill(
 ) -> Result<SkillOperationResult, TsqError> {
     let path_kind = inspect_path(skill_directory)?;
     if path_kind == PathKind::Missing {
-        return Ok(SkillOperationResult {
+        return Ok(skill_result(
             target,
-            path: skill_directory.display().to_string(),
-            status: SkillResultStatus::NotFound,
-            message: Some("skill directory not found".to_string()),
-        });
+            skill_directory,
+            SkillResultStatus::NotFound,
+            "skill directory not found",
+        ));
     }
 
-    if path_kind == PathKind::File {
+    if matches!(path_kind, PathKind::File | PathKind::Symlink) {
         if !force {
-            return Ok(SkillOperationResult {
+            return Ok(skill_result(
                 target,
-                path: skill_directory.display().to_string(),
-                status: SkillResultStatus::Skipped,
-                message: Some("path exists as a non-directory and force is disabled".to_string()),
-            });
+                skill_directory,
+                SkillResultStatus::Skipped,
+                "path exists as a non-directory and force is disabled",
+            ));
         }
         fs::remove_file(skill_directory).map_err(|e| {
             TsqError::new("IO_ERROR", "failed removing non-directory skill path", 2)
                 .with_details(io_error_value(&e))
         })?;
-        return Ok(SkillOperationResult {
+        return Ok(skill_result(
             target,
-            path: skill_directory.display().to_string(),
-            status: SkillResultStatus::Removed,
-            message: Some("removed non-directory path due to force".to_string()),
-        });
+            skill_directory,
+            SkillResultStatus::Removed,
+            "removed non-directory path due to force",
+        ));
     }
 
     let managed = is_managed_skill(skill_directory)?;
     if !managed && !force {
-        return Ok(SkillOperationResult {
+        return Ok(skill_result(
             target,
-            path: skill_directory.display().to_string(),
-            status: SkillResultStatus::Skipped,
-            message: Some("existing skill is not managed and force is disabled".to_string()),
-        });
+            skill_directory,
+            SkillResultStatus::Skipped,
+            "existing skill is not managed and force is disabled",
+        ));
     }
 
     fs::remove_dir_all(skill_directory).map_err(|e| {
         TsqError::new("IO_ERROR", "failed removing skill directory", 2)
             .with_details(io_error_value(&e))
     })?;
-    Ok(SkillOperationResult {
+    Ok(skill_result(
         target,
-        path: skill_directory.display().to_string(),
-        status: SkillResultStatus::Removed,
-        message: Some(
-            if managed {
-                "removed managed skill"
-            } else {
-                "removed non-managed skill due to force"
-            }
-            .to_string(),
-        ),
-    })
+        skill_directory,
+        SkillResultStatus::Removed,
+        if managed {
+            "removed managed skill"
+        } else {
+            "removed non-managed skill due to force"
+        },
+    ))
 }
 
-fn copy_managed_skill_directory(
-    source_directory: &Path,
-    destination_directory: &Path,
-) -> Result<(), TsqError> {
-    copy_directory_recursive(source_directory, destination_directory)
+fn refresh_skill(
+    target: SkillTarget,
+    skill_source_directory: &Path,
+    skill_directory: &Path,
+) -> Result<SkillOperationResult, TsqError> {
+    let path_kind = inspect_path(skill_directory)?;
+
+    if path_kind == PathKind::Missing {
+        return Ok(skill_result(
+            target,
+            skill_directory,
+            SkillResultStatus::NotFound,
+            "skill directory not found",
+        ));
+    }
+    if matches!(path_kind, PathKind::File | PathKind::Symlink) {
+        return Ok(skill_result(
+            target,
+            skill_directory,
+            SkillResultStatus::Skipped,
+            "target is a file, not a managed skill directory",
+        ));
+    }
+
+    let managed = is_managed_skill(skill_directory)?;
+    if !managed {
+        return Ok(skill_result(
+            target,
+            skill_directory,
+            SkillResultStatus::Skipped,
+            "target is not a managed skill",
+        ));
+    }
+
+    // Atomic-ish refresh via backup sibling. The individual renames below are
+    // atomic on POSIX filesystems, but the whole sequence is not transactional:
+    // a process crash between steps can require manual cleanup of temp/backup dirs.
+    //   1. Copy source to temp sibling
+    //   2. Rename existing skill dir to backup
+    //   3a. Happy path: rename temp into final location
+    //   3b. Rename failure: clean temp and restore backup before returning error
+    //   4. On success, remove backup
+    let ulid = Ulid::new();
+    let parent = skill_directory
+        .parent()
+        .ok_or_else(|| TsqError::new("INTERNAL_ERROR", "skill directory has no parent", 2))?;
+    let temp_path = parent.join(format!(".tsq-refresh-{}", ulid));
+    let backup_path = parent.join(format!(".tsq-refresh-backup-{}", ulid));
+
+    // Step 1: Copy source to temp. Old dir untouched if this fails.
+    if let Err(e) = copy_directory_recursive(skill_source_directory, &temp_path) {
+        let _ = fs::remove_dir_all(&temp_path);
+        return Err(e);
+    }
+    let existing_permissions = fs::metadata(skill_directory)
+        .map_err(|e| {
+            TsqError::new("IO_ERROR", "failed reading existing skill permissions", 2)
+                .with_details(io_error_value(&e))
+        })?
+        .permissions();
+    if let Err(e) = fs::set_permissions(&temp_path, existing_permissions) {
+        let _ = fs::remove_dir_all(&temp_path);
+        return Err(
+            TsqError::new("IO_ERROR", "failed setting refreshed skill permissions", 2)
+                .with_details(io_error_value(&e)),
+        );
+    }
+
+    // Step 2: Rename existing skill dir to backup.
+    if let Err(e) = fs::rename(skill_directory, &backup_path) {
+        let _ = fs::remove_dir_all(&temp_path);
+        return Err(
+            TsqError::new("IO_ERROR", "failed backing up existing skill directory", 2)
+                .with_details(io_error_value(&e)),
+        );
+    }
+
+    // Step 3: Rename temp into final location.
+    if let Err(e) = fs::rename(&temp_path, skill_directory) {
+        // Step 3 failed — restore backup to original location before returning error.
+        let cleanup_error = fs::remove_dir_all(&temp_path).err();
+        let restore_error = fs::rename(&backup_path, skill_directory).err();
+        return Err(
+            TsqError::new("IO_ERROR", "failed replacing managed skill directory", 2).with_details(
+                serde_json::json!({
+                    "backup_path": backup_path.display().to_string(),
+                    "skill_directory": skill_directory.display().to_string(),
+                    "recovery": "if restore_error is present, manually move backup_path back to skill_directory",
+                    "replace_error": io_error_value(&e),
+                    "cleanup_error": cleanup_error.as_ref().map(io_error_value),
+                    "restore_error": restore_error.as_ref().map(io_error_value),
+                }),
+            ),
+        );
+    }
+
+    // Step 4: Success — remove backup best-effort.
+    let _ = fs::remove_dir_all(&backup_path);
+
+    Ok(skill_result(
+        target,
+        skill_directory,
+        SkillResultStatus::Updated,
+        "refreshed managed skill",
+    ))
 }
 
 fn is_managed_skill(skill_directory: &Path) -> Result<bool, TsqError> {
-    let skill_file_managed = file_contains_managed_marker(&skill_directory.join("SKILL.md"))?;
-    let readme_file_managed = file_contains_managed_marker(&skill_directory.join("README.md"))?;
-    Ok(skill_file_managed && readme_file_managed)
+    file_contains_managed_marker(&skill_directory.join("SKILL.md"))
 }
 
 fn file_contains_managed_marker(file_path: &Path) -> Result<bool, TsqError> {
     match fs::read_to_string(file_path) {
         Ok(content) => Ok(content.contains(MANAGED_MARKER)),
-        Err(error) => {
-            if error.kind() == std::io::ErrorKind::NotFound {
-                return Ok(false);
-            }
-            Err(TsqError::new("IO_ERROR", "failed reading skill file", 2)
-                .with_details(io_error_value(&error)))
-        }
-    }
-}
-
-fn inspect_path(path: &Path) -> Result<PathKind, TsqError> {
-    match fs::metadata(path) {
-        Ok(metadata) => {
-            if metadata.is_dir() {
-                Ok(PathKind::Directory)
-            } else {
-                Ok(PathKind::File)
-            }
-        }
-        Err(error) => {
-            if error.kind() == std::io::ErrorKind::NotFound {
-                return Ok(PathKind::Missing);
-            }
-            Err(TsqError::new("IO_ERROR", "failed to inspect skill path", 2)
-                .with_details(io_error_value(&error)))
-        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(TsqError::new("IO_ERROR", "failed reading skill file", 2)
+            .with_details(io_error_value(&e))),
     }
 }
 
@@ -417,55 +478,5 @@ fn resolve_managed_skill_source_directory(
     })))
 }
 
-fn copy_directory_recursive(
-    source_directory: &Path,
-    destination_directory: &Path,
-) -> Result<(), TsqError> {
-    fs::create_dir_all(destination_directory).map_err(|e| {
-        TsqError::new("IO_ERROR", "failed creating destination skill directory", 2)
-            .with_details(io_error_value(&e))
-    })?;
-    let entries = fs::read_dir(source_directory).map_err(|e| {
-        TsqError::new("IO_ERROR", "failed reading source skill directory", 2)
-            .with_details(io_error_value(&e))
-    })?;
-
-    for entry in entries {
-        let entry = entry.map_err(|e| {
-            TsqError::new("IO_ERROR", "failed reading source directory entry", 2)
-                .with_details(io_error_value(&e))
-        })?;
-        let source_path = entry.path();
-        let destination_path = destination_directory.join(entry.file_name());
-        let file_type = entry.file_type().map_err(|e| {
-            TsqError::new("IO_ERROR", "failed reading source entry file type", 2)
-                .with_details(io_error_value(&e))
-        })?;
-
-        if file_type.is_dir() {
-            copy_directory_recursive(&source_path, &destination_path)?;
-            continue;
-        }
-        if file_type.is_file() {
-            fs::copy(&source_path, &destination_path).map_err(|e| {
-                TsqError::new("IO_ERROR", "failed copying managed skill file", 2)
-                    .with_details(io_error_value(&e))
-            })?;
-            continue;
-        }
-        return Err(TsqError::new(
-            "VALIDATION_ERROR",
-            format!(
-                "unsupported entry in managed skill source: {}",
-                source_path.display()
-            ),
-            1,
-        ));
-    }
-
-    Ok(())
-}
-
-fn io_error_value(error: &std::io::Error) -> serde_json::Value {
-    serde_json::json!({"kind": format!("{:?}", error.kind()), "message": error.to_string()})
-}
+#[cfg(test)]
+mod tests;

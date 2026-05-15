@@ -24,6 +24,13 @@ use std::sync::Arc;
 
 pub use crate::app::service_query::ShowResult;
 
+const DEFAULT_SKILL_TARGETS: [SkillTarget; 4] = [
+    SkillTarget::Claude,
+    SkillTarget::Codex,
+    SkillTarget::Copilot,
+    SkillTarget::Opencode,
+];
+
 pub struct TasqueService {
     ctx: ServiceContext,
 }
@@ -101,14 +108,10 @@ impl TasqueService {
                         .skill_name
                         .clone()
                         .unwrap_or_else(|| "tasque".to_string()),
-                    targets: input.skill_targets.clone().unwrap_or_else(|| {
-                        vec![
-                            SkillTarget::Claude,
-                            SkillTarget::Codex,
-                            SkillTarget::Copilot,
-                            SkillTarget::Opencode,
-                        ]
-                    }),
+                    targets: input
+                        .skill_targets
+                        .clone()
+                        .unwrap_or_else(|| DEFAULT_SKILL_TARGETS.to_vec()),
                     force: input.force_skill_overwrite,
                     source_root_dir: None,
                     home_dir: None,
@@ -327,6 +330,27 @@ impl TasqueService {
 
     pub fn hooks_uninstall(&self) -> Result<crate::types::HookUninstallResult, TsqError> {
         crate::app::sync::uninstall_hooks(&self.ctx.repo_root)
+    }
+
+    /// Refreshes the managed `tasque` skill across all default agent targets.
+    ///
+    /// This is intentionally fixed-scope: refresh does not support custom skill
+    /// names, selective targets, or directory overrides because install-time
+    /// refresh should only update existing managed Tasque-owned skill dirs.
+    pub fn skills_refresh(
+        &self,
+        input: SkillsRefreshInput,
+    ) -> Result<SkillOperationSummary, TsqError> {
+        apply_skill_operation(crate::skills::types::SkillOperationOptions {
+            action: SkillAction::Refresh,
+            skill_name: "tasque".to_string(),
+            targets: DEFAULT_SKILL_TARGETS.to_vec(),
+            force: false,
+            source_root_dir: input.source_root_dir,
+            home_dir: input.home_dir,
+            codex_home: input.codex_home,
+            target_dir_overrides: None,
+        })
     }
 }
 

@@ -88,6 +88,19 @@ Then it publishes root package `@bumpyclock/tasque`, whose optional dependencies
 - copies `SKILLS/` into npm packages
 - copies built binaries from `artifacts/<rust-target>/`
 
+### npm Postinstall Skill Refresh
+
+The npm package bundles `SKILLS/` alongside the binary. On `npm install`, the
+postinstall script:
+
+1. Resolves or downloads the `tsq` binary for the current platform.
+2. Runs `tsq skills refresh --json` with the environment variable
+   `TSQ_SKILLS_DIR` set to the package's `SKILLS/` directory path.
+3. This refreshes only existing managed default `tasque` skill installs. It does
+   not create missing installs.
+4. Refresh failures warn but do not fail the install.
+5. Set `TSQ_SKIP_SKILL_REFRESH=1` to opt out entirely.
+
 Manual npm dry run:
 
 ```bash
@@ -109,9 +122,10 @@ Before merging a release PR:
 1. `cargo fmt --check`
 2. `cargo clippy --all-targets --all-features -- -D warnings`
 3. `cargo test --quiet`
-4. `cargo build --release --locked`
-5. Confirm `target/release/tsq --version` matches `Cargo.toml`
-6. Confirm npm package versions match `Cargo.toml`
+4. `npm run test:postinstall --prefix npm`
+5. `cargo build --release --locked`
+6. Confirm `target/release/tsq --version` matches `Cargo.toml`
+7. Confirm npm package versions match `Cargo.toml`
 
 ## Rollback
 

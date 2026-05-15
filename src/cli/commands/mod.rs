@@ -4,6 +4,7 @@ pub mod label;
 pub mod link;
 pub mod meta;
 pub mod note;
+pub mod skills;
 pub mod spec;
 pub mod sync;
 pub mod task;

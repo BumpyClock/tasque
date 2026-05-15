@@ -9,7 +9,6 @@ const {
 	extractFileFromTar,
 } = require("../scripts/postinstall");
 
-
 function tarHeader(name, size) {
 	const header = Buffer.alloc(512);
 	header.write(name, 0, 100, "utf8");
@@ -53,7 +52,6 @@ describe("bundledSkillsDir", () => {
 		assert.ok(dir.endsWith(path.join("npm", "SKILLS")), `got: ${dir}`);
 	});
 });
-
 
 describe("extractFileFromTar", () => {
 	it("extracts entries with and without npm package prefix", async () => {
@@ -103,7 +101,10 @@ describe("extractFileFromTar", () => {
 	});
 
 	it("rejects truncated target entries", async () => {
-		const truncated = Buffer.concat([tarHeader("package/tsq", 10), Buffer.from("abc")]);
+		const truncated = Buffer.concat([
+			tarHeader("package/tsq", 10),
+			Buffer.from("abc"),
+		]);
 		await assert.rejects(
 			() => extractFileFromTar(bufferStream(truncated), "tsq"),
 			/tar entry truncated/,

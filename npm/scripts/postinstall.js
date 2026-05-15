@@ -115,7 +115,8 @@ function tryResolveBinary() {
 function isAllowedRedirect(fromUrl, toUrl) {
 	return (
 		toUrl.protocol === "https:" &&
-		(toUrl.hostname === fromUrl.hostname || /(^|\.)npmjs\.org$/.test(toUrl.hostname))
+		(toUrl.hostname === fromUrl.hostname ||
+			/(^|\.)npmjs\.org$/.test(toUrl.hostname))
 	);
 }
 
@@ -136,7 +137,9 @@ function fetch(url, redirectsRemaining = 10) {
 					const redirectUrl = new URL(res.headers.location, currentUrl);
 					if (!isAllowedRedirect(currentUrl, redirectUrl)) {
 						return reject(
-							new Error(`Invalid redirect for ${url}: ${redirectUrl.toString()}`),
+							new Error(
+								`Invalid redirect for ${url}: ${redirectUrl.toString()}`,
+							),
 						);
 					}
 					return fetch(redirectUrl.toString(), redirectsRemaining - 1).then(
@@ -194,7 +197,9 @@ function extractFileFromTar(stream, targetName) {
 					if (fileRemaining === 0) {
 						// Tar file data is padded to 512-byte blocks. Consume what is
 						// already buffered and keep pendingPadding for the next chunk.
-						const fileData = skipping ? Buffer.alloc(0) : Buffer.concat(fileChunks);
+						const fileData = skipping
+							? Buffer.alloc(0)
+							: Buffer.concat(fileChunks);
 						pendingPadding = (512 - (activeEntrySize % 512)) % 512;
 						if (pendingPadding > 0) {
 							const take = Math.min(pendingPadding, buf.length);

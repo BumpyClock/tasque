@@ -5,7 +5,11 @@ use tasque::cli::action::{GlobalOpts, emit_error};
 use tasque::cli::run_cli;
 
 fn main() {
-    let repo_root = get_repo_root();
+    let repo_root = if should_initialize_cwd() {
+        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+    } else {
+        get_repo_root()
+    };
     let actor = get_actor(&repo_root);
 
     let effective_root = if should_use_repo_root() {
@@ -31,6 +35,10 @@ fn main() {
     let service = TasqueService::new(effective_root, actor, now_iso);
     let exit_code = run_cli(&service);
     std::process::exit(exit_code);
+}
+
+fn should_initialize_cwd() -> bool {
+    matches!(preparse_command().as_deref(), Some("init"))
 }
 
 fn should_use_repo_root() -> bool {

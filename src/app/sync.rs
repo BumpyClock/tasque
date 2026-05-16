@@ -391,6 +391,7 @@ where
     })?;
     let lock_file = paths.tasque_dir.join(".setup.lock");
     let deadline = Instant::now() + Duration::from_millis(SETUP_LOCK_TIMEOUT_MS);
+    let mut permission_probe_ran = false;
 
     loop {
         let opened = std::fs::OpenOptions::new()
@@ -400,7 +401,46 @@ where
         match opened {
             Ok(_) => break,
             Err(error) => {
-                if error.kind() != std::io::ErrorKind::AlreadyExists {
+                let kind = error.kind();
+                if kind == std::io::ErrorKind::PermissionDenied && !permission_probe_ran {
+                    // Windows can report lock-file delete races as permission denied; probe
+                    // the directory once so real permission failures still fail fast.
+                    permission_probe_ran = true;
+                    let probe_suffix = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|duration| duration.as_nanos())
+                        .unwrap_or_default();
+                    let probe_file = paths.tasque_dir.join(format!(
+                        ".setup.lock.probe-{}-{probe_suffix}",
+                        std::process::id()
+                    ));
+                    match std::fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(&probe_file)
+                    {
+                        Ok(_) => {
+                            let _ = std::fs::remove_file(&probe_file);
+                        }
+                        Err(probe_error) => {
+                            return Err(TsqError::new(
+                                "SYNC_SETUP_FAILED",
+                                "insufficient permissions acquiring setup lock",
+                                2,
+                            )
+                            .with_details(serde_json::json!({
+                                "lockFile": lock_file.display().to_string(),
+                                "directory": paths.tasque_dir.display().to_string(),
+                                "message": error.to_string(),
+                                "probeMessage": probe_error.to_string(),
+                            })));
+                        }
+                    }
+                }
+                if !matches!(
+                    kind,
+                    std::io::ErrorKind::AlreadyExists | std::io::ErrorKind::PermissionDenied
+                ) {
                     return Err(TsqError::new(
                         "SYNC_SETUP_FAILED",
                         "failed acquiring setup lock",

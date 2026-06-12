@@ -4,38 +4,88 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
-const PLATFORMS = {
-	"darwin arm64": {
-		pkg: "@bumpyclock/tasque-darwin-arm64",
-		bin: "tsq",
-		tuiBin: "tsq-tui",
-	},
-	"darwin x64": {
-		pkg: "@bumpyclock/tasque-darwin-x64",
-		bin: "tsq",
-		tuiBin: "tsq-tui",
-	},
-	"linux x64": {
-		pkg: "@bumpyclock/tasque-linux-x64-gnu",
-		bin: "tsq",
-		tuiBin: "tsq-tui",
-	},
-	"linux arm64": {
-		pkg: "@bumpyclock/tasque-linux-arm64-gnu",
-		bin: "tsq",
-		tuiBin: "tsq-tui",
-	},
-	"win32 x64": {
-		pkg: "@bumpyclock/tasque-win32-x64-msvc",
-		bin: "tsq.exe",
-		tuiBin: "tsq-tui.exe",
-	},
-	"win32 arm64": {
-		pkg: "@bumpyclock/tasque-win32-arm64-msvc",
-		bin: "tsq.exe",
-		tuiBin: "tsq-tui.exe",
-	},
-};
+function readJson(filePath) {
+	try {
+		return JSON.parse(fs.readFileSync(filePath, "utf8"));
+	} catch (error) {
+		throw new Error(`Failed reading JSON ${filePath}: ${error.message}`, {
+			cause: error,
+		});
+	}
+}
+
+function packageKey(packageName) {
+	const prefix = "@bumpyclock/tasque-";
+	if (typeof packageName !== "string" || !packageName.startsWith(prefix)) {
+		throw new Error(
+			`Invalid platform package name: ${packageName} (expected ${prefix}*)`,
+		);
+	}
+	const suffix = packageName.slice(prefix.length);
+	const parts = suffix.split("-").filter(Boolean);
+	const os = parts[0];
+	const arch = ["x64", "arm64", "arm", "riscv64"].find((candidate) =>
+		parts.includes(candidate),
+	);
+	if (!os || !arch) {
+		throw new Error(
+			`Invalid platform package name: ${packageName} (missing os/arch)`,
+		);
+	}
+	return `${os} ${arch}`;
+}
+
+function binaryNames(platform = process.platform) {
+	return platform === "win32"
+		? { bin: "tsq.exe", tuiBin: "tsq-tui.exe" }
+		: { bin: "tsq", tuiBin: "tsq-tui" };
+}
+
+function platformPackages(
+	rootPackagePath = path.join(__dirname, "..", "package.json"),
+) {
+	const root = readJson(rootPackagePath);
+	return Object.keys(root.optionalDependencies || {})
+		.sort()
+		.map((pkg) => {
+			const key = packageKey(pkg);
+			return { key, pkg, ...binaryNames(key.split(" ")[0]) };
+		});
+}
+
+function platformMap(rootPackagePath) {
+	return Object.fromEntries(
+		platformPackages(rootPackagePath).map((info) => [info.key, info]),
+	);
+}
+
+function platformPackageManifests(
+	platformsDir = path.join(__dirname, "..", "platforms"),
+) {
+	if (!fs.existsSync(platformsDir)) {
+		throw new Error(`Platforms directory not found: ${platformsDir}`);
+	}
+	return fs
+		.readdirSync(platformsDir, { withFileTypes: true })
+		.filter((entry) => entry.isDirectory())
+		.map((entry) => entry.name)
+		.sort()
+		.flatMap((platform) => {
+			const manifestPath = path.join(platformsDir, platform, "package.json");
+			if (!fs.existsSync(manifestPath)) {
+				console.warn(`Skipping platform ${platform}: missing ${manifestPath}`);
+				return [];
+			}
+			try {
+				return [{ platform, manifestPath, manifest: readJson(manifestPath) }];
+			} catch (error) {
+				console.warn(`Skipping platform ${platform}: ${error.message}`);
+				return [];
+			}
+		});
+}
+
+const PLATFORMS = platformMap();
 
 // --- Skill refresh helpers ---
 
@@ -354,6 +404,10 @@ module.exports = {
 	runSkillRefreshWarnOnly,
 	shouldSkipSkillRefresh,
 	PLATFORMS,
+	binaryNames,
+	platformMap,
+	platformPackages,
+	platformPackageManifests,
 };
 
 // Guard: only run main when executed directly

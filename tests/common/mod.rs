@@ -136,13 +136,47 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
+    run_cli_with_input(repo, args, None)
+}
+
+pub fn run_cli_with_stdin<I, S>(repo: &Path, args: I, stdin: &str) -> CliOutput
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    run_cli_with_input(repo, args, Some(stdin))
+}
+
+fn run_cli_with_input<I, S>(repo: &Path, args: I, stdin: Option<&str>) -> CliOutput
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
     let args_vec = normalize_args(args);
-    let output = Command::new(tsq_bin())
+    let mut command = Command::new(tsq_bin());
+    command
         .args(&args_vec)
         .current_dir(repo)
-        .env("TSQ_ACTOR", "rust-test")
-        .output()
-        .expect("failed executing tsq binary");
+        .env("TSQ_ACTOR", "rust-test");
+    let output = if let Some(stdin) = stdin {
+        use std::io::Write;
+        use std::process::Stdio;
+        let mut child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("failed spawning tsq binary");
+        child
+            .stdin
+            .as_mut()
+            .expect("stdin pipe")
+            .write_all(stdin.as_bytes())
+            .expect("write stdin");
+        child.wait_with_output().expect("wait for tsq binary")
+    } else {
+        command.output().expect("failed executing tsq binary")
+    };
 
     CliOutput {
         code: output.status.code().unwrap_or(-1),
@@ -168,6 +202,18 @@ where
 {
     let args_vec = normalize_args(args);
     let cli = run_cli(repo, &args_vec);
+    parse_json_output(cli)
+}
+
+pub fn run_json_with_stdin<I, S>(repo: &Path, args: I, stdin: &str) -> JsonOutput
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    parse_json_output(run_cli_with_stdin(repo, args, stdin))
+}
+
+fn parse_json_output(cli: CliOutput) -> JsonOutput {
     let trimmed = cli.stdout.trim();
     assert!(
         !trimmed.is_empty(),
@@ -184,6 +230,36 @@ where
     JsonOutput { cli, envelope }
 }
 
+pub fn git(repo: &Path, args: &[&str]) {
+    let output = git_output(repo, args);
+    assert!(
+        output.status.success(),
+        "git {:?} failed\nstdout:\n{}\nstderr:\n{}",
+        args,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+pub fn git_output(repo: &Path, args: &[&str]) -> std::process::Output {
+    Command::new("git")
+        .arg("-c")
+        .arg("safe.bareRepository=all")
+        .args(args)
+        .current_dir(repo)
+        .output()
+        .expect("git command")
+}
+
+pub fn init_git_repo_with_identity(repo: &Path, branch: Option<&str>) {
+    git(repo, &["init"]);
+    git(repo, &["config", "user.name", "rust-test"]);
+    git(repo, &["config", "user.email", "rust-test@example.com"]);
+    if let Some(branch) = branch {
+        git(repo, &["checkout", "-b", branch]);
+    }
+}
+
 fn normalize_args<I, S>(args: I) -> Vec<String>
 where
     I: IntoIterator<Item = S>,
@@ -194,7 +270,7 @@ where
         .collect()
 }
 
-fn tsq_bin() -> PathBuf {
+pub fn tsq_bin() -> PathBuf {
     static BIN_PATH: OnceLock<PathBuf> = OnceLock::new();
     BIN_PATH.get_or_init(resolve_tsq_bin).clone()
 }

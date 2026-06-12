@@ -10,18 +10,11 @@ use std::collections::HashSet;
 use std::fs::{OpenOptions, create_dir_all, read_to_string, remove_file, rename};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
-pub use crate::app::state::{
-    LoadedState, load_projected_state, load_projected_state_with_events, persist_projection,
-};
-pub use crate::store::config::{read_config, write_default_config};
-pub use crate::store::events::{append_events, read_events};
-pub use crate::store::lock::with_write_lock;
-pub use crate::store::paths::{
+use crate::store::paths::{
     get_paths, is_task_spec_relative_path, task_spec_file, task_spec_relative_path,
 };
-pub use crate::store::snapshots::{load_latest_snapshot, write_snapshot};
-pub use crate::store::state::{read_state_cache, write_state_cache};
 
 #[derive(Debug, Clone)]
 pub enum SpecAttachSource {
@@ -90,6 +83,17 @@ struct SpecSection {
     label: &'static str,
     aliases: &'static [&'static str],
 }
+
+static MARKDOWN_HEADING_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)^#{1,6}[ \t]+(.+?)\s*$").expect("markdown heading regex must compile")
+});
+static TRAILING_HEADING_MARKERS_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"[ \t]+#+\s*$").expect("trailing markdown heading marker regex must compile")
+});
+static WHITESPACE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\s+").expect("whitespace regex must compile"));
+static TRAILING_COLON_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\s*:\s*$").expect("trailing colon regex must compile"));
 
 const REQUIRED_SPEC_SECTIONS: &[SpecSection] = &[
     SpecSection {
@@ -319,15 +323,25 @@ pub fn evaluate_task_spec(
             .iter()
             .map(|section| normalize_markdown_heading(section))
             .collect();
-        missing_sections = REQUIRED_SPEC_SECTIONS
+        let required_aliases: Vec<Vec<String>> = REQUIRED_SPEC_SECTIONS
             .iter()
-            .filter(|required| {
-                !required
+            .map(|required| {
+                required
                     .aliases
                     .iter()
-                    .any(|alias| present_normalized.contains(&normalize_markdown_heading(alias)))
+                    .map(|alias| normalize_markdown_heading(alias))
+                    .collect()
             })
-            .map(|required| required.label.to_string())
+            .collect();
+        missing_sections = REQUIRED_SPEC_SECTIONS
+            .iter()
+            .zip(required_aliases.iter())
+            .filter(|(_, aliases)| {
+                !aliases
+                    .iter()
+                    .any(|alias| present_normalized.contains(alias))
+            })
+            .map(|(required, _)| required.label.to_string())
             .collect();
         if !missing_sections.is_empty() {
             diagnostics.push(SpecCheckDiagnostic {
@@ -424,20 +438,15 @@ pub fn normalize_optional_input(value: Option<&str>) -> Option<String> {
 }
 
 fn extract_markdown_headings(content: &str) -> Vec<String> {
-    let regex = Regex::new(r"(?m)^#{1,6}[ \t]+(.+?)\s*$").ok();
     let mut headings = Vec::new();
     let mut seen = HashSet::new();
-    let Some(regex) = regex else {
-        return headings;
-    };
-    let trailing = Regex::new(r"[ \t]+#+\s*$").ok();
 
-    for capture in regex.captures_iter(content) {
+    for capture in MARKDOWN_HEADING_RE.captures_iter(content) {
         let raw = capture.get(1).map(|m| m.as_str()).unwrap_or("");
-        let mut heading = raw.trim().to_string();
-        if let Some(trailing) = trailing.as_ref() {
-            heading = trailing.replace(&heading, "").trim().to_string();
-        }
+        let heading = TRAILING_HEADING_MARKERS_RE
+            .replace(raw.trim(), "")
+            .trim()
+            .to_string();
         if heading.is_empty() {
             continue;
         }
@@ -453,17 +462,8 @@ fn extract_markdown_headings(content: &str) -> Vec<String> {
 }
 
 fn normalize_markdown_heading(heading: &str) -> String {
-    let normalized = heading.trim();
-    let whitespace = Regex::new(r"\s+").ok();
-    let mut value = match whitespace {
-        Some(regex) => regex.replace_all(normalized, " ").to_string(),
-        None => normalized.to_string(),
-    };
-    let trailing_colon = Regex::new(r"\s*:\s*$").ok();
-    if let Some(regex) = trailing_colon {
-        value = regex.replace(&value, "").to_string();
-    }
-    value.to_lowercase()
+    let value = WHITESPACE_RE.replace_all(heading.trim(), " ").to_string();
+    TRAILING_COLON_RE.replace(&value, "").to_lowercase()
 }
 
 fn io_error_value(error: &std::io::Error) -> Value {

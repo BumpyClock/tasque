@@ -7,7 +7,7 @@ use crate::app::service_utils::{
     DEFAULT_STALE_STATUSES, apply_list_filter, must_resolve_existing, must_task, sort_stale_tasks,
     sort_task_ids, sort_tasks,
 };
-use crate::app::storage::{load_projected_state, load_projected_state_with_events};
+use crate::app::state::{load_projected_state, load_projected_state_with_events};
 use crate::domain::dep_tree::build_dependents_by_blocker;
 use crate::domain::deps::normalize_dependency_edges;
 use crate::domain::query::{evaluate_query, parse_query};
@@ -444,7 +444,7 @@ pub fn orphans(ctx: &ServiceContext) -> Result<OrphansResult, TsqError> {
 fn sort_dependency_refs(mut refs: Vec<DependencyRef>) -> Vec<DependencyRef> {
     refs.sort_by(|a, b| {
         if a.id == b.id {
-            return dep_type_to_string(a.dep_type).cmp(dep_type_to_string(b.dep_type));
+            return dep_type_to_string(a.dep_type).cmp(&dep_type_to_string(b.dep_type));
         }
         a.id.cmp(&b.id)
     });
@@ -483,34 +483,14 @@ fn unique_ids(edges: &[DependencyRef]) -> Vec<String> {
     ids
 }
 
-fn relation_type_to_string(rel_type: RelationType) -> &'static str {
-    match rel_type {
-        RelationType::RelatesTo => "relates_to",
-        RelationType::RepliesTo => "replies_to",
-        RelationType::Duplicates => "duplicates",
-        RelationType::Supersedes => "supersedes",
-    }
+fn relation_type_to_string(rel_type: RelationType) -> String {
+    crate::domain::event_payload_codecs::relation_type_as_str(rel_type)
 }
 
-fn dep_type_to_string(dep_type: DependencyType) -> &'static str {
-    match dep_type {
-        DependencyType::Blocks => "blocks",
-        DependencyType::StartsAfter => "starts_after",
-    }
+fn dep_type_to_string(dep_type: DependencyType) -> String {
+    crate::domain::event_payload_codecs::dependency_type_as_str(dep_type)
 }
 
-fn event_type_to_string(event_type: EventType) -> &'static str {
-    match event_type {
-        EventType::TaskCreated => "task.created",
-        EventType::TaskUpdated => "task.updated",
-        EventType::TaskStatusSet => "task.status_set",
-        EventType::TaskClaimed => "task.claimed",
-        EventType::TaskNoted => "task.noted",
-        EventType::TaskSpecAttached => "task.spec_attached",
-        EventType::TaskSuperseded => "task.superseded",
-        EventType::DepAdded => "dep.added",
-        EventType::DepRemoved => "dep.removed",
-        EventType::LinkAdded => "link.added",
-        EventType::LinkRemoved => "link.removed",
-    }
+fn event_type_to_string(event_type: EventType) -> String {
+    crate::domain::event_payload_codecs::event_type_as_str(event_type)
 }

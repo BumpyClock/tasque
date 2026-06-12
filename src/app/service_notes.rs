@@ -2,12 +2,12 @@ use crate::app::service_types::{
     NoteAddInput, NoteAddResult, NoteListInput, NoteListResult, ServiceContext,
 };
 use crate::app::service_utils::{must_resolve_existing, must_task};
-use crate::app::storage::{
-    append_events, load_projected_state, persist_projection, with_write_lock,
-};
+use crate::app::state::{load_projected_state, persist_projection};
 use crate::domain::events::make_event;
 use crate::domain::projector::apply_events;
 use crate::errors::TsqError;
+use crate::store::events::append_events;
+use crate::store::lock::with_write_lock;
 use crate::types::EventType;
 
 pub fn note_add(ctx: &ServiceContext, input: &NoteAddInput) -> Result<NoteAddResult, TsqError> {

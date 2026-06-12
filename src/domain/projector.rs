@@ -10,14 +10,13 @@ use crate::types::{EventRecord, EventType, State};
 use projector_deps_links::{
     apply_dep_added, apply_dep_removed, apply_link_added, apply_link_removed,
 };
-use projector_helpers::{clone_state, event_id_value, event_type_to_string};
+use projector_helpers::clone_state;
 use projector_tasks::{
     apply_task_claimed, apply_task_created, apply_task_noted, apply_task_spec_attached,
     apply_task_status_set, apply_task_superseded, apply_task_updated,
 };
 
 fn apply_event_mut(state: &mut State, event: &EventRecord) -> Result<(), TsqError> {
-    #[allow(unreachable_patterns)]
     match event.event_type {
         EventType::TaskCreated => apply_task_created(state, event)?,
         EventType::TaskUpdated => apply_task_updated(state, event)?,
@@ -30,16 +29,6 @@ fn apply_event_mut(state: &mut State, event: &EventRecord) -> Result<(), TsqErro
         EventType::DepRemoved => apply_dep_removed(state, event)?,
         EventType::LinkAdded => apply_link_added(state, event)?,
         EventType::LinkRemoved => apply_link_removed(state, event)?,
-        _ => {
-            return Err(
-                TsqError::new("INVALID_EVENT_TYPE", "Unknown event type", 1).with_details(
-                    serde_json::json!({
-                      "event_id": event_id_value(event),
-                      "type": event_type_to_string(&event.event_type),
-                    }),
-                ),
-            );
-        }
     }
     state.applied_events += 1;
     Ok(())

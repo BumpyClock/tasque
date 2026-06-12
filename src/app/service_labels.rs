@@ -1,49 +1,33 @@
 use crate::app::service_types::{LabelCount, LabelInput, ServiceContext};
 use crate::app::service_utils::{must_resolve_existing, must_task};
-use crate::app::storage::{
-    append_events, load_projected_state, persist_projection, with_write_lock,
-};
+use crate::app::state::{load_projected_state, persist_projection};
 use crate::domain::events::make_event;
 use crate::domain::labels::{add_label, remove_label};
 use crate::domain::projector::apply_events;
 use crate::errors::TsqError;
+use crate::store::events::append_events;
+use crate::store::lock::with_write_lock;
 use crate::types::{EventType, Task};
 use std::collections::HashMap;
 
 pub fn label_add(ctx: &ServiceContext, input: &LabelInput) -> Result<Task, TsqError> {
-    with_write_lock(&ctx.repo_root, || {
-        let loaded = load_projected_state(&ctx.repo_root)?;
-        let id = must_resolve_existing(&loaded.state, &input.id, input.exact_id)?;
-        let existing = must_task(&loaded.state, &id)?;
-        let labels = add_label(&existing.labels, &input.label)?;
-        let event = make_event(
-            &ctx.actor,
-            &ctx.now.as_ref()(),
-            EventType::TaskUpdated,
-            &id,
-            serde_json::json!({ "labels": labels })
-                .as_object()
-                .cloned()
-                .unwrap_or_default(),
-        );
-        let mut next_state = apply_events(&loaded.state, std::slice::from_ref(&event))?;
-        append_events(&ctx.repo_root, &[event])?;
-        persist_projection(
-            &ctx.repo_root,
-            &mut next_state,
-            loaded.event_count + 1,
-            None,
-        )?;
-        must_task(&next_state, &id)
-    })
+    mutate_label(ctx, input, add_label)
 }
 
 pub fn label_remove(ctx: &ServiceContext, input: &LabelInput) -> Result<Task, TsqError> {
+    mutate_label(ctx, input, remove_label)
+}
+
+fn mutate_label(
+    ctx: &ServiceContext,
+    input: &LabelInput,
+    update: fn(&[String], &str) -> Result<Vec<String>, TsqError>,
+) -> Result<Task, TsqError> {
     with_write_lock(&ctx.repo_root, || {
         let loaded = load_projected_state(&ctx.repo_root)?;
         let id = must_resolve_existing(&loaded.state, &input.id, input.exact_id)?;
         let existing = must_task(&loaded.state, &id)?;
-        let labels = remove_label(&existing.labels, &input.label)?;
+        let labels = update(&existing.labels, &input.label)?;
         let event = make_event(
             &ctx.actor,
             &ctx.now.as_ref()(),

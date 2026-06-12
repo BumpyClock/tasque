@@ -100,7 +100,8 @@ Relation types:
 - `tsq init --install-skill|--uninstall-skill [--skill-targets ...] [--skill-name <name>] [--force-skill-overwrite]`
 - `tsq skills refresh` — update managed skill files across all targets; repo-independent (no `tsq init` or `.tasque/` required)
 - `tsq create <title...> [--kind ...] [-p ...] [--parent <id>] [--from-file tasks.md] [--description <text>] [--external-ref <ref>] [--discovered-from <id>] [--planned|--needs-plan] [--ensure] [--id <id>] [--body-file <path|->] [--force]`
-- `tsq show <id> [--with-spec]`
+- `tsq plan <parent-id> --from <plan.md|-> [--apply] [--kind ...] [-p ...] [--planned|--needs-plan] [--ensure] [--force]`
+- `tsq show <id> [--deps] [--spec|--with-spec] [--notes] [--history] [--all-notes] [--all-history]`
 - `tsq find ready [--lane <planning|coding>] [--assignee <name>] [--unassigned] [--kind ...] [--label ...] [--planning <needs_planning|planned>] [--tree [--full]]`
 - `tsq find <blocked|open|in-progress|deferred|done|canceled> [filters...] [--tree [--full]]`
 - `tsq find search <query> [--full]`
@@ -114,6 +115,8 @@ Notes:
 - Commands that accept a task ID also accept exact aliases and unique alias prefixes unless `--exact-id` is used.
 - `tsq find similar "<text>"` shows ranked duplicate candidates with scores and reasons.
 - `tsq create` refuses similar open/in-progress/blocked/deferred tasks unless `--force` is passed.
+- `tsq show <id>` shows task, deps, attached spec when present, latest notes, and latest history. Selector flags narrow output to requested sections.
+- `tsq plan` previews by default. `--apply` creates planned child tasks under the parent from headings/checklist bullets. Inline `#labels` are attached during the same batch create.
 
 `watch` renders the task tree by default for human output. Use `--tree` to explicitly request tree view or `--flat` for the compact list view. These options are mutually exclusive.
 
@@ -123,6 +126,7 @@ Notes:
 - `tsq repair [--fix] [--force-unlock]`
 - `tsq edit <id> [--title ...] [--description ...] [--clear-description] [--priority ...] [--external-ref <ref>] [--clear-external-ref] [--discovered-from <id>] [--clear-discovered-from]`
 - `tsq claim <id> [--assignee <a>] [--start] [--require-spec]`
+- `tsq workon <id> [--assignee <a>] [--require-spec]`
 - `tsq assign <id> --assignee <a>`
 - `tsq start <id>`
 - `tsq planned <id>`
@@ -155,6 +159,7 @@ Notes:
 - `tsq unlabel <id> <label>`
 - `tsq labels`
 - `tsq history <id> [--limit <n>] [--type <event-type>] [--actor <name>] [--since <iso>]`
+- `tsq root`
 - `tsq sync [--no-push]`
 - `tsq hooks install [--force]`
 - `tsq hooks uninstall`
@@ -163,9 +168,17 @@ Notes:
 
 Global options:
 
-- `--format human|json`
+- `--root <path>`: run against an explicit Tasque root
+- `--format human|json|plain`
 - `--json` shorthand for `--format json`
+- `--plain` shorthand for `--format plain`
 - `--exact-id`
+
+Root resolution:
+
+- implicit discovery checks only the current directory for `.tasque`; it does not walk ancestor directories
+- use `tsq --root <path> ...` when running from outside a Tasque root
+- missing store errors use `NO_STORE`
 
 Status alias:
 

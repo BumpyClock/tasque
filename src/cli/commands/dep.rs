@@ -140,29 +140,13 @@ pub fn execute_dep(service: &TasqueService, command: DepCommand, opts: GlobalOpt
                 Ok(())
             },
         ),
-        DepCommand::Tree(args) => run_action(
+        DepCommand::Tree(args) => run_dep_tree(
+            service,
             "tsq dep tree",
             opts,
-            || {
-                let direction = parse_dep_direction(Some(&args.direction))?;
-                let depth = args
-                    .depth
-                    .as_deref()
-                    .map(|value| parse_positive_int(value, "depth", 1, 100))
-                    .transpose()?
-                    .map(|value| value as usize);
-                service.dep_tree(DepTreeInput {
-                    id: args.id.clone(),
-                    direction,
-                    depth,
-                    exact_id: opts.exact_id,
-                })
-            },
-            |root| serde_json::json!({ "root": root }),
-            |root| {
-                print_dep_tree_result(root);
-                Ok(())
-            },
+            args.id.clone(),
+            args.direction.clone(),
+            args.depth.clone(),
         ),
     }
 }
@@ -240,29 +224,13 @@ pub fn execute_unorder(service: &TasqueService, args: UnorderArgs, opts: GlobalO
 }
 
 pub fn execute_deps(service: &TasqueService, args: DepsArgs, opts: GlobalOpts) -> i32 {
-    run_action(
+    run_dep_tree(
+        service,
         "tsq deps",
         opts,
-        || {
-            let direction = parse_dep_direction(Some(&args.direction))?;
-            let depth = args
-                .depth
-                .as_deref()
-                .map(|value| parse_positive_int(value, "depth", 1, 100))
-                .transpose()?
-                .map(|value| value as usize);
-            service.dep_tree(DepTreeInput {
-                id: args.id.clone(),
-                direction,
-                depth,
-                exact_id: opts.exact_id,
-            })
-        },
-        |root| serde_json::json!({ "root": root }),
-        |root| {
-            print_dep_tree_result(root);
-            Ok(())
-        },
+        args.id.clone(),
+        args.direction.clone(),
+        args.depth.clone(),
     )
 }
 
@@ -345,9 +313,39 @@ where
     )
 }
 
-fn dep_type_to_string(dep_type: DependencyType) -> &'static str {
-    match dep_type {
-        DependencyType::Blocks => "blocks",
-        DependencyType::StartsAfter => "starts_after",
-    }
+fn run_dep_tree(
+    service: &TasqueService,
+    command_line: &'static str,
+    opts: GlobalOpts,
+    id: String,
+    direction: String,
+    depth: Option<String>,
+) -> i32 {
+    run_action(
+        command_line,
+        opts,
+        || {
+            let direction = parse_dep_direction(Some(&direction))?;
+            let depth = depth
+                .as_deref()
+                .map(|value| parse_positive_int(value, "depth", 1, 100))
+                .transpose()?
+                .map(|value| value as usize);
+            service.dep_tree(DepTreeInput {
+                id,
+                direction,
+                depth,
+                exact_id: opts.exact_id,
+            })
+        },
+        |root| serde_json::json!({ "root": root }),
+        |root| {
+            print_dep_tree_result(root);
+            Ok(())
+        },
+    )
+}
+
+fn dep_type_to_string(dep_type: DependencyType) -> String {
+    crate::domain::event_payload_codecs::dependency_type_as_str(dep_type)
 }

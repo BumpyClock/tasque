@@ -36,49 +36,35 @@ pub struct NoteArgs {
 
 pub fn execute_note(service: &TasqueService, command: NoteCommand, opts: GlobalOpts) -> i32 {
     match command {
-        NoteCommand::Add(args) => run_action(
-            "tsq note add",
-            opts,
-            || {
-                service.note_add(NoteAddInput {
-                    id: args.id.clone(),
-                    text: args.text.clone(),
-                    exact_id: opts.exact_id,
-                })
-            },
-            |data| data.clone(),
-            |data| {
-                print_task_note(&data.task_id, &data.note);
-                Ok(())
-            },
-        ),
-        NoteCommand::List(args) => run_action(
-            "tsq note list",
-            opts,
-            || {
-                service.note_list(NoteListInput {
-                    id: args.id.clone(),
-                    exact_id: opts.exact_id,
-                })
-            },
-            |data| data.clone(),
-            |data| {
-                print_task_notes(&data.task_id, &data.notes);
-                Ok(())
-            },
-        ),
+        NoteCommand::Add(args) => {
+            run_note_add(service, "tsq note add", opts, args.id, Ok(args.text))
+        }
+        NoteCommand::List(args) => run_note_list(service, "tsq note list", opts, args.id),
     }
 }
 
 pub fn execute_note_verb(service: &TasqueService, args: NoteArgs, opts: GlobalOpts) -> i32 {
+    run_note_add(service, "tsq note", opts, args.id.clone(), note_text(&args))
+}
+
+pub fn execute_notes_verb(service: &TasqueService, args: NoteListArgs, opts: GlobalOpts) -> i32 {
+    run_note_list(service, "tsq notes", opts, args.id)
+}
+
+fn run_note_add(
+    service: &TasqueService,
+    command_line: &'static str,
+    opts: GlobalOpts,
+    id: String,
+    text: Result<String, TsqError>,
+) -> i32 {
     run_action(
-        "tsq note",
+        command_line,
         opts,
         || {
-            let text = note_text(&args)?;
             service.note_add(NoteAddInput {
-                id: args.id.clone(),
-                text,
+                id,
+                text: text?,
                 exact_id: opts.exact_id,
             })
         },
@@ -90,13 +76,18 @@ pub fn execute_note_verb(service: &TasqueService, args: NoteArgs, opts: GlobalOp
     )
 }
 
-pub fn execute_notes_verb(service: &TasqueService, args: NoteListArgs, opts: GlobalOpts) -> i32 {
+fn run_note_list(
+    service: &TasqueService,
+    command_line: &'static str,
+    opts: GlobalOpts,
+    id: String,
+) -> i32 {
     run_action(
-        "tsq notes",
+        command_line,
         opts,
         || {
             service.note_list(NoteListInput {
-                id: args.id.clone(),
+                id,
                 exact_id: opts.exact_id,
             })
         },

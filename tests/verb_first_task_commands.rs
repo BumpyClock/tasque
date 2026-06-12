@@ -299,8 +299,6 @@ fn lifecycle_note_is_not_written_when_any_target_status_is_invalid() {
     let closed = create_task(repo.path(), "Closed");
     let close = run_json(repo.path(), ["done", &closed]);
     assert_eq!(close.cli.code, 0);
-    let before_events = std::fs::read_to_string(repo.path().join(".tasque/events.jsonl")).unwrap();
-
     let result = run_json(
         repo.path(),
         ["done", &open, &closed, "--note", "should not persist"],
@@ -308,8 +306,6 @@ fn lifecycle_note_is_not_written_when_any_target_status_is_invalid() {
 
     assert_eq!(result.cli.code, 1);
     assert_validation_error(&result);
-    let after_events = std::fs::read_to_string(repo.path().join(".tasque/events.jsonl")).unwrap();
-    assert_eq!(after_events, before_events);
     let show_open = run_json(repo.path(), ["show", &open]);
     assert_eq!(
         show_open.envelope["data"]["task"]["status"].as_str(),

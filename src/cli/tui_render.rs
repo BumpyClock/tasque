@@ -5,9 +5,7 @@ use crate::output::{err_envelope, ok_envelope};
 use crate::types::{Task, TaskKind, TaskStatus};
 use std::io::IsTerminal;
 
-use super::{
-    BoardLane, FrameResult, TaskSpecState, TuiEpicProgress, TuiFrameData, TuiTab, tab_from_data,
-};
+use super::{BoardLane, FrameResult, TaskSpecState, TuiEpicProgress, TuiFrameData, TuiView};
 
 const ANSI_CLEAR: &str = "\x1b[2J\x1b[H";
 
@@ -54,7 +52,7 @@ fn output_human_frame(frame: &FrameResult, clear_screen: bool, paused: bool) {
             println!("{}: {}", style::error("refresh failed"), error);
         }
         FrameResult::Ok(data) => {
-            let tab = tab_from_data(data);
+            let tab = data.view;
             let mut lines = vec![
                 render_shell_header(data, paused),
                 render_tabs_line(tab),
@@ -66,9 +64,9 @@ fn output_human_frame(frame: &FrameResult, clear_screen: bool, paused: bool) {
                 lines.push(style::muted("no tasks in current view"));
             } else {
                 match tab {
-                    TuiTab::Tasks => lines.extend(render_tasks_table(data, width)),
-                    TuiTab::Epics => lines.extend(render_epics_view(data, width)),
-                    TuiTab::Board => lines.extend(render_board_view(data, width)),
+                    TuiView::List => lines.extend(render_tasks_table(data, width)),
+                    TuiView::Epics => lines.extend(render_epics_view(data, width)),
+                    TuiView::Board => lines.extend(render_board_view(data, width)),
                 }
             }
             lines.push(style::muted(&"-".repeat(width)));
@@ -96,18 +94,18 @@ fn render_shell_header(data: &TuiFrameData, paused: bool) -> String {
     ))
 }
 
-fn render_tabs_line(tab: TuiTab) -> String {
-    let tasks = if tab == TuiTab::Tasks {
+fn render_tabs_line(tab: TuiView) -> String {
+    let tasks = if tab == TuiView::List {
         style::heading("[Tasks]")
     } else {
         style::muted("[Tasks]")
     };
-    let epics = if tab == TuiTab::Epics {
+    let epics = if tab == TuiView::Epics {
         style::heading("[Epics]")
     } else {
         style::muted("[Epics]")
     };
-    let board = if tab == TuiTab::Board {
+    let board = if tab == TuiView::Board {
         style::heading("[Board]")
     } else {
         style::muted("[Board]")
@@ -280,7 +278,7 @@ fn render_inspector(data: &TuiFrameData, width: usize) -> Vec<String> {
     let planning = task
         .planning_state
         .map(planning_state_to_string)
-        .unwrap_or("needs_planning");
+        .unwrap_or_else(|| "needs_planning".to_string());
 
     lines.push(format!("id={}", style::task_id(&task.id)));
     lines.push(format!(
@@ -323,27 +321,16 @@ fn render_spec_inspector_line(task: &Task, width: usize) -> String {
     format!("spec={}", truncate_with_ellipsis(&spec_value, max_width))
 }
 
-fn task_kind_to_string(kind: TaskKind) -> &'static str {
-    match kind {
-        TaskKind::Task => "task",
-        TaskKind::Feature => "feature",
-        TaskKind::Epic => "epic",
-    }
+fn task_kind_to_string(kind: TaskKind) -> String {
+    crate::domain::event_payload_codecs::task_kind_as_str(kind)
 }
 
 fn type_pill(kind: TaskKind) -> String {
     format!("[{}]", task_kind_to_string(kind))
 }
 
-fn status_to_string(status: TaskStatus) -> &'static str {
-    match status {
-        TaskStatus::Open => "open",
-        TaskStatus::InProgress => "in_progress",
-        TaskStatus::Blocked => "blocked",
-        TaskStatus::Closed => "closed",
-        TaskStatus::Canceled => "canceled",
-        TaskStatus::Deferred => "deferred",
-    }
+fn status_to_string(status: TaskStatus) -> String {
+    crate::domain::event_payload_codecs::task_status_as_str(status)
 }
 
 fn status_pill(status: TaskStatus) -> String {
@@ -354,11 +341,8 @@ fn priority_pill(priority: u8) -> String {
     format!("[P{}]", priority)
 }
 
-fn planning_state_to_string(state: crate::types::PlanningState) -> &'static str {
-    match state {
-        crate::types::PlanningState::NeedsPlanning => "needs_planning",
-        crate::types::PlanningState::Planned => "planned",
-    }
+fn planning_state_to_string(state: crate::types::PlanningState) -> String {
+    crate::domain::event_payload_codecs::planning_state_as_str(state)
 }
 
 fn spec_state(task: &Task) -> TaskSpecState {

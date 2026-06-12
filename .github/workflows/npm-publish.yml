@@ -8,12 +8,11 @@ on:
       dry_run:
         description: "Dry run (skip actual publish)"
         required: false
-        default: "false"
+        default: false
         type: boolean
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   build:
@@ -154,7 +153,7 @@ jobs:
         if: runner.os != 'Windows'
         uses: actions/upload-artifact@v7
         with:
-          name: binary-${{ matrix.platform }}
+          name: binary-${{ matrix.platform }}--${{ matrix.target }}
           path: |
             target/${{ matrix.target }}/release/tsq
             target/${{ matrix.target }}/release/tsq-tui
@@ -163,7 +162,7 @@ jobs:
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v7
         with:
-          name: binary-${{ matrix.platform }}
+          name: binary-${{ matrix.platform }}--${{ matrix.target }}
           path: |
             target/${{ matrix.target }}/release/tsq.exe
             target/${{ matrix.target }}/release/tsq-tui.exe
@@ -172,6 +171,9 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     name: publish
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - uses: actions/checkout@v6
@@ -189,16 +191,9 @@ jobs:
       - name: Reorganize artifacts
         run: |
           mkdir -p artifacts
-          for dir in raw-artifacts/binary-*/; do
-            platform=$(basename "$dir" | sed 's/^binary-//')
-            case "$platform" in
-              darwin-arm64) target="aarch64-apple-darwin" ;;
-              darwin-x64) target="x86_64-apple-darwin" ;;
-              linux-x64-gnu) target="x86_64-unknown-linux-gnu" ;;
-              linux-arm64-gnu) target="aarch64-unknown-linux-gnu" ;;
-              win32-x64-msvc) target="x86_64-pc-windows-msvc" ;;
-              win32-arm64-msvc) target="aarch64-pc-windows-msvc" ;;
-            esac
+          for dir in raw-artifacts/binary-*--*/; do
+            artifact=$(basename "$dir")
+            target=${artifact#*--}
             mkdir -p "artifacts/$target"
             cp "$dir"* "artifacts/$target/"
           done
@@ -211,39 +206,43 @@ jobs:
         run: |
           set -euo pipefail
 
-          declare -A EXPECTED_TSQ=(
-            ["darwin-arm64"]="tsq"
-            ["darwin-x64"]="tsq"
-            ["linux-x64-gnu"]="tsq"
-            ["linux-arm64-gnu"]="tsq"
-            ["win32-x64-msvc"]="tsq.exe"
-            ["win32-arm64-msvc"]="tsq.exe"
-          )
-          declare -A EXPECTED_TUI=(
-            ["darwin-arm64"]="tsq-tui"
-            ["darwin-x64"]="tsq-tui"
-            ["linux-x64-gnu"]="tsq-tui"
-            ["linux-arm64-gnu"]="tsq-tui"
-            ["win32-x64-msvc"]="tsq-tui.exe"
-            ["win32-arm64-msvc"]="tsq-tui.exe"
-          )
-
           missing=0
-          for platform in "${!EXPECTED_TSQ[@]}"; do
-            dir="npm/platforms/$platform"
-            bin="$dir/${EXPECTED_TSQ[$platform]}"
+          while IFS=$'\t' read -r platform file; do
+            [[ -n "$platform" && -n "$file" ]] || continue
+            bin="npm/platforms/$platform/$file"
             if [[ ! -s "$bin" ]]; then
-              echo "::error::Missing expected binary for $platform: $bin"
-              ls -la "$dir" || true
+              echo "::error::Missing expected binary declared by $platform/package.json: $bin"
+              ls -la "npm/platforms/$platform" || true
               missing=1
             fi
-            tui="$dir/${EXPECTED_TUI[$platform]}"
-            if [[ ! -s "$tui" ]]; then
-              echo "::error::Missing expected OpenTUI binary for $platform: $tui"
-              ls -la "$dir" || true
-              missing=1
-            fi
-          done
+          done < <(node - <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          for (const entry of fs.readdirSync('npm/platforms', { withFileTypes: true })) {
+            if (!entry.isDirectory()) continue;
+            const platform = entry.name;
+            const manifestPath = path.join('npm/platforms', platform, 'package.json');
+            if (!fs.existsSync(manifestPath)) {
+              console.error(`Missing platform manifest for ${platform}: ${manifestPath}`);
+              process.exit(1);
+            }
+            let manifest;
+            try {
+              manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+            } catch (error) {
+              console.error(`Invalid platform manifest for ${platform}: ${manifestPath}: ${error.message}`);
+              process.exit(1);
+            }
+            if (!Array.isArray(manifest.files)) {
+              console.error(`Invalid files array for ${platform}: ${manifestPath}`);
+              process.exit(1);
+            }
+            for (const file of manifest.files.filter((file) => file === 'tsq' || file === 'tsq.exe' || file === 'tsq-tui' || file === 'tsq-tui.exe')) {
+              console.log(`${platform}\t${file}`);
+            }
+          }
+          NODE
+          )
 
           if [[ "$missing" -ne 0 ]]; then
             echo "Pre-publish validation failed."
@@ -254,8 +253,6 @@ jobs:
 
       - name: Publish platform packages
         if: ${{ !inputs.dry_run }}
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           VERSION=$(node -e "console.log(require('./npm/package.json').version)")
           for dir in npm/platforms/*/; do
@@ -271,8 +268,6 @@ jobs:
 
       - name: Publish root package
         if: ${{ !inputs.dry_run }}
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           VERSION=$(node -e "console.log(require('./npm/package.json').version)")
           PKG_NAME="@bumpyclock/tasque"

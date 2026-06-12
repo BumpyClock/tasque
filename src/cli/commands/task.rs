@@ -1,5 +1,6 @@
 use crate::app::runtime::normalize_status;
 use crate::app::service::TasqueService;
+use crate::app::service_query::ShowResult;
 use crate::app::service_types::{
     ClaimInput, DuplicateInput, MergeInput, SpecContentInput, SpecContentResult, StaleInput,
     SupersedeInput, UpdateInput,
@@ -9,7 +10,9 @@ use crate::cli::parsers::{
     as_optional_string, parse_non_negative_int, parse_positive_int, parse_priority_value,
 };
 use crate::cli::render::{
-    print_merge_result, print_show_result, print_spec_content, print_task, print_task_list,
+    print_history, print_history_plain, print_merge_result, print_show_result,
+    print_show_result_plain, print_spec_content, print_spec_content_plain, print_task,
+    print_task_list, print_task_notes, print_task_notes_plain,
 };
 use crate::errors::TsqError;
 use clap::Args;
@@ -30,8 +33,18 @@ pub use task_lifecycle::{
 #[derive(Debug, Args)]
 pub struct ShowArgs {
     pub id: String,
-    #[arg(long = "with-spec", default_value_t = false)]
+    #[arg(long = "with-spec", alias = "spec", default_value_t = false)]
     pub with_spec: bool,
+    #[arg(long, default_value_t = false)]
+    pub deps: bool,
+    #[arg(long, default_value_t = false)]
+    pub notes: bool,
+    #[arg(long, default_value_t = false)]
+    pub history: bool,
+    #[arg(long = "all-notes", default_value_t = false)]
+    pub all_notes: bool,
+    #[arg(long = "all-history", default_value_t = false)]
+    pub all_history: bool,
 }
 
 #[derive(Debug, Args)]
@@ -74,6 +87,15 @@ pub struct ClaimArgs {
     pub assignee: Option<String>,
     #[arg(long, default_value_t = false)]
     pub start: bool,
+    #[arg(long = "require-spec", default_value_t = false)]
+    pub require_spec: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct WorkonArgs {
+    pub id: String,
+    #[arg(long)]
+    pub assignee: Option<String>,
     #[arg(long = "require-spec", default_value_t = false)]
     pub require_spec: bool,
 }
@@ -128,30 +150,161 @@ pub struct MergeArgs {
 }
 
 pub fn execute_show(service: &TasqueService, args: ShowArgs, opts: GlobalOpts) -> i32 {
+    let selected = args.with_spec || args.deps || args.notes || args.history;
     run_action(
         "tsq show",
         opts,
         || {
             let show = service.show(&args.id, opts.exact_id)?;
+            let spec_input = SpecContentInput {
+                id: args.id.clone(),
+                exact_id: opts.exact_id,
+            };
             let spec = if args.with_spec {
-                Some(service.spec_content(SpecContentInput {
-                    id: args.id.clone(),
-                    exact_id: opts.exact_id,
-                })?)
+                Some(service.spec_content(spec_input)).transpose()?
+            } else if !selected {
+                service.spec_content(spec_input).ok()
             } else {
                 None
             };
             Ok((show, spec))
         },
-        |(show, spec)| show_json(show, spec.as_ref()),
         |(show, spec)| {
-            print_show_result(show);
+            let notes_limit = if args.all_notes { usize::MAX } else { 5 };
+            let history_limit = if args.all_history { usize::MAX } else { 10 };
+            show_data_json(
+                service,
+                show,
+                spec.as_ref(),
+                !selected || args.deps,
+                !selected || args.with_spec,
+                !selected || args.notes,
+                !selected || args.history,
+                notes_limit,
+                history_limit,
+            )
+        },
+        |(show, spec)| {
+            let notes_limit = if args.all_notes { usize::MAX } else { 5 };
+            let history_limit = if args.all_history { usize::MAX } else { 10 };
+            if opts.plain() {
+                if !selected || args.deps {
+                    print_show_result_plain(show);
+                }
+                if let Some(spec) = spec {
+                    print_spec_content_plain(spec);
+                }
+                if !selected || args.notes {
+                    let notes = show
+                        .task
+                        .notes
+                        .iter()
+                        .take(notes_limit)
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    print_task_notes_plain(&show.task.id, &notes);
+                }
+                if !selected || args.history {
+                    let events = show
+                        .history
+                        .iter()
+                        .rev()
+                        .take(history_limit)
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    print_history_plain(&crate::app::service_types::HistoryResult {
+                        count: events.len(),
+                        truncated: show.history.len() > events.len(),
+                        events,
+                    });
+                }
+                return Ok(());
+            }
+            if !selected || args.deps {
+                print_show_result(show);
+            }
             if let Some(spec) = spec {
                 print_spec_content(spec);
+            }
+            if !selected || args.notes {
+                let notes = show
+                    .task
+                    .notes
+                    .iter()
+                    .take(notes_limit)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                print_task_notes(&show.task.id, &notes);
+            }
+            if !selected || args.history {
+                let events = show
+                    .history
+                    .iter()
+                    .rev()
+                    .take(history_limit)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                print_history(&crate::app::service_types::HistoryResult {
+                    count: events.len(),
+                    truncated: show.history.len() > events.len(),
+                    events,
+                });
             }
             Ok(())
         },
     )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn show_data_json(
+    service: &TasqueService,
+    show: &ShowResult,
+    spec: Option<&SpecContentResult>,
+    include_deps: bool,
+    include_spec: bool,
+    include_notes: bool,
+    include_history: bool,
+    notes_limit: usize,
+    history_limit: usize,
+) -> serde_json::Value {
+    let mut json = serde_json::json!({
+        "task": show.task,
+        "root": service.repo_root(),
+    });
+    let data = json.as_object_mut().expect("show JSON object");
+    if include_deps {
+        data.insert(
+            "deps".to_string(),
+            serde_json::json!({
+                "blockers": show.blocker_edges,
+                "dependents": show.dependent_edges,
+                "ready": show.ready,
+                "links": show.links,
+            }),
+        );
+    }
+    if include_spec {
+        data.insert("spec".to_string(), serde_json::json!(spec));
+    }
+    if include_notes {
+        data.insert(
+            "notes".to_string(),
+            serde_json::json!(show.task.notes.iter().take(notes_limit).collect::<Vec<_>>()),
+        );
+    }
+    if include_history {
+        data.insert(
+            "history".to_string(),
+            serde_json::json!(
+                show.history
+                    .iter()
+                    .rev()
+                    .take(history_limit)
+                    .collect::<Vec<_>>()
+            ),
+        );
+    }
+    json
 }
 
 pub fn execute_stale(service: &TasqueService, args: StaleArgs, opts: GlobalOpts) -> i32 {
@@ -345,6 +498,7 @@ pub fn execute_claim(service: &TasqueService, args: ClaimArgs, opts: GlobalOpts)
             service.claim(ClaimInput {
                 id: args.id.clone(),
                 assignee: as_optional_string(args.assignee.as_deref()),
+                start: args.start,
                 require_spec: args.require_spec,
                 exact_id: opts.exact_id,
             })
@@ -352,6 +506,38 @@ pub fn execute_claim(service: &TasqueService, args: ClaimArgs, opts: GlobalOpts)
         |task| serde_json::json!({ "task": task }),
         |task| {
             print_task(task);
+            Ok(())
+        },
+    )
+}
+
+pub fn execute_workon(service: &TasqueService, args: WorkonArgs, opts: GlobalOpts) -> i32 {
+    run_action(
+        "tsq workon",
+        opts,
+        || {
+            service.claim(ClaimInput {
+                id: args.id.clone(),
+                assignee: as_optional_string(args.assignee.as_deref()),
+                start: true,
+                require_spec: args.require_spec,
+                exact_id: opts.exact_id,
+            })?;
+            let show = service.show(&args.id, opts.exact_id)?;
+            let spec_input = SpecContentInput {
+                id: args.id.clone(),
+                exact_id: opts.exact_id,
+            };
+            let spec = service.spec_content(spec_input).ok();
+            Ok((show, spec))
+        },
+        |(show, spec)| show_data_json(service, show, spec.as_ref(), true, true, true, true, 5, 10),
+        |(show, _spec)| {
+            if opts.plain() {
+                crate::cli::render::print_show_result_plain(show);
+            } else {
+                print_show_result(show);
+            }
             Ok(())
         },
     )
@@ -465,33 +651,4 @@ fn validate_sentence_token(value: &str, expected: &str, example: &str) -> Result
         format!("expected `{}`; use `{}`", expected, example),
         1,
     ))
-}
-
-fn show_json(
-    show: &crate::app::service::ShowResult,
-    spec: Option<&SpecContentResult>,
-) -> serde_json::Value {
-    let mut value = serde_json::to_value(show).unwrap_or_else(|_| {
-        serde_json::json!({
-            "task": show.task,
-            "blockers": show.blockers,
-            "dependents": show.dependents,
-            "ready": show.ready,
-            "links": show.links,
-            "history": show.history,
-        })
-    });
-    if let Some(spec) = spec
-        && let Some(object) = value.as_object_mut()
-    {
-        object.insert(
-            "spec".to_string(),
-            serde_json::json!({
-                "path": spec.spec_path,
-                "fingerprint": spec.spec_fingerprint,
-                "content": spec.content,
-            }),
-        );
-    }
-    value
 }

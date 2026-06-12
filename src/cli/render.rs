@@ -12,6 +12,14 @@ pub struct TreeRenderOptions {
 
 const MAX_NARROW_TREE_PREFIX_WIDTH: usize = 24;
 
+fn plain_cell(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('\t', "\\t")
+        .replace('\r', "\\r")
+        .replace('\n', "\\n")
+}
+
 pub fn print_task_list(tasks: &[Task]) {
     if tasks.is_empty() {
         println!("{}", style::muted("no tasks"));
@@ -78,6 +86,21 @@ pub fn print_task_list(tasks: &[Task]) {
     }
 }
 
+pub fn print_task_list_plain(tasks: &[Task]) {
+    for task in tasks {
+        println!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            plain_cell(&task.id),
+            plain_cell(&task.alias),
+            task.priority,
+            task_kind_to_string(task.kind),
+            status_to_string(task.status),
+            plain_cell(task.assignee.as_deref().unwrap_or("-")),
+            plain_cell(&task.title)
+        );
+    }
+}
+
 pub fn print_task(task: &Task) {
     println!("{} {} {}", style::task_id(&task.id), task.alias, task.title);
     println!(
@@ -141,6 +164,47 @@ pub fn print_task(task: &Task) {
     }
 }
 
+pub fn print_task_plain(task: &Task) {
+    println!("id\t{}", plain_cell(&task.id));
+    println!("alias\t{}", plain_cell(&task.alias));
+    println!("title\t{}", plain_cell(&task.title));
+    println!("kind\t{}", task_kind_to_string(task.kind));
+    println!("status\t{}", status_to_string(task.status));
+    println!("priority\t{}", task.priority);
+    if let Some(planning_state) = task.planning_state {
+        println!("planning\t{}", planning_state_to_string(planning_state));
+    }
+    if let Some(assignee) = &task.assignee {
+        println!("assignee\t{}", plain_cell(assignee));
+    }
+    if let Some(external_ref) = &task.external_ref {
+        println!("external_ref\t{}", plain_cell(external_ref));
+    }
+    if let Some(discovered_from) = &task.discovered_from {
+        println!("discovered_from\t{}", plain_cell(discovered_from));
+    }
+    if let Some(superseded_by) = &task.superseded_by {
+        println!("superseded_by\t{}", plain_cell(superseded_by));
+    }
+    if let Some(duplicate_of) = &task.duplicate_of {
+        println!("duplicate_of\t{}", plain_cell(duplicate_of));
+    }
+    if let Some(parent) = &task.parent_id {
+        println!("parent\t{}", plain_cell(parent));
+    }
+    if let Some(description) = &task.description {
+        println!("description\t{}", plain_cell(description));
+    }
+    println!("notes\t{}", task.notes.len());
+    if let (Some(spec_path), Some(spec_fingerprint)) = (&task.spec_path, &task.spec_fingerprint) {
+        println!(
+            "spec\t{}\t{}",
+            plain_cell(spec_path),
+            plain_cell(spec_fingerprint)
+        );
+    }
+}
+
 pub fn print_show_result(data: &ShowResult) {
     print_task(&data.task);
     if !data.blocker_edges.is_empty() {
@@ -178,6 +242,33 @@ pub fn print_show_result(data: &ShowResult) {
     }
 }
 
+pub fn print_show_result_plain(data: &ShowResult) {
+    print_task_plain(&data.task);
+    for edge in &data.blocker_edges {
+        println!(
+            "blocker\t{}\t{}",
+            plain_cell(&edge.id),
+            dep_type_to_string(edge.dep_type)
+        );
+    }
+    for edge in &data.dependent_edges {
+        println!(
+            "dependent\t{}\t{}",
+            plain_cell(&edge.id),
+            dep_type_to_string(edge.dep_type)
+        );
+    }
+    println!("ready\t{}", data.ready);
+    if !data.history.is_empty() {
+        println!("history_events\t{}", data.history.len());
+    }
+    for (kind, values) in &data.links {
+        for value in values {
+            println!("link\t{}\t{}", plain_cell(kind), plain_cell(value));
+        }
+    }
+}
+
 pub fn print_spec_content(data: &SpecContentResult) {
     println!("--- spec: {} ---", data.spec_path);
     print!("{}", data.content);
@@ -185,6 +276,11 @@ pub fn print_spec_content(data: &SpecContentResult) {
         println!();
     }
     println!("--- end spec ---");
+}
+
+pub fn print_spec_content_plain(data: &SpecContentResult) {
+    println!("spec_path\t{}", plain_cell(&data.spec_path));
+    println!("spec_content\t{}", plain_cell(&data.content));
 }
 
 pub fn print_task_tree(nodes: &[TaskTreeNode]) {
@@ -424,7 +520,7 @@ pub fn print_merge_result(result: &MergeResult) {
                 .target
                 .planning_state
                 .map(planning_state_to_string)
-                .unwrap_or("needs_planning")
+                .unwrap_or_else(|| "needs_planning".to_string())
         );
         for source in &projected.sources {
             println!(
@@ -626,7 +722,7 @@ pub fn print_history(data: &HistoryResult) {
         println!(
             "{} {} {}={} [{}]",
             event.ts,
-            style::flow(event_type_to_string(event.event_type)),
+            style::flow(&event_type_to_string(event.event_type)),
             style::key("by"),
             event.actor,
             style::muted(&event_id)
@@ -639,6 +735,30 @@ pub fn print_history(data: &HistoryResult) {
                 "(showing {}, use --limit to see more)",
                 data.count
             ))
+        );
+    }
+}
+
+pub fn print_history_plain(data: &HistoryResult) {
+    for event in &data.events {
+        let event_id = event
+            .id
+            .as_ref()
+            .or(event.event_id.as_ref())
+            .cloned()
+            .unwrap_or_else(|| "unknown".to_string());
+        println!(
+            "{}\t{}\t{}\t{}",
+            plain_cell(&event.ts),
+            event_type_to_string(event.event_type),
+            plain_cell(&event.actor),
+            plain_cell(&event_id)
+        );
+    }
+    if data.truncated {
+        println!(
+            "# truncated\tshowing_{}\tuse_--limit_to_see_more",
+            data.count
         );
     }
 }
@@ -689,6 +809,19 @@ pub fn print_task_notes(task_id: &str, notes: &[TaskNote]) {
             style::muted(&note.event_id)
         );
         println!("{}", note.text);
+    }
+}
+
+pub fn print_task_notes_plain(task_id: &str, notes: &[TaskNote]) {
+    for note in notes {
+        println!(
+            "{}\t{}\t{}\t{}\t{}",
+            plain_cell(task_id),
+            plain_cell(&note.ts),
+            plain_cell(&note.actor),
+            plain_cell(&note.event_id),
+            plain_cell(&note.text)
+        );
     }
 }
 
@@ -777,46 +910,24 @@ fn parse_status_label(value: &str) -> Option<TaskStatus> {
     }
 }
 
-fn task_kind_to_string(kind: crate::types::TaskKind) -> &'static str {
-    match kind {
-        crate::types::TaskKind::Task => "task",
-        crate::types::TaskKind::Feature => "feature",
-        crate::types::TaskKind::Epic => "epic",
-    }
+fn task_kind_to_string(kind: crate::types::TaskKind) -> String {
+    crate::domain::event_payload_codecs::task_kind_as_str(kind)
 }
 
-pub fn status_to_string(status: TaskStatus) -> &'static str {
-    match status {
-        TaskStatus::Open => "open",
-        TaskStatus::InProgress => "in_progress",
-        TaskStatus::Blocked => "blocked",
-        TaskStatus::Closed => "closed",
-        TaskStatus::Canceled => "canceled",
-        TaskStatus::Deferred => "deferred",
-    }
+pub fn status_to_string(status: TaskStatus) -> String {
+    crate::domain::event_payload_codecs::task_status_as_str(status)
 }
 
-fn planning_state_to_string(state: crate::types::PlanningState) -> &'static str {
-    match state {
-        crate::types::PlanningState::NeedsPlanning => "needs_planning",
-        crate::types::PlanningState::Planned => "planned",
-    }
+fn planning_state_to_string(state: crate::types::PlanningState) -> String {
+    crate::domain::event_payload_codecs::planning_state_as_str(state)
 }
 
-fn dep_type_to_string(dep_type: crate::types::DependencyType) -> &'static str {
-    match dep_type {
-        crate::types::DependencyType::Blocks => "blocks",
-        crate::types::DependencyType::StartsAfter => "starts_after",
-    }
+fn dep_type_to_string(dep_type: crate::types::DependencyType) -> String {
+    crate::domain::event_payload_codecs::dependency_type_as_str(dep_type)
 }
 
-fn relation_type_to_string(rel_type: crate::types::RelationType) -> &'static str {
-    match rel_type {
-        crate::types::RelationType::RelatesTo => "relates_to",
-        crate::types::RelationType::RepliesTo => "replies_to",
-        crate::types::RelationType::Duplicates => "duplicates",
-        crate::types::RelationType::Supersedes => "supersedes",
-    }
+fn relation_type_to_string(rel_type: crate::types::RelationType) -> String {
+    crate::domain::event_payload_codecs::relation_type_as_str(rel_type)
 }
 
 fn dep_direction_to_string(direction: crate::domain::dep_tree::DepDirection) -> &'static str {
@@ -827,20 +938,8 @@ fn dep_direction_to_string(direction: crate::domain::dep_tree::DepDirection) -> 
     }
 }
 
-fn event_type_to_string(event_type: crate::types::EventType) -> &'static str {
-    match event_type {
-        crate::types::EventType::TaskCreated => "task.created",
-        crate::types::EventType::TaskUpdated => "task.updated",
-        crate::types::EventType::TaskStatusSet => "task.status_set",
-        crate::types::EventType::TaskClaimed => "task.claimed",
-        crate::types::EventType::TaskNoted => "task.noted",
-        crate::types::EventType::TaskSpecAttached => "task.spec_attached",
-        crate::types::EventType::TaskSuperseded => "task.superseded",
-        crate::types::EventType::DepAdded => "dep.added",
-        crate::types::EventType::DepRemoved => "dep.removed",
-        crate::types::EventType::LinkAdded => "link.added",
-        crate::types::EventType::LinkRemoved => "link.removed",
-    }
+fn event_type_to_string(event_type: crate::types::EventType) -> String {
+    crate::domain::event_payload_codecs::event_type_as_str(event_type)
 }
 
 #[cfg(test)]

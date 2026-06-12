@@ -2,7 +2,7 @@ use crate::app::service::TasqueService;
 use crate::app::service_types::ListFilter;
 use crate::cli::render::{
     TreeRenderOptions, format_meta_badge, format_status, format_status_text, render_task_tree,
-    truncate_with_ellipsis,
+    status_to_string, truncate_with_ellipsis,
 };
 use crate::cli::style;
 use crate::cli::terminal::{Density, resolve_density, resolve_width};
@@ -539,15 +539,4 @@ fn compute_summary(tasks: &[Task]) -> WatchSummary {
         }
     }
     summary
-}
-
-fn status_to_string(status: TaskStatus) -> &'static str {
-    match status {
-        TaskStatus::Open => "open",
-        TaskStatus::InProgress => "in_progress",
-        TaskStatus::Blocked => "blocked",
-        TaskStatus::Closed => "closed",
-        TaskStatus::Canceled => "canceled",
-        TaskStatus::Deferred => "deferred",
-    }
 }

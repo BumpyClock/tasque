@@ -67,47 +67,52 @@ fn read_events_accepts_legacy_status_inside_task_updated_payload() {
 
 #[test]
 fn append_trims_malformed_trailing_jsonl_line_before_writing_new_events() {
-    let dir = TempDir::new().expect("tempdir");
-    let repo = dir.path();
-    let paths = tasque::store::paths::get_paths(repo);
-    std::fs::create_dir_all(&paths.tasque_dir).expect("create tasque dir");
+    let (dir, paths) = repo_with_malformed_tail("{");
 
-    let first = task_created_event("tsq-root0001", "first");
-    let first_line = serde_json::to_string(&first).expect("serialize first");
-    fs::write(&paths.events_file, format!("{}\n{{", first_line)).expect("write corrupt tail");
-
-    append_events(repo, &[task_created_event("tsq-root0002", "second")])
+    append_events(dir.path(), &[task_created_event("tsq-root0002", "second")])
         .expect("append after corrupt tail");
 
-    let raw = fs::read_to_string(&paths.events_file).expect("read events");
-    assert!(raw.lines().all(|line| line.trim() != "{"));
-    let read = read_events_from_path(&paths.events_file).expect("read repaired events");
-    let ids = read
-        .events
-        .iter()
-        .map(|event| event.task_id.as_str())
-        .collect::<Vec<_>>();
-    assert_eq!(ids, vec!["tsq-root0001", "tsq-root0002"]);
-    assert!(read.warning.is_none());
+    assert_repaired_two_event_log(&paths.events_file);
 }
 
 #[test]
 fn append_trims_malformed_trailing_jsonl_line_even_when_file_ends_with_newline() {
+    let (dir, paths) = repo_with_malformed_tail("{\n");
+
+    append_events(dir.path(), &[task_created_event("tsq-root0002", "second")])
+        .expect("append after corrupt tail");
+
+    assert_repaired_two_event_log(&paths.events_file);
+}
+
+#[test]
+fn append_after_malformed_tail_survives_app_level_replay_without_cache() {
+    let (dir, paths) = repo_with_malformed_tail("{");
+
+    append_events(dir.path(), &[task_created_event("tsq-root0002", "second")])
+        .expect("append second");
+    let _ = fs::remove_file(&paths.state_file);
+
+    let loaded = load_projected_state(dir.path()).expect("full replay");
+    assert!(loaded.state.tasks.contains_key("tsq-root0001"));
+    assert!(loaded.state.tasks.contains_key("tsq-root0002"));
+}
+
+fn repo_with_malformed_tail(tail: &str) -> (TempDir, tasque::store::paths::TasquePaths) {
     let dir = TempDir::new().expect("tempdir");
-    let repo = dir.path();
-    let paths = tasque::store::paths::get_paths(repo);
+    let paths = tasque::store::paths::get_paths(dir.path());
     std::fs::create_dir_all(&paths.tasque_dir).expect("create tasque dir");
 
     let first = task_created_event("tsq-root0001", "first");
     let first_line = serde_json::to_string(&first).expect("serialize first");
-    fs::write(&paths.events_file, format!("{}\n{{\n", first_line)).expect("write corrupt tail");
+    fs::write(&paths.events_file, format!("{}\n{}", first_line, tail)).expect("write corrupt tail");
+    (dir, paths)
+}
 
-    append_events(repo, &[task_created_event("tsq-root0002", "second")])
-        .expect("append after corrupt tail");
-
-    let raw = fs::read_to_string(&paths.events_file).expect("read events");
+fn assert_repaired_two_event_log(path: &std::path::Path) {
+    let raw = fs::read_to_string(path).expect("read events");
     assert!(raw.lines().all(|line| line.trim() != "{"));
-    let read = read_events_from_path(&paths.events_file).expect("read repaired events");
+    let read = read_events_from_path(path).expect("read repaired events");
     let ids = read
         .events
         .iter()
@@ -115,25 +120,6 @@ fn append_trims_malformed_trailing_jsonl_line_even_when_file_ends_with_newline()
         .collect::<Vec<_>>();
     assert_eq!(ids, vec!["tsq-root0001", "tsq-root0002"]);
     assert!(read.warning.is_none());
-}
-
-#[test]
-fn append_after_malformed_tail_survives_app_level_replay_without_cache() {
-    let dir = TempDir::new().expect("tempdir");
-    let repo = dir.path();
-    let paths = tasque::store::paths::get_paths(repo);
-    std::fs::create_dir_all(&paths.tasque_dir).expect("create tasque dir");
-
-    let first = task_created_event("tsq-root0001", "first");
-    let first_line = serde_json::to_string(&first).expect("serialize first");
-    fs::write(&paths.events_file, format!("{}\n{{", first_line)).expect("write corrupt tail");
-
-    append_events(repo, &[task_created_event("tsq-root0002", "second")]).expect("append second");
-    let _ = fs::remove_file(&paths.state_file);
-
-    let loaded = load_projected_state(repo).expect("full replay");
-    assert!(loaded.state.tasks.contains_key("tsq-root0001"));
-    assert!(loaded.state.tasks.contains_key("tsq-root0002"));
 }
 
 #[test]

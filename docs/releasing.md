@@ -46,6 +46,7 @@ Release automation uses these workflows:
   - Action: runs Rust format/lint/tests, builds release artifacts on Linux/macOS/Windows, bundles `SKILLS`, uploads `dist/releases/*`.
 - `/.github/workflows/npm-publish.yml`
   - Trigger: GitHub Release `published` or manual `workflow_dispatch`.
+  - Auth: npm Trusted Publishing/OIDC from GitHub Actions; no `NPM_TOKEN` is required for publish.
   - Action: builds target binaries, runs `scripts/build-npm.sh`, publishes platform packages, then publishes `@bumpyclock/tasque`.
 
 ## Standard Release Path
@@ -70,16 +71,20 @@ Use this when releasing directly from the current `Cargo.toml` version:
 
 ## npm Package Flow
 
-`npm-publish.yml` builds six platform packages:
-
-- `@bumpyclock/tasque-darwin-arm64`
-- `@bumpyclock/tasque-darwin-x64`
-- `@bumpyclock/tasque-linux-x64-gnu`
-- `@bumpyclock/tasque-linux-arm64-gnu`
-- `@bumpyclock/tasque-win32-x64-msvc`
-- `@bumpyclock/tasque-win32-arm64-msvc`
+`npm-publish.yml` builds platform packages declared by the root package `optionalDependencies` and `npm/platforms/*/package.json` manifests.
 
 Then it publishes root package `@bumpyclock/tasque`, whose optional dependencies point at those platform packages.
+
+npm publishing uses Trusted Publishing. Each npm package must trust GitHub Actions for repository `BumpyClock/tasque` and workflow filename `npm-publish.yml`. The workflow grants `id-token: write` only to the publish job so npm can exchange the GitHub OIDC identity for short-lived publish credentials.
+
+Trusted Publisher settings for all seven npm packages:
+
+- Provider: GitHub Actions
+- Repository: `BumpyClock/tasque`
+- Workflow filename: `npm-publish.yml`
+- Environment: blank (the workflow intentionally has no `environment:` gate so standard releases publish automatically)
+
+Do not add `NODE_AUTH_TOKEN` or `NPM_TOKEN` to the publish steps. If publishing fails with `ENEEDAUTH`, verify the npm Trusted Publisher settings before adding token fallback.
 
 `scripts/build-npm.sh`:
 
@@ -112,7 +117,7 @@ gh run watch "$(gh run list --workflow "npm-publish" --limit 1 --json databaseId
 Manual npm publish:
 
 ```bash
-gh workflow run npm-publish.yml --ref v0.4.0 -f dry_run=false
+gh workflow run npm-publish.yml --ref v<version> -f dry_run=false
 ```
 
 ## Verification Checklist

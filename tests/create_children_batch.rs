@@ -1,6 +1,6 @@
 mod common;
 
-use common::{init_repo, run_json};
+use common::{JsonOutput, init_repo, run_json};
 use serde_json::Value;
 
 #[test]
@@ -21,12 +21,7 @@ fn create_supports_multiple_children_for_single_parent() {
     );
 
     assert_eq!(result.cli.code, 0);
-    let tasks = result
-        .envelope
-        .get("data")
-        .and_then(|value| value.get("tasks"))
-        .and_then(Value::as_array)
-        .expect("expected data.tasks array");
+    let tasks = data_tasks(&result);
     assert_eq!(tasks.len(), 2);
 
     let ids: Vec<String> = tasks
@@ -51,12 +46,7 @@ fn create_supports_multiple_root_tasks_without_parent() {
 
     let result = run_json(repo.path(), ["create", "Root A", "Root B"]);
     assert_eq!(result.cli.code, 0);
-    let tasks = result
-        .envelope
-        .get("data")
-        .and_then(|value| value.get("tasks"))
-        .and_then(Value::as_array)
-        .expect("expected data.tasks array");
+    let tasks = data_tasks(&result);
     assert_eq!(tasks.len(), 2);
     assert!(tasks.iter().all(|task| task.get("parent_id").is_none()));
 }
@@ -113,15 +103,9 @@ fn create_ensure_is_idempotent_for_root_task() {
 
     let listed = run_json(repo.path(), ["find", "open"]);
     assert_eq!(listed.cli.code, 0);
-    let root_matches = listed
-        .envelope
-        .get("data")
-        .and_then(|value| value.get("tasks"))
-        .and_then(Value::as_array)
-        .expect("expected data.tasks array")
-        .iter()
-        .filter(|task| task.get("title").and_then(Value::as_str) == Some("Root task"))
-        .count();
+    let root_matches = count_tasks(&listed, |task| {
+        task.get("title").and_then(Value::as_str) == Some("Root task")
+    });
     assert_eq!(root_matches, 1);
 }
 
@@ -146,40 +130,16 @@ fn create_ensure_is_idempotent_for_parent_children_batch() {
     assert_eq!(second.cli.code, 0);
 
     let expected_ids = vec![format!("{}.1", parent), format!("{}.2", parent)];
-    let first_ids: Vec<String> = first
-        .envelope
-        .get("data")
-        .and_then(|value| value.get("tasks"))
-        .and_then(Value::as_array)
-        .expect("expected first data.tasks")
-        .iter()
-        .filter_map(|task| task.get("id").and_then(Value::as_str))
-        .map(ToString::to_string)
-        .collect();
-    let second_ids: Vec<String> = second
-        .envelope
-        .get("data")
-        .and_then(|value| value.get("tasks"))
-        .and_then(Value::as_array)
-        .expect("expected second data.tasks")
-        .iter()
-        .filter_map(|task| task.get("id").and_then(Value::as_str))
-        .map(ToString::to_string)
-        .collect();
+    let first_ids = task_ids(&first);
+    let second_ids = task_ids(&second);
     assert_eq!(first_ids, expected_ids);
     assert_eq!(second_ids, expected_ids);
 
     let listed = run_json(repo.path(), ["find", "open"]);
     assert_eq!(listed.cli.code, 0);
-    let child_count = listed
-        .envelope
-        .get("data")
-        .and_then(|value| value.get("tasks"))
-        .and_then(Value::as_array)
-        .expect("expected data.tasks array")
-        .iter()
-        .filter(|task| task.get("parent_id").and_then(Value::as_str) == Some(parent.as_str()))
-        .count();
+    let child_count = count_tasks(&listed, |task| {
+        task.get("parent_id").and_then(Value::as_str) == Some(parent.as_str())
+    });
     assert_eq!(child_count, 2);
 }
 
@@ -201,12 +161,8 @@ fn create_ensure_is_idempotent_for_nested_file_batch() {
     let second = run_json(repo.path(), cmd);
     assert_eq!(second.cli.code, 0);
 
-    let first_tasks = first.envelope["data"]["tasks"]
-        .as_array()
-        .expect("first tasks");
-    let second_tasks = second.envelope["data"]["tasks"]
-        .as_array()
-        .expect("second tasks");
+    let first_tasks = data_tasks(&first);
+    let second_tasks = data_tasks(&second);
     let first_ids: Vec<&str> = first_tasks
         .iter()
         .map(|task| task["id"].as_str().expect("first id"))
@@ -219,8 +175,7 @@ fn create_ensure_is_idempotent_for_nested_file_batch() {
 
     let listed = run_json(repo.path(), ["find", "open"]);
     assert_eq!(listed.cli.code, 0);
-    let all_tasks = listed.envelope["data"]["tasks"].as_array().expect("tasks");
-    let matching_count = all_tasks
+    let matching_count = data_tasks(&listed)
         .iter()
         .filter(|task| {
             matches!(
@@ -249,7 +204,7 @@ fn create_ensure_scopes_nested_titles_to_resolved_parent() {
     );
 
     assert_eq!(result.cli.code, 0);
-    let tasks = result.envelope["data"]["tasks"].as_array().expect("tasks");
+    let tasks = data_tasks(&result);
     assert_eq!(tasks.len(), 4);
     let parent_a = tasks[0]["id"].as_str().expect("parent A");
     let child_a = tasks[1]["id"].as_str().expect("child A");
@@ -309,15 +264,9 @@ fn ensure_deduplicates_identical_incoming_root_tasks() {
     // Verify only one open task with that title exists.
     let listed = run_json(repo.path(), ["find", "open"]);
     assert_eq!(listed.cli.code, 0);
-    let root_matches = listed
-        .envelope
-        .get("data")
-        .and_then(|value| value.get("tasks"))
-        .and_then(Value::as_array)
-        .expect("expected data.tasks array")
-        .iter()
-        .filter(|task| task.get("title").and_then(Value::as_str) == Some("Root task"))
-        .count();
+    let root_matches = count_tasks(&listed, |task| {
+        task.get("title").and_then(Value::as_str) == Some("Root task")
+    });
     assert_eq!(
         root_matches, 1,
         "ensure must deduplicate identical incoming root tasks"
@@ -340,17 +289,32 @@ fn ensure_from_file_deduplicates_identical_children_under_same_parent() {
     assert_eq!(result.cli.code, 0);
     let listed = run_json(repo.path(), ["find", "open"]);
     assert_eq!(listed.cli.code, 0);
-    let child_matches = listed
-        .envelope
-        .get("data")
-        .and_then(|value| value.get("tasks"))
-        .and_then(Value::as_array)
-        .expect("expected data.tasks array")
-        .iter()
-        .filter(|task| task.get("title").and_then(Value::as_str) == Some("Child task"))
-        .count();
+    let child_matches = count_tasks(&listed, |task| {
+        task.get("title").and_then(Value::as_str) == Some("Child task")
+    });
     assert_eq!(
         child_matches, 1,
         "ensure must deduplicate identical children under same parent"
     );
+}
+
+fn data_tasks(result: &JsonOutput) -> &[Value] {
+    result.envelope["data"]["tasks"]
+        .as_array()
+        .expect("expected data.tasks array")
+}
+
+fn task_ids(result: &JsonOutput) -> Vec<String> {
+    data_tasks(result)
+        .iter()
+        .filter_map(|task| task.get("id").and_then(Value::as_str))
+        .map(ToString::to_string)
+        .collect()
+}
+
+fn count_tasks(result: &JsonOutput, predicate: impl Fn(&Value) -> bool) -> usize {
+    data_tasks(result)
+        .iter()
+        .filter(|task| predicate(task))
+        .count()
 }

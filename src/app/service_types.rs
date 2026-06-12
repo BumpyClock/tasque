@@ -72,6 +72,7 @@ pub struct UpdateInput {
 pub struct ClaimInput {
     pub id: String,
     pub assignee: Option<String>,
+    pub start: bool,
     pub require_spec: bool,
     pub exact_id: bool,
 }
@@ -437,6 +438,8 @@ pub struct SkillsRefreshInput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateBatchItem {
     pub title: String,
+    #[serde(default)]
+    pub labels: Vec<String>,
     /// For `--from-file`: nesting depth (0 = root-level in file).
     /// For positional titles: always 0 (parent comes from `parent` field).
     pub depth: usize,

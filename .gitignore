@@ -16,5 +16,7 @@ npm/bin/tsq
 npm/bin/tsq.exe
 artifacts/
 .pi-lens/
+.clawpatch/
+.claude/settings.local.json
 context.md
 docs/superpowers/

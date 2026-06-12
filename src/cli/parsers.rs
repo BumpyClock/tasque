@@ -1,6 +1,9 @@
 use crate::app::runtime::{normalize_status, parse_priority};
 use crate::app::service_types::{DepDirectionFilter, ListFilter};
 use crate::domain::dep_tree::DepDirection;
+use crate::domain::event_payload_codecs::{
+    dependency_type_from_str, planning_state_from_str, relation_type_from_str, task_kind_from_str,
+};
 use crate::domain::ids::is_valid_root_id;
 use crate::domain::labels::normalize_label;
 use crate::domain::validate::PlanningLane;
@@ -51,42 +54,28 @@ pub fn as_optional_string(value: Option<&str>) -> Option<String> {
 }
 
 pub fn parse_kind(raw: &str) -> Result<TaskKind, TsqError> {
-    match raw {
-        "task" => Ok(TaskKind::Task),
-        "feature" => Ok(TaskKind::Feature),
-        "epic" => Ok(TaskKind::Epic),
-        _ => Err(TsqError::new(
-            "VALIDATION_ERROR",
-            "kind must be task|feature|epic",
-            1,
-        )),
-    }
+    task_kind_from_str(raw)
+        .ok_or_else(|| TsqError::new("VALIDATION_ERROR", "kind must be task|feature|epic", 1))
 }
 
 pub fn parse_relation_type(raw: &str) -> Result<RelationType, TsqError> {
-    match raw {
-        "relates_to" => Ok(RelationType::RelatesTo),
-        "replies_to" => Ok(RelationType::RepliesTo),
-        "duplicates" => Ok(RelationType::Duplicates),
-        "supersedes" => Ok(RelationType::Supersedes),
-        _ => Err(TsqError::new(
+    relation_type_from_str(raw).ok_or_else(|| {
+        TsqError::new(
             "VALIDATION_ERROR",
             "relation type must be relates_to|replies_to|duplicates|supersedes",
             1,
-        )),
-    }
+        )
+    })
 }
 
 pub fn parse_planning_state(raw: &str) -> Result<PlanningState, TsqError> {
-    match raw {
-        "needs_planning" => Ok(PlanningState::NeedsPlanning),
-        "planned" => Ok(PlanningState::Planned),
-        _ => Err(TsqError::new(
+    planning_state_from_str(raw).ok_or_else(|| {
+        TsqError::new(
             "VALIDATION_ERROR",
             "planning state must be needs_planning|planned",
             1,
-        )),
-    }
+        )
+    })
 }
 
 pub fn parse_init_preset(raw: &str) -> Result<InitPreset, TsqError> {
@@ -185,15 +174,13 @@ pub fn parse_dep_direction(raw: Option<&str>) -> Result<Option<DepDirection>, Ts
 }
 
 pub fn parse_dependency_type(raw: &str) -> Result<DependencyType, TsqError> {
-    match raw {
-        "blocks" => Ok(DependencyType::Blocks),
-        "starts_after" => Ok(DependencyType::StartsAfter),
-        _ => Err(TsqError::new(
+    dependency_type_from_str(raw).ok_or_else(|| {
+        TsqError::new(
             "VALIDATION_ERROR",
             "dependency type must be blocks|starts_after",
             1,
-        )),
-    }
+        )
+    })
 }
 
 pub fn parse_dep_filter_direction(raw: &str) -> Result<DepDirectionFilter, TsqError> {

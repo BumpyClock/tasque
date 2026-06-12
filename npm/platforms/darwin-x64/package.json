@@ -21,5 +21,8 @@
   "publishConfig": {
     "access": "public",
     "provenance": true
+  },
+  "tasque": {
+    "target": "x86_64-apple-darwin"
   }
 }

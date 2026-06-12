@@ -1,10 +1,9 @@
 use crate::errors::TsqError;
+use crate::store::atomic::{any_error_value, io_error_value, write_pretty_json_file};
 use crate::store::paths::get_paths;
 use crate::types::{Config, SCHEMA_VERSION};
-use chrono::Utc;
 use serde_json::Value;
-use std::fs::{OpenOptions, create_dir_all, read_to_string, remove_file, rename};
-use std::io::Write;
+use std::fs::{create_dir_all, read_to_string};
 use std::path::Path;
 
 fn is_config(value: &Value) -> Option<Config> {
@@ -52,49 +51,12 @@ pub fn write_default_config(repo_root: impl AsRef<Path>) -> Result<(), TsqError>
         }
     }
 
-    let temp = format!(
-        "{}.tmp-{}-{}",
-        paths.config_file.display(),
-        std::process::id(),
-        Utc::now().timestamp_millis()
-    );
-    let payload = serde_json::to_string_pretty(&default_config()).map_err(|error| {
-        TsqError::new("CONFIG_WRITE_FAILED", "Failed writing default config", 2)
-            .with_details(any_error_value(&error))
-    })?;
-
-    let mut handle = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(&temp)
-        .map_err(|error| {
-            TsqError::new("CONFIG_WRITE_FAILED", "Failed writing default config", 2)
-                .with_details(io_error_value(&error))
-        })?;
-    if let Err(error) = handle.write_all(format!("{}\n", payload).as_bytes()) {
-        let _ = remove_file(&temp);
-        return Err(
-            TsqError::new("CONFIG_WRITE_FAILED", "Failed writing default config", 2)
-                .with_details(io_error_value(&error)),
-        );
-    }
-    if let Err(error) = handle.sync_all() {
-        let _ = remove_file(&temp);
-        return Err(
-            TsqError::new("CONFIG_WRITE_FAILED", "Failed writing default config", 2)
-                .with_details(io_error_value(&error)),
-        );
-    }
-    if let Err(error) = rename(&temp, &paths.config_file) {
-        let _ = remove_file(&temp);
-        return Err(
-            TsqError::new("CONFIG_WRITE_FAILED", "Failed writing default config", 2)
-                .with_details(io_error_value(&error)),
-        );
-    }
-
-    Ok(())
+    write_pretty_json_file(
+        &paths.config_file,
+        &default_config(),
+        "CONFIG_WRITE_FAILED",
+        "Failed writing default config",
+    )
 }
 
 pub fn write_config(repo_root: impl AsRef<Path>, config: &Config) -> Result<(), TsqError> {
@@ -104,49 +66,12 @@ pub fn write_config(repo_root: impl AsRef<Path>, config: &Config) -> Result<(), 
             .with_details(io_error_value(&error))
     })?;
 
-    let temp = format!(
-        "{}.tmp-{}-{}",
-        paths.config_file.display(),
-        std::process::id(),
-        Utc::now().timestamp_millis()
-    );
-    let payload = serde_json::to_string_pretty(config).map_err(|error| {
-        TsqError::new("CONFIG_WRITE_FAILED", "Failed writing config", 2)
-            .with_details(any_error_value(&error))
-    })?;
-
-    let mut handle = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(&temp)
-        .map_err(|error| {
-            TsqError::new("CONFIG_WRITE_FAILED", "Failed writing config", 2)
-                .with_details(io_error_value(&error))
-        })?;
-    if let Err(error) = handle.write_all(format!("{}\n", payload).as_bytes()) {
-        let _ = remove_file(&temp);
-        return Err(
-            TsqError::new("CONFIG_WRITE_FAILED", "Failed writing config", 2)
-                .with_details(io_error_value(&error)),
-        );
-    }
-    if let Err(error) = handle.sync_all() {
-        let _ = remove_file(&temp);
-        return Err(
-            TsqError::new("CONFIG_WRITE_FAILED", "Failed writing config", 2)
-                .with_details(io_error_value(&error)),
-        );
-    }
-    if let Err(error) = rename(&temp, &paths.config_file) {
-        let _ = remove_file(&temp);
-        return Err(
-            TsqError::new("CONFIG_WRITE_FAILED", "Failed writing config", 2)
-                .with_details(io_error_value(&error)),
-        );
-    }
-
-    Ok(())
+    write_pretty_json_file(
+        &paths.config_file,
+        config,
+        "CONFIG_WRITE_FAILED",
+        "Failed writing config",
+    )
 }
 
 pub fn read_config(repo_root: impl AsRef<Path>) -> Result<Config, TsqError> {
@@ -176,14 +101,6 @@ pub fn read_config(repo_root: impl AsRef<Path>) -> Result<Config, TsqError> {
     }
 
     Err(TsqError::new("CONFIG_INVALID", "Config shape is invalid", 2).with_details(parsed))
-}
-
-fn io_error_value(error: &std::io::Error) -> Value {
-    serde_json::json!({"kind": format!("{:?}", error.kind()), "message": error.to_string()})
-}
-
-fn any_error_value(error: &impl std::fmt::Display) -> Value {
-    serde_json::json!({"message": error.to_string()})
 }
 
 #[cfg(test)]

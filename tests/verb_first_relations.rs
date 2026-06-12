@@ -1,6 +1,6 @@
 mod common;
 
-use common::{create_task, init_repo};
+use common::{assert_validation_error, create_task, init_repo, run_json};
 use tasque::app::service::TasqueService;
 use tasque::app::service_types::DepTreeInput;
 use tasque::cli::action::GlobalOpts;
@@ -216,27 +216,19 @@ fn label_unlabel_and_labels_use_existing_label_service() {
 #[test]
 fn malformed_sentence_tokens_return_validation_error_with_example() {
     let repo = common::make_repo();
-    let service = service_for(repo.path());
+    init_repo(repo.path());
+    let child = create_task(repo.path(), "Child");
+    let blocker = create_task(repo.path(), "Blocker");
 
-    let code = execute_block(
-        &service,
-        BlockArgs {
-            child: "tsq-aaaaaaaa".to_string(),
-            by: "from".to_string(),
-            blocker: "tsq-bbbbbbbb".to_string(),
-        },
-        opts(),
+    let result = run_json(repo.path(), ["block", &child, "from", &blocker]);
+
+    assert_eq!(result.cli.code, 1);
+    assert_validation_error(&result);
+    assert!(
+        result.envelope["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("tsq block <task> by <blocker>"))
     );
-
-    assert_eq!(code, 1);
-    let error = tasque::cli::commands::dep::validate_sentence_token(
-        "from",
-        "by",
-        "tsq block <task> by <blocker>",
-    )
-    .expect_err("invalid token should fail");
-    assert_eq!(error.code, "VALIDATION_ERROR");
-    assert!(error.message.contains("tsq block <task> by <blocker>"));
 }
 
 fn service_for(repo: &std::path::Path) -> TasqueService {
@@ -248,6 +240,8 @@ fn service_for(repo: &std::path::Path) -> TasqueService {
 fn opts() -> GlobalOpts {
     GlobalOpts {
         json: true,
+        plain: false,
         exact_id: false,
+        explicit_root: false,
     }
 }

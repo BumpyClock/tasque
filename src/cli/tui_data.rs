@@ -5,14 +5,13 @@ use chrono::Utc;
 
 use super::tui_model::{compute_summary, sort_tui_tasks};
 use super::{
-    FrameResult, TuiEpicProgress, TuiFrameData, TuiFrameFilters, TuiOptions, TuiTab, tab_to_string,
-    tab_to_view,
+    FrameResult, TuiEpicProgress, TuiFrameData, TuiFrameFilters, TuiOptions, TuiView, tab_to_string,
 };
 
 pub(super) fn load_frame(
     service: &TasqueService,
     options: &TuiOptions,
-    tab: TuiTab,
+    tab: TuiView,
     selected_index: usize,
 ) -> FrameResult {
     let filter = ListFilter {
@@ -48,7 +47,7 @@ pub(super) fn load_frame(
             FrameResult::Ok(Box::new(TuiFrameData {
                 frame_ts: Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
                 interval_s: options.interval,
-                view: tab_to_view(tab),
+                view: tab,
                 filters: TuiFrameFilters {
                     status: options.statuses.clone(),
                     assignee: options.assignee.clone(),
@@ -72,16 +71,16 @@ pub(super) fn load_frame(
 }
 
 fn build_view_state(
-    tab: TuiTab,
+    tab: TuiView,
     tasks: &[Task],
 ) -> (Vec<String>, Option<String>, Option<TuiEpicProgress>) {
     match tab {
-        TuiTab::Tasks | TuiTab::Board => (
+        TuiView::List | TuiView::Board => (
             tasks.iter().map(|task| task.id.clone()).collect(),
             None,
             None,
         ),
-        TuiTab::Epics => {
+        TuiView::Epics => {
             let epics: Vec<&Task> = tasks
                 .iter()
                 .filter(|task| task.kind == TaskKind::Epic)

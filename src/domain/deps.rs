@@ -1,12 +1,9 @@
+use crate::domain::event_payload_codecs::dependency_type_from_str;
 use crate::types::{DependencyEdge, DependencyType};
 use std::collections::HashSet;
 
 pub fn normalize_dependency_type(value: &str) -> Option<DependencyType> {
-    match value {
-        "blocks" => Some(DependencyType::Blocks),
-        "starts_after" => Some(DependencyType::StartsAfter),
-        _ => None,
-    }
+    dependency_type_from_str(value)
 }
 
 pub fn normalize_dependency_edges(edges: Option<&Vec<DependencyEdge>>) -> Vec<DependencyEdge> {
@@ -30,9 +27,8 @@ pub fn normalize_dependency_edges(edges: Option<&Vec<DependencyEdge>>) -> Vec<De
 }
 
 pub fn edge_key(blocker: &str, dep_type: DependencyType) -> String {
-    let dep_value = match dep_type {
-        DependencyType::Blocks => "blocks",
-        DependencyType::StartsAfter => "starts_after",
-    };
-    format!("{blocker}\u{0000}{dep_value}")
+    format!(
+        "{blocker}\u{0000}{}",
+        crate::domain::event_payload_codecs::dependency_type_as_str(dep_type)
+    )
 }

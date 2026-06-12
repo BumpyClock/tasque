@@ -1,10 +1,9 @@
 use crate::domain::state_invariants::validate_projected_state;
 use crate::errors::TsqError;
+use crate::store::atomic::{io_error_value, write_pretty_json_file};
 use crate::store::paths::get_paths;
 use crate::types::{STATE_CACHE_SCHEMA_VERSION, Snapshot};
-use chrono::Utc;
-use std::fs::{OpenOptions, create_dir_all, read_dir, read_to_string, remove_file, rename};
-use std::io::Write;
+use std::fs::{create_dir_all, read_dir, read_to_string, remove_file};
 use std::path::Path;
 
 pub const SNAPSHOT_RETAIN_COUNT: usize = 5;
@@ -167,56 +166,13 @@ pub fn write_snapshot(repo_root: impl AsRef<Path>, snapshot: &Snapshot) -> Resul
     })?;
 
     let target = paths.snapshots_dir.join(snapshot_filename(snapshot));
-    let temp = format!(
-        "{}.tmp-{}-{}",
-        target.display(),
-        std::process::id(),
-        Utc::now().timestamp_millis()
-    );
-    let payload = serde_json::to_string_pretty(snapshot).map_err(|error| {
-        TsqError::new("SNAPSHOT_WRITE_FAILED", "Failed writing snapshot", 2)
-            .with_details(any_error_value(&error))
-    })?;
-
-    let mut handle = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(&temp)
-        .map_err(|error| {
-            TsqError::new("SNAPSHOT_WRITE_FAILED", "Failed writing snapshot", 2)
-                .with_details(io_error_value(&error))
-        })?;
-    if let Err(error) = handle.write_all(format!("{}\n", payload).as_bytes()) {
-        let _ = remove_file(&temp);
-        return Err(
-            TsqError::new("SNAPSHOT_WRITE_FAILED", "Failed writing snapshot", 2)
-                .with_details(io_error_value(&error)),
-        );
-    }
-    if let Err(error) = handle.sync_all() {
-        let _ = remove_file(&temp);
-        return Err(
-            TsqError::new("SNAPSHOT_WRITE_FAILED", "Failed writing snapshot", 2)
-                .with_details(io_error_value(&error)),
-        );
-    }
-    if let Err(error) = rename(&temp, &target) {
-        let _ = remove_file(&temp);
-        return Err(
-            TsqError::new("SNAPSHOT_WRITE_FAILED", "Failed writing snapshot", 2)
-                .with_details(io_error_value(&error)),
-        );
-    }
+    write_pretty_json_file(
+        &target,
+        snapshot,
+        "SNAPSHOT_WRITE_FAILED",
+        "Failed writing snapshot",
+    )?;
     prune_snapshots(&paths.snapshots_dir);
 
     Ok(())
-}
-
-fn io_error_value(error: &std::io::Error) -> serde_json::Value {
-    serde_json::json!({"kind": format!("{:?}", error.kind()), "message": error.to_string()})
-}
-
-fn any_error_value(error: &impl std::fmt::Display) -> serde_json::Value {
-    serde_json::json!({"message": error.to_string()})
 }

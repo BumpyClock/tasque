@@ -3,6 +3,7 @@ pub mod commands;
 pub mod init_flow;
 pub mod opentui;
 pub mod parsers;
+pub mod preparse;
 pub mod program;
 pub mod render;
 pub mod style;

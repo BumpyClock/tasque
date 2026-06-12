@@ -1,6 +1,6 @@
 mod common;
 
-use common::{create_task, init_repo, run_cli, run_json_explicit};
+use common::{assert_validation_error, create_task, init_repo, run_cli, run_json_explicit};
 use serde_json::Value;
 
 #[test]
@@ -30,18 +30,7 @@ fn json_conflicts_with_format_human() {
     let result = run_json_explicit(repo.path(), ["--json", "--format", "human", "find", "open"]);
 
     assert_eq!(result.cli.code, 1);
-    assert_eq!(
-        result.envelope.get("ok").and_then(Value::as_bool),
-        Some(false)
-    );
-    assert_eq!(
-        result
-            .envelope
-            .get("error")
-            .and_then(|error| error.get("code"))
-            .and_then(Value::as_str),
-        Some("VALIDATION_ERROR")
-    );
+    assert_validation_error(&result);
 }
 
 #[test]
@@ -52,18 +41,7 @@ fn parse_errors_use_json_envelope_when_json_requested() {
     let result = run_json_explicit(repo.path(), ["--json", "find", "open", "--bogus"]);
 
     assert_eq!(result.cli.code, 1);
-    assert_eq!(
-        result.envelope.get("ok").and_then(Value::as_bool),
-        Some(false)
-    );
-    assert_eq!(
-        result
-            .envelope
-            .get("error")
-            .and_then(|error| error.get("code"))
-            .and_then(Value::as_str),
-        Some("VALIDATION_ERROR")
-    );
+    assert_validation_error(&result);
     assert!(
         result.cli.stderr.trim().is_empty(),
         "stderr:\n{}",
@@ -79,18 +57,7 @@ fn parse_errors_use_json_envelope_when_format_json_requested_late() {
     let result = run_json_explicit(repo.path(), ["find", "open", "--bogus", "--format", "json"]);
 
     assert_eq!(result.cli.code, 1);
-    assert_eq!(
-        result.envelope.get("ok").and_then(Value::as_bool),
-        Some(false)
-    );
-    assert_eq!(
-        result
-            .envelope
-            .get("error")
-            .and_then(|error| error.get("code"))
-            .and_then(Value::as_str),
-        Some("VALIDATION_ERROR")
-    );
+    assert_validation_error(&result);
     assert!(
         result.cli.stderr.trim().is_empty(),
         "stderr:\n{}",
@@ -106,18 +73,7 @@ fn parse_errors_use_json_envelope_when_format_json_equals_requested() {
     let result = run_json_explicit(repo.path(), ["find", "open", "--bogus", "--format=json"]);
 
     assert_eq!(result.cli.code, 1);
-    assert_eq!(
-        result.envelope.get("ok").and_then(Value::as_bool),
-        Some(false)
-    );
-    assert_eq!(
-        result
-            .envelope
-            .get("error")
-            .and_then(|error| error.get("code"))
-            .and_then(Value::as_str),
-        Some("VALIDATION_ERROR")
-    );
+    assert_validation_error(&result);
     assert!(
         result.cli.stderr.trim().is_empty(),
         "stderr:\n{}",

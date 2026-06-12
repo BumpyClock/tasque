@@ -2,18 +2,19 @@ use crate::app::service_types::{CreateBatchInput, CreateInput, ServiceContext, U
 use crate::app::service_utils::{
     must_resolve_existing, must_task, normalize_duplicate_title, unique_root_id,
 };
-use crate::app::storage::{
-    append_events, load_projected_state, persist_projection, with_write_lock,
-};
+use crate::app::state::{load_projected_state, persist_projection};
 use crate::domain::alias::allocate_alias;
 use crate::domain::events::make_event;
 use crate::domain::ids::{RootIdAllocator, is_valid_root_id, next_child_id};
+use crate::domain::labels::add_label;
 use crate::domain::projector::apply_events;
 use crate::domain::similarity::{
     DEFAULT_SIMILARITY_LIMIT, DEFAULT_SIMILARITY_MIN_SCORE, blocking_status,
     find_similar_candidates, is_blocking_duplicate, is_blocking_title_pair,
 };
 use crate::errors::TsqError;
+use crate::store::events::append_events;
+use crate::store::lock::with_write_lock;
 use crate::types::{EventRecord, EventType, PlanningState, State, Task, TaskStatus};
 use serde_json::{Map, Value};
 
@@ -421,6 +422,7 @@ pub fn create_batch(ctx: &ServiceContext, input: &CreateBatchInput) -> Result<Ve
                 PlannedItem::New {
                     title,
                     parent_id: planned_parent_id,
+                    labels,
                     ..
                 } => {
                     // Resolve parent: use planned_parent_id if known, otherwise
@@ -483,6 +485,7 @@ pub fn create_batch(ctx: &ServiceContext, input: &CreateBatchInput) -> Result<Ve
                         None
                     };
 
+                    let labels = normalize_labels(labels)?;
                     let mut payload = serde_json::json!({
                         "id": id,
                         "title": title,
@@ -495,6 +498,7 @@ pub fn create_batch(ctx: &ServiceContext, input: &CreateBatchInput) -> Result<Ve
                         "status": TaskStatus::Open,
                         "parent_id": parent_id,
                         "planning_state": input.planning_state.unwrap_or(PlanningState::NeedsPlanning),
+                        "labels": labels,
                     });
                     if let Some(candidates) = duplicate_candidates {
                         payload["duplicate_candidates"] = candidates;
@@ -560,6 +564,7 @@ enum PlannedItem {
     Reuse(Box<Task>, usize),
     New {
         title: String,
+        labels: Vec<String>,
         parent_id: Option<String>,
         planned_parent: PlannedParentId,
         marker: Option<usize>,
@@ -664,6 +669,7 @@ fn resolve_batch_plan(
             } else {
                 planned.push(PlannedItem::New {
                     title: item.title.clone(),
+                    labels: item.labels.clone(),
                     parent_id,
                     planned_parent,
                     marker: item.marker,
@@ -688,6 +694,7 @@ fn resolve_batch_plan(
             } else {
                 planned.push(PlannedItem::New {
                     title: item.title.clone(),
+                    labels: item.labels.clone(),
                     parent_id: cli_parent_id.map(|s| s.to_string()),
                     planned_parent: pp.clone(),
                     marker: item.marker,
@@ -698,6 +705,14 @@ fn resolve_batch_plan(
     }
 
     Ok(planned)
+}
+
+fn normalize_labels(labels: &[String]) -> Result<Vec<String>, TsqError> {
+    let mut normalized = Vec::new();
+    for label in labels {
+        normalized = add_label(&normalized, label)?;
+    }
+    Ok(normalized)
 }
 
 /// Check incoming items against each other for similarity.

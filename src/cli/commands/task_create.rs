@@ -221,6 +221,7 @@ pub fn execute_create(service: &TasqueService, args: CreateArgs, opts: GlobalOpt
                     .into_iter()
                     .map(|item| CreateBatchItem {
                         title: item.title,
+                        labels: Vec::new(),
                         depth: item.depth,
                         marker: Some(item.line_no),
                     })
@@ -231,6 +232,7 @@ pub fn execute_create(service: &TasqueService, args: CreateArgs, opts: GlobalOpt
                     .enumerate()
                     .map(|(index, title)| CreateBatchItem {
                         title,
+                        labels: Vec::new(),
                         depth: 0,
                         marker: Some(index + 1),
                     })

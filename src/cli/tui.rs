@@ -99,13 +99,6 @@ enum TaskSpecState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TuiTab {
-    Tasks,
-    Epics,
-    Board,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BoardLane {
     Open,
     InProgress,
@@ -130,7 +123,7 @@ pub fn start_tui(service: &TasqueService, options: TuiOptions) -> i32 {
     let can_clear = std::io::stdout().is_terminal() && !options.json;
     let can_interact =
         std::io::stdout().is_terminal() && std::io::stdin().is_terminal() && !options.json;
-    let mut tab = initial_tab(options.view);
+    let mut tab = options.view;
     let mut paused = false;
     let mut selected_index = 0usize;
     let interval = Duration::from_secs(options.interval as u64);
@@ -177,23 +170,18 @@ pub fn start_tui(service: &TasqueService, options: TuiOptions) -> i32 {
         loop {
             match event::poll(interval) {
                 Ok(true) => match event::read() {
-                    Ok(Event::Key(key)) => {
-                        if should_quit_on_key(&key) {
-                            break;
-                        }
-                        if is_refresh_key(&key) {
-                            refresh_frame(
-                                service,
-                                &options,
-                                tab,
-                                &mut selected_index,
-                                can_clear,
-                                paused,
-                                &mut last_good_frame,
-                            );
-                            continue;
-                        }
-                        if is_pause_toggle_key(&key) {
+                    Ok(Event::Key(key)) => match classify_key(&key) {
+                        Some(TuiKeyAction::Quit) => break,
+                        Some(TuiKeyAction::Refresh) => refresh_frame(
+                            service,
+                            &options,
+                            tab,
+                            &mut selected_index,
+                            can_clear,
+                            paused,
+                            &mut last_good_frame,
+                        ),
+                        Some(TuiKeyAction::TogglePause) => {
                             paused = !paused;
                             if let Some(frame) = last_good_frame.clone() {
                                 output_frame(
@@ -203,9 +191,8 @@ pub fn start_tui(service: &TasqueService, options: TuiOptions) -> i32 {
                                     paused,
                                 );
                             }
-                            continue;
                         }
-                        if is_switch_view_key(&key) {
+                        Some(TuiKeyAction::SwitchView) => {
                             tab = cycle_tab(tab);
                             selected_index = 0;
                             refresh_frame(
@@ -217,28 +204,29 @@ pub fn start_tui(service: &TasqueService, options: TuiOptions) -> i32 {
                                 paused,
                                 &mut last_good_frame,
                             );
-                            continue;
                         }
-                        if (is_select_up_key(&key) || is_select_down_key(&key))
-                            && let Some(frame) = last_good_frame.as_mut()
-                        {
-                            let visible_count = frame.visible_task_ids.len();
-                            if visible_count > 0 {
-                                if is_select_up_key(&key) {
-                                    selected_index = selected_index.saturating_sub(1);
-                                } else {
-                                    selected_index = (selected_index + 1).min(visible_count - 1);
+                        Some(TuiKeyAction::Select(delta)) => {
+                            if let Some(frame) = last_good_frame.as_mut() {
+                                let visible_count = frame.visible_task_ids.len();
+                                if visible_count > 0 {
+                                    selected_index = match delta {
+                                        SelectionDelta::Up => selected_index.saturating_sub(1),
+                                        SelectionDelta::Down => {
+                                            (selected_index + 1).min(visible_count - 1)
+                                        }
+                                    };
+                                    apply_selection(frame, selected_index);
+                                    output_frame(
+                                        &FrameResult::Ok(Box::new(frame.clone())),
+                                        options.json,
+                                        can_clear,
+                                        paused,
+                                    );
                                 }
-                                apply_selection(frame, selected_index);
-                                output_frame(
-                                    &FrameResult::Ok(Box::new(frame.clone())),
-                                    options.json,
-                                    can_clear,
-                                    paused,
-                                );
                             }
                         }
-                    }
+                        None => {}
+                    },
                     Ok(_) => {}
                     Err(error) => {
                         output_tui_error(
@@ -293,7 +281,7 @@ pub fn start_tui(service: &TasqueService, options: TuiOptions) -> i32 {
 fn refresh_frame(
     service: &TasqueService,
     options: &TuiOptions,
-    tab: TuiTab,
+    tab: TuiView,
     selected_index: &mut usize,
     clear_screen: bool,
     paused: bool,
@@ -357,96 +345,59 @@ fn output_tui_error(json: bool, error: String, code: &str, paused: bool) {
     );
 }
 
-fn should_quit_on_key(key: &KeyEvent) -> bool {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SelectionDelta {
+    Up,
+    Down,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TuiKeyAction {
+    Quit,
+    Refresh,
+    TogglePause,
+    SwitchView,
+    Select(SelectionDelta),
+}
+
+fn classify_key(key: &KeyEvent) -> Option<TuiKeyAction> {
     if !is_press_like(key) {
-        return false;
+        return None;
     }
     match key.code {
-        KeyCode::Char(value) => {
-            value.eq_ignore_ascii_case(&'q')
-                || (value.eq_ignore_ascii_case(&'c')
-                    && key.modifiers.contains(KeyModifiers::CONTROL))
+        KeyCode::Char(value) if value.eq_ignore_ascii_case(&'q') => Some(TuiKeyAction::Quit),
+        KeyCode::Char(value)
+            if value.eq_ignore_ascii_case(&'c')
+                && key.modifiers.contains(KeyModifiers::CONTROL) =>
+        {
+            Some(TuiKeyAction::Quit)
         }
-        _ => false,
+        KeyCode::Char(value) if value.eq_ignore_ascii_case(&'r') => Some(TuiKeyAction::Refresh),
+        KeyCode::Char(value) if value.eq_ignore_ascii_case(&'p') => Some(TuiKeyAction::TogglePause),
+        KeyCode::Tab => Some(TuiKeyAction::SwitchView),
+        KeyCode::Up => Some(TuiKeyAction::Select(SelectionDelta::Up)),
+        KeyCode::Down => Some(TuiKeyAction::Select(SelectionDelta::Down)),
+        _ => None,
     }
-}
-
-fn is_refresh_key(key: &KeyEvent) -> bool {
-    if !is_press_like(key) {
-        return false;
-    }
-    matches!(key.code, KeyCode::Char(value) if value.eq_ignore_ascii_case(&'r'))
-}
-
-fn is_pause_toggle_key(key: &KeyEvent) -> bool {
-    if !is_press_like(key) {
-        return false;
-    }
-    matches!(key.code, KeyCode::Char(value) if value.eq_ignore_ascii_case(&'p'))
-}
-
-fn is_switch_view_key(key: &KeyEvent) -> bool {
-    if !is_press_like(key) {
-        return false;
-    }
-    matches!(key.code, KeyCode::Tab)
-}
-
-fn is_select_up_key(key: &KeyEvent) -> bool {
-    if !is_press_like(key) {
-        return false;
-    }
-    matches!(key.code, KeyCode::Up)
-}
-
-fn is_select_down_key(key: &KeyEvent) -> bool {
-    if !is_press_like(key) {
-        return false;
-    }
-    matches!(key.code, KeyCode::Down)
 }
 
 fn is_press_like(key: &KeyEvent) -> bool {
     matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat)
 }
 
-fn initial_tab(view: TuiView) -> TuiTab {
-    match view {
-        TuiView::List => TuiTab::Tasks,
-        TuiView::Epics => TuiTab::Epics,
-        TuiView::Board => TuiTab::Board,
-    }
-}
-
-fn cycle_tab(tab: TuiTab) -> TuiTab {
+fn cycle_tab(tab: TuiView) -> TuiView {
     match tab {
-        TuiTab::Tasks => TuiTab::Epics,
-        TuiTab::Epics => TuiTab::Board,
-        TuiTab::Board => TuiTab::Tasks,
+        TuiView::List => TuiView::Epics,
+        TuiView::Epics => TuiView::Board,
+        TuiView::Board => TuiView::List,
     }
 }
 
-fn tab_to_view(tab: TuiTab) -> TuiView {
+fn tab_to_string(tab: TuiView) -> &'static str {
     match tab {
-        TuiTab::Tasks => TuiView::List,
-        TuiTab::Epics => TuiView::Epics,
-        TuiTab::Board => TuiView::Board,
-    }
-}
-
-fn tab_to_string(tab: TuiTab) -> &'static str {
-    match tab {
-        TuiTab::Tasks => "tasks",
-        TuiTab::Epics => "epics",
-        TuiTab::Board => "board",
-    }
-}
-
-fn tab_from_data(data: &TuiFrameData) -> TuiTab {
-    match data.tab.as_deref() {
-        Some("epics") => TuiTab::Epics,
-        Some("board") => TuiTab::Board,
-        _ => TuiTab::Tasks,
+        TuiView::List => "tasks",
+        TuiView::Epics => "epics",
+        TuiView::Board => "board",
     }
 }
 
@@ -480,7 +431,10 @@ mod tests {
             state: KeyEventState::NONE,
         };
 
-        assert!(is_select_down_key(&press));
-        assert!(!is_select_down_key(&release));
+        assert_eq!(
+            classify_key(&press),
+            Some(TuiKeyAction::Select(SelectionDelta::Down))
+        );
+        assert_eq!(classify_key(&release), None);
     }
 }

@@ -5,18 +5,25 @@ use serde::Serialize;
 #[derive(Debug, Clone, Copy)]
 pub struct GlobalOpts {
     pub json: bool,
+    pub plain: bool,
     pub exact_id: bool,
+    pub explicit_root: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputFormat {
     Human,
     Json,
+    Plain,
 }
 
 impl GlobalOpts {
     pub fn json(self) -> bool {
         self.json
+    }
+
+    pub fn plain(self) -> bool {
+        self.plain
     }
 }
 

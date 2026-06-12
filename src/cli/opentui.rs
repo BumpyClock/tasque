@@ -1,6 +1,5 @@
 use crate::app::runtime::find_tasque_root;
 use crate::cli::tui::{TuiOptions, TuiView};
-use crate::types::TaskStatus;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -184,14 +183,7 @@ fn status_csv(options: &TuiOptions) -> String {
     options
         .statuses
         .iter()
-        .map(|status| match status {
-            TaskStatus::Open => "open",
-            TaskStatus::InProgress => "in_progress",
-            TaskStatus::Blocked => "blocked",
-            TaskStatus::Deferred => "deferred",
-            TaskStatus::Closed => "closed",
-            TaskStatus::Canceled => "canceled",
-        })
+        .map(|status| crate::domain::event_payload_codecs::task_status_as_str(*status))
         .collect::<Vec<_>>()
         .join(",")
 }

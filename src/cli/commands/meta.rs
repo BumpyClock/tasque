@@ -217,6 +217,40 @@ pub fn execute_doctor(service: &TasqueService, opts: GlobalOpts) -> i32 {
     )
 }
 
+pub fn execute_root(opts: GlobalOpts) -> i32 {
+    run_action(
+        "tsq root",
+        opts,
+        || {
+            if opts.explicit_root {
+                return std::env::current_dir()
+                    .map(|path| path.to_string_lossy().to_string())
+                    .map_err(|error| {
+                        TsqError::new("IO_ERROR", "failed reading current directory", 2)
+                            .with_details(serde_json::json!({ "error": error.to_string() }))
+                    });
+            }
+            let root = crate::app::runtime::find_tasque_root().ok_or_else(|| {
+                TsqError::new(
+                    "NO_STORE",
+                    "No Tasque store for this directory. Run 'tsq init' or use 'tsq --root <path> ...'.",
+                    2,
+                )
+            })?;
+            Ok(root.to_string_lossy().to_string())
+        },
+        |root| serde_json::json!({ "root": root }),
+        |root| {
+            if opts.plain() {
+                println!("{}", root);
+            } else {
+                println!("root={}", root);
+            }
+            Ok(())
+        },
+    )
+}
+
 pub fn execute_repair(service: &TasqueService, args: RepairArgs, opts: GlobalOpts) -> i32 {
     run_action(
         "tsq repair",

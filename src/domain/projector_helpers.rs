@@ -178,11 +178,11 @@ fn invalid_event_field(event: &EventRecord, event_name: &str, field: &str) -> Ts
     }))
 }
 
-pub(crate) fn event_type_to_string(event_type: &EventType) -> &'static str {
+pub(crate) fn event_type_to_string(event_type: &EventType) -> String {
     event_type_as_str(*event_type)
 }
 
-pub(crate) fn task_status_to_string(status: TaskStatus) -> &'static str {
+pub(crate) fn task_status_to_string(status: TaskStatus) -> String {
     task_status_as_str(status)
 }
 

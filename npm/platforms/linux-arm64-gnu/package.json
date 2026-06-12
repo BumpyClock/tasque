@@ -24,5 +24,8 @@
   "publishConfig": {
     "access": "public",
     "provenance": true
+  },
+  "tasque": {
+    "target": "aarch64-unknown-linux-gnu"
   }
 }

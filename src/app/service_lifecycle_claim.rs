@@ -1,17 +1,20 @@
-use super::service_lifecycle_helpers::{payload_map, status_to_string};
+use super::service_lifecycle_helpers::{duplicate_close_events, payload_map, status_to_string};
+use super::service_lifecycle_status::set_lifecycle_status;
 use crate::app::service_types::{
-    ClaimInput, CloseInput, DuplicateInput, ReopenInput, ServiceContext, SupersedeInput,
+    ClaimInput, CloseInput, DuplicateInput, LifecycleStatusInput, ReopenInput, ServiceContext,
+    SupersedeInput,
 };
 use crate::app::service_utils::{
     creates_duplicate_cycle, has_duplicate_link, must_resolve_existing, must_task,
 };
-use crate::app::storage::{
-    append_events, evaluate_task_spec, load_projected_state, persist_projection, with_write_lock,
-};
+use crate::app::state::{load_projected_state, persist_projection};
+use crate::app::storage::evaluate_task_spec;
 use crate::domain::events::make_event;
 use crate::domain::projector::apply_events;
 use crate::errors::TsqError;
-use crate::types::{EventRecord, EventType, RelationType, Task, TaskStatus};
+use crate::store::events::append_events;
+use crate::store::lock::with_write_lock;
+use crate::types::{EventType, Task, TaskStatus};
 use serde_json::Value;
 
 pub fn claim(ctx: &ServiceContext, input: &ClaimInput) -> Result<Task, TsqError> {
@@ -52,19 +55,29 @@ pub fn claim(ctx: &ServiceContext, input: &ClaimInput) -> Result<Task, TsqError>
             }
         }
         let assignee = input.assignee.clone().unwrap_or_else(|| ctx.actor.clone());
-        let event = make_event(
+        let claim_event = make_event(
             &ctx.actor,
             &ctx.now.as_ref()(),
             EventType::TaskClaimed,
             &id,
             payload_map(serde_json::json!({"assignee": assignee})),
         );
-        let mut next_state = apply_events(&loaded.state, std::slice::from_ref(&event))?;
-        append_events(&ctx.repo_root, &[event])?;
+        let mut events = vec![claim_event];
+        if input.start && existing.status != TaskStatus::InProgress {
+            events.push(make_event(
+                &ctx.actor,
+                &ctx.now.as_ref()(),
+                EventType::TaskStatusSet,
+                &id,
+                payload_map(serde_json::json!({"status": TaskStatus::InProgress})),
+            ));
+        }
+        let mut next_state = apply_events(&loaded.state, &events)?;
+        append_events(&ctx.repo_root, &events)?;
         persist_projection(
             &ctx.repo_root,
             &mut next_state,
-            loaded.event_count + 1,
+            loaded.event_count + events.len(),
             None,
         )?;
         must_task(&next_state, &id)
@@ -72,108 +85,31 @@ pub fn claim(ctx: &ServiceContext, input: &ClaimInput) -> Result<Task, TsqError>
 }
 
 pub fn close(ctx: &ServiceContext, input: &CloseInput) -> Result<Vec<Task>, TsqError> {
-    with_write_lock(&ctx.repo_root, || {
-        let loaded = load_projected_state(&ctx.repo_root)?;
-        let resolved_ids: Vec<String> = input
-            .ids
-            .iter()
-            .map(|id| must_resolve_existing(&loaded.state, id, input.exact_id))
-            .collect::<Result<_, _>>()?;
-        let mut events: Vec<EventRecord> = Vec::new();
-
-        for id in &resolved_ids {
-            let existing = must_task(&loaded.state, id)?;
-            if existing.status == TaskStatus::Closed {
-                return Err(TsqError::new(
-                    "VALIDATION_ERROR",
-                    format!("task {} is already closed", id),
-                    1,
-                ));
-            }
-            if existing.status == TaskStatus::Canceled {
-                return Err(TsqError::new(
-                    "VALIDATION_ERROR",
-                    format!("cannot close canceled task {}", id),
-                    1,
-                ));
-            }
-            let ts = ctx.now.as_ref()();
-            let mut payload = serde_json::json!({"status": TaskStatus::Closed, "closed_at": ts})
-                .as_object()
-                .cloned()
-                .unwrap_or_default();
-            if let Some(reason) = input.reason.as_ref() {
-                payload.insert("reason".to_string(), Value::String(reason.clone()));
-            }
-            events.push(make_event(
-                &ctx.actor,
-                &ts,
-                EventType::TaskStatusSet,
-                id,
-                payload,
-            ));
-        }
-
-        let mut next_state = apply_events(&loaded.state, &events)?;
-        append_events(&ctx.repo_root, &events)?;
-        persist_projection(
-            &ctx.repo_root,
-            &mut next_state,
-            loaded.event_count + events.len(),
-            None,
-        )?;
-        resolved_ids
-            .iter()
-            .map(|id| must_task(&next_state, id))
-            .collect()
-    })
+    Ok(set_lifecycle_status(
+        ctx,
+        &LifecycleStatusInput {
+            ids: input.ids.clone(),
+            status: TaskStatus::Closed,
+            note: None,
+            reason: input.reason.clone(),
+            exact_id: input.exact_id,
+        },
+    )?
+    .tasks)
 }
 
 pub fn reopen(ctx: &ServiceContext, input: &ReopenInput) -> Result<Vec<Task>, TsqError> {
-    with_write_lock(&ctx.repo_root, || {
-        let loaded = load_projected_state(&ctx.repo_root)?;
-        let resolved_ids: Vec<String> = input
-            .ids
-            .iter()
-            .map(|id| must_resolve_existing(&loaded.state, id, input.exact_id))
-            .collect::<Result<_, _>>()?;
-        let mut events: Vec<EventRecord> = Vec::new();
-
-        for id in &resolved_ids {
-            let existing = must_task(&loaded.state, id)?;
-            if existing.status != TaskStatus::Closed {
-                return Err(TsqError::new(
-                    "VALIDATION_ERROR",
-                    format!(
-                        "cannot reopen task {} with status {}",
-                        id,
-                        status_to_string(existing.status)
-                    ),
-                    1,
-                ));
-            }
-            events.push(make_event(
-                &ctx.actor,
-                &ctx.now.as_ref()(),
-                EventType::TaskStatusSet,
-                id,
-                payload_map(serde_json::json!({"status": TaskStatus::Open})),
-            ));
-        }
-
-        let mut next_state = apply_events(&loaded.state, &events)?;
-        append_events(&ctx.repo_root, &events)?;
-        persist_projection(
-            &ctx.repo_root,
-            &mut next_state,
-            loaded.event_count + events.len(),
-            None,
-        )?;
-        resolved_ids
-            .iter()
-            .map(|id| must_task(&next_state, id))
-            .collect()
-    })
+    Ok(set_lifecycle_status(
+        ctx,
+        &LifecycleStatusInput {
+            ids: input.ids.clone(),
+            status: TaskStatus::Open,
+            note: None,
+            reason: None,
+            exact_id: input.exact_id,
+        },
+    )?
+    .tasks)
 }
 
 pub fn supersede(ctx: &ServiceContext, input: &SupersedeInput) -> Result<Task, TsqError> {
@@ -263,42 +199,15 @@ pub fn duplicate(ctx: &ServiceContext, input: &DuplicateInput) -> Result<Task, T
             ));
         }
 
-        let mut events: Vec<EventRecord> = Vec::new();
-        if !has_duplicate_link(&loaded.state, &source, &canonical) {
-            events.push(make_event(
-                &ctx.actor,
-                &ctx.now.as_ref()(),
-                EventType::LinkAdded,
-                &source,
-                payload_map(
-                    serde_json::json!({"type": RelationType::Duplicates, "target": canonical}),
-                ),
-            ));
-        }
-
-        events.push(make_event(
-            &ctx.actor,
-            &ctx.now.as_ref()(),
-            EventType::TaskUpdated,
-            &source,
-            payload_map(serde_json::json!({"duplicate_of": canonical})),
-        ));
-
         let ts = ctx.now.as_ref()();
-        let mut payload = serde_json::json!({"status": TaskStatus::Closed, "closed_at": ts})
-            .as_object()
-            .cloned()
-            .unwrap_or_default();
-        if let Some(reason) = input.reason.as_ref() {
-            payload.insert("reason".to_string(), Value::String(reason.clone()));
-        }
-        events.push(make_event(
+        let events = duplicate_close_events(
             &ctx.actor,
             &ts,
-            EventType::TaskStatusSet,
             &source,
-            payload,
-        ));
+            &canonical,
+            input.reason.as_deref(),
+            has_duplicate_link(&loaded.state, &source, &canonical),
+        );
 
         let mut next_state = apply_events(&loaded.state, &events)?;
         append_events(&ctx.repo_root, &events)?;

@@ -21,6 +21,13 @@ pub const DEFAULT_SYNC_BRANCH: &str = "tsq-sync";
 /// worktree for that branch. Legacy git repos without `sync_branch` are migrated
 /// to the default sync worktree automatically.
 pub fn resolve_effective_root(repo_root: &str) -> Result<String, TsqError> {
+    if !Path::new(repo_root).join(".tasque").exists() {
+        return Err(TsqError::new(
+            "NO_STORE",
+            "No Tasque store for this directory. Run 'tsq init' or use 'tsq --root <path> ...'.",
+            2,
+        ));
+    }
     let config = read_config(repo_root)?;
 
     let branch = match config.sync_branch {
@@ -325,46 +332,13 @@ fn uninstall_hooks_locked(repo_root: &str) -> Result<HookUninstallResult, TsqErr
 }
 
 fn ensure_seed_tasque_dir(tasque_dir: &Path) -> Result<(), TsqError> {
-    std::fs::create_dir_all(tasque_dir).map_err(|e| {
-        TsqError::new("IO_ERROR", "failed creating .tasque directory for seed", 2)
-            .with_details(serde_json::json!({"message": e.to_string()}))
+    let repo_root = tasque_dir.parent().ok_or_else(|| {
+        TsqError::new("IO_ERROR", "seed .tasque directory has no parent", 2)
+            .with_details(serde_json::json!({"path": tasque_dir.display().to_string()}))
     })?;
-
-    let events_file = tasque_dir.join("events.jsonl");
-    if !events_file.exists() {
-        std::fs::write(&events_file, "").map_err(|e| {
-            TsqError::new("IO_ERROR", "failed creating seed events.jsonl", 2)
-                .with_details(serde_json::json!({"message": e.to_string()}))
-        })?;
-    }
-
-    let config_file = tasque_dir.join("config.json");
-    if !config_file.exists() {
-        let default = crate::types::Config {
-            schema_version: crate::types::SCHEMA_VERSION,
-            snapshot_every: 200,
-            sync_branch: None,
-        };
-        let json = serde_json::to_string_pretty(&default).map_err(|e| {
-            TsqError::new("IO_ERROR", "failed serializing seed config", 2)
-                .with_details(serde_json::json!({"message": e.to_string()}))
-        })?;
-        std::fs::write(&config_file, format!("{}\n", json)).map_err(|e| {
-            TsqError::new("IO_ERROR", "failed writing seed config.json", 2)
-                .with_details(serde_json::json!({"message": e.to_string()}))
-        })?;
-    }
-
-    let gitignore_file = tasque_dir.join(".gitignore");
-    if !gitignore_file.exists() {
-        let content = "state.json\nstate.json.tmp*\n.lock\nsnapshots/\nsnapshots/*.tmp\n";
-        std::fs::write(&gitignore_file, content).map_err(|e| {
-            TsqError::new("IO_ERROR", "failed writing seed .gitignore", 2)
-                .with_details(serde_json::json!({"message": e.to_string()}))
-        })?;
-    }
-
-    Ok(())
+    crate::app::storage::ensure_events_file(repo_root)?;
+    crate::store::config::write_default_config(repo_root)?;
+    crate::app::storage::ensure_tasque_gitignore(repo_root)
 }
 
 fn clear_repo_events(repo_root: &str) -> Result<(), TsqError> {

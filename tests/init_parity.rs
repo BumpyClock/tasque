@@ -133,6 +133,8 @@ fn resolve_init_plan_preserves_sync_branch_in_non_interactive_input() {
             assert_eq!(input.sync_branch.as_deref(), Some("tasque-sync"));
             assert!(!input.install_skill);
             assert!(!input.uninstall_skill);
+            assert_eq!(input.skill_targets, None);
+            assert_eq!(input.skill_name, None);
         }
         InitPlan::Wizard { .. } => panic!("expected non-interactive plan"),
     }
@@ -183,28 +185,4 @@ fn run_init_wizard_auto_accept_preserves_sync_branch_in_input() {
     assert_eq!(input.sync_branch.as_deref(), Some("tasque-sync"));
     assert!(!input.install_skill);
     assert!(!input.uninstall_skill);
-}
-
-#[test]
-fn sync_branch_does_not_require_skill_action() {
-    let options = InitCommandOptions {
-        sync_branch: Some("tasque-sync".to_string()),
-        ..InitCommandOptions::default()
-    };
-    let context = InitResolutionContext {
-        raw_args: vec!["init".to_string(), "--sync-branch".to_string()],
-        is_tty: false,
-        json: false,
-    };
-
-    let plan = resolve_init_plan(&options, &context).expect("expected init plan");
-
-    match plan {
-        InitPlan::NonInteractive { input } => {
-            assert_eq!(input.sync_branch.as_deref(), Some("tasque-sync"));
-            assert_eq!(input.skill_targets, None);
-            assert_eq!(input.skill_name, None);
-        }
-        InitPlan::Wizard { .. } => panic!("expected non-interactive plan"),
-    }
 }

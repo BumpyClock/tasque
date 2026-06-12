@@ -1,26 +1,7 @@
 mod common;
 
-use common::{make_repo, run_cli};
+use common::{init_git_repo_with_identity, make_repo, run_cli};
 use std::fs;
-use std::path::Path;
-use std::process::Command;
-
-fn git(repo: &Path, args: &[&str]) {
-    let output = Command::new("git")
-        .arg("-c")
-        .arg("safe.bareRepository=all")
-        .args(args)
-        .current_dir(repo)
-        .output()
-        .expect("git command failed");
-    assert!(
-        output.status.success(),
-        "git {:?} failed\nstdout:{}\nstderr:{}",
-        args,
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
 
 #[test]
 fn init_in_git_subproject_under_ancestor_tasque_initializes_subproject_cwd() {
@@ -36,12 +17,7 @@ fn init_in_git_subproject_under_ancestor_tasque_initializes_subproject_cwd() {
 
     let subproject = ancestor.join("pi-tasque");
     fs::create_dir_all(&subproject).expect("create subproject");
-    git(&subproject, &["init"]);
-    git(&subproject, &["config", "user.name", "rust-test"]);
-    git(
-        &subproject,
-        &["config", "user.email", "rust-test@example.com"],
-    );
+    init_git_repo_with_identity(&subproject, None);
 
     let subproject_init = run_cli(&subproject, ["init"]);
     assert_eq!(

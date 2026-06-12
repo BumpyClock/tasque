@@ -73,63 +73,11 @@ Read path:
 - else replay `events.jsonl`
 - on write: append event, update cache
 
-## Task Model
-Task fields:
-- `id` (`tsq-<hash>` root, `<parent>.<n>` child)
-- `title`
-- `status` (`open|in_progress|blocked|deferred|closed|canceled`)
-- `priority` (`0..3`)
-- `assignee` (optional)
-- `parent_id` (optional)
-- `created_at`, `updated_at`
-- `labels[]` (optional)
+## Task Model, Ready Semantics, and CLI Contract
 
-Links:
-- dependency edge: `child -> parent_blocker`
-- relation edge kinds: `relates_to|duplicates|supersedes|replies_to`
+Canonical task fields, ready semantics, command syntax, global options, and exit codes live in [`AGENTS-reference.md`](./AGENTS-reference.md).
 
-## Ready Semantics
-`ready` if:
-- task status in `open|in_progress`
-- task has zero open blockers
-- task not `canceled|closed`
-
-Open blocker:
-- linked dependency target exists
-- target status not in `closed|canceled`
-
-## CLI Contract
-Current verb-first command contract lives in [AGENTS-reference.md](./AGENTS-reference.md).
-Keep this file high-level to avoid stale command matrices.
-
-Canonical examples:
-- `tsq create "Fix auth redirect"`
-- `tsq create --from-file tasks.md`
-- `tsq find ready --lane coding`
-- `tsq edit <id> --title "New title"`
-- `tsq claim <id> --start --require-spec`
-- `tsq block <task> by <blocker>`
-- `tsq order <later> after <earlier>`
-- `tsq relate <src> <dst>`
-- `tsq spec <id> --file spec.md`
-- `tsq spec <id> --check`
-- `tsq note <id> "decision recorded"`
-- `tsq notes <id>`
-- `tsq label <id> cli`
-- `tsq unlabel <id> cli`
-- `tsq labels`
-- `tsq done <id> --note "merged"`
-
-Global options:
-- `--format human|json`
-- `--json`
-- `--exact-id`
-
-Exit codes:
-- `0` success
-- `1` validation/user error
-- `2` storage/IO error
-- `3` lock/concurrency failure
+Keep this file high-level for agent orientation only; use `AGENTS-reference.md` and `tsq <command> --help` for exact contracts.
 
 ## Concurrency + Integrity
 - single-process write lock: `.tasque/.lock` (`open wx`, short retry)

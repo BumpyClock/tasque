@@ -5,14 +5,16 @@ use crate::app::service_types::{
     SpecUpdateResult, SpecUpdateSpec,
 };
 use crate::app::service_utils::{must_resolve_existing, must_task};
+use crate::app::state::{load_projected_state, persist_projection};
 use crate::app::storage::{
-    append_events, evaluate_task_spec, load_projected_state, normalize_optional_input,
-    persist_projection, read_spec_attach_content, resolve_spec_attach_source, sha256,
-    with_write_lock, write_task_spec_atomic,
+    evaluate_task_spec, normalize_optional_input, read_spec_attach_content,
+    resolve_spec_attach_source, sha256, write_task_spec_atomic,
 };
 use crate::domain::events::make_event;
 use crate::domain::projector::apply_events;
 use crate::errors::TsqError;
+use crate::store::events::append_events;
+use crate::store::lock::with_write_lock;
 use crate::types::{EventRecord, EventType, State, Task};
 use diffy::patch_set::{FileOperation, ParseOptions, PatchKind, PatchSet};
 use std::path::PathBuf;

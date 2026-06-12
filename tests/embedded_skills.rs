@@ -1,8 +1,7 @@
 mod common;
 
-use common::make_repo;
+use common::{make_repo, tsq_bin};
 use std::fs;
-use std::path::PathBuf;
 use std::process::Command;
 
 #[test]
@@ -44,42 +43,4 @@ fn embedded_skills_fallback_installs_skill_when_disk_sources_missing() {
     assert!(contents.contains("tsq find ready --lane coding"));
     assert!(contents.contains("tsq create --parent <parent-id> --from-file tasks.md"));
     assert!(contents.contains("tsq spec <id> --show"));
-}
-
-fn tsq_bin() -> PathBuf {
-    if let Ok(path) = std::env::var("CARGO_BIN_EXE_tsq") {
-        let candidate = PathBuf::from(path);
-        if candidate.exists() {
-            return candidate;
-        }
-    }
-
-    let binary_name = if cfg!(windows) { "tsq.exe" } else { "tsq" };
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let manifest_path = manifest_dir.join("Cargo.toml");
-    let candidate = manifest_dir.join("target").join("debug").join(binary_name);
-
-    if candidate.exists() {
-        return candidate;
-    }
-
-    let build_status = Command::new("cargo")
-        .args([
-            "build",
-            "--quiet",
-            "--manifest-path",
-            manifest_path.to_string_lossy().as_ref(),
-            "--bin",
-            "tsq",
-        ])
-        .current_dir(&manifest_dir)
-        .status()
-        .expect("failed to invoke cargo build for tsq test binary");
-    assert!(
-        build_status.success(),
-        "cargo build --bin tsq failed with status: {:?}",
-        build_status.code()
-    );
-
-    candidate
 }

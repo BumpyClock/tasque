@@ -56,90 +56,18 @@ It refreshes only existing managed `tasque` skill installs and does not create
 missing ones. Refresh failures produce a warning but do not fail the install.
 Set `TSQ_SKIP_SKILL_REFRESH=1` to skip postinstall refresh entirely.
 
-## Command List
+## Command Reference
 
-Global options:
+Canonical CLI and task contracts live in [`AGENTS-reference.md`](./AGENTS-reference.md).
 
-- `--format human|json`: output format (`human` default)
-- `--json`: shorthand for `--format json`
-- `--exact-id`: disable partial ID resolution
+Use built-in help for the freshest syntax:
 
-Commands:
+```bash
+tsq --help
+tsq <command> --help
+```
 
-- `tsq` (no args, TTY): open read-only TUI (List/Board views)
-- `tsq init [--wizard|--no-wizard] [--yes] [--preset <name>] [--sync-branch|--worktree-name <name>]`
-- `tsq init --install-skill|--uninstall-skill [--skill-targets ...] [--skill-name <name>] [--force-skill-overwrite]`
-- `tsq skills refresh`
-- `tsq create <title...> [--kind ...] [-p ...] [--parent <id>] [--from-file tasks.md] [--description <text>] [--external-ref <ref>] [--discovered-from <id>] [--planned|--needs-plan] [--ensure] [--id <id>] [--body-file <path|->] [--force]`
-- `tsq show <id> [--with-spec]`
-- `tsq find ready [--lane <planning|coding>] [--assignee <name>] [--unassigned] [--kind ...] [--label ...] [--planning <needs_planning|planned>] [--tree [--full]]`
-- `tsq find <blocked|open|in-progress|deferred|done|canceled> [filters...] [--tree [--full]]`
-- `tsq find search <query> [--full]`
-- `tsq find similar "<text>"`
-- `tsq watch [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--tree] [--flat]`
-
-Notes:
-
-- New root task IDs use `tsq-<number>`; legacy `tsq-<8 crockford base32 chars>` IDs remain valid.
-- `--id <id>` accepts `tsq-<number>` or legacy `tsq-<8 crockford base32 chars>`.
-- Task JSON includes `alias`, generated from the creation title and stable across title edits.
-- Commands that accept a task ID also accept exact aliases and unique alias prefixes unless `--exact-id` is used.
-- `tsq find similar "<text>"` shows ranked duplicate candidates.
-- `tsq create` refuses similar open/in-progress/blocked/deferred tasks unless `--force` is passed.
-
-`watch` renders the task tree by default for human output. Use `--tree` to explicitly request tree view or `--flat` for the compact list view. These options are mutually exclusive.
-
-- `tsq tui [--once] [--interval <seconds>] [--status <csv>] [--assignee <name>] [--board|--epics]`
-- `tsq stale [--days <n>] [--status <status>] [--assignee <name>] [--limit <n>]`
-- `tsq doctor`
-- `tsq repair [--fix] [--force-unlock]`
-- `tsq edit <id> [--title ...] [--description ...] [--clear-description] [--priority ...] [--external-ref <ref>] [--clear-external-ref] [--discovered-from <id>] [--clear-discovered-from]`
-- `tsq claim <id> [--assignee <a>] [--start] [--require-spec]`
-- `tsq assign <id> --assignee <a>`
-- `tsq start <id>`
-- `tsq planned <id>`
-- `tsq needs-plan <id>`
-- `tsq open <id>`
-- `tsq blocked <id>`
-- `tsq defer <id> [--note <text>]`
-- `tsq done <id...> [--note <text>]`
-- `tsq reopen <id...> [--note <text>]`
-- `tsq cancel <id...> [--note <text>]`
-- `tsq orphans`
-- `tsq spec <id> [--file <path> | --stdin | --text <markdown> | --show | --check] [--force]`
-- `tsq spec <id> --update [--file <path> | --stdin | --text <markdown>]`
-- `tsq spec <id> --patch [--file <path> | --stdin | --text <patch>]`
-- `tsq block <task> by <blocker>`
-- `tsq unblock <task> by <blocker>`
-- `tsq order <later> after <earlier>`
-- `tsq unorder <later> after <earlier>`
-- `tsq deps <id> [--direction <up|down|both>] [--depth <n>]`
-- `tsq relate <src> <dst>`
-- `tsq unrelate <src> <dst>`
-- `tsq duplicate <id> of <canonical-id> [--note <text>]`
-- `tsq duplicates [--limit <n>]`
-- `tsq merge <source-id...> --into <target-id> [--reason <text>] [--force] [--dry-run]`
-- `tsq supersede <old-id> with <new-id> [--note <text>]`
-- `tsq note <id> <text>`
-- `tsq note <id> --stdin`
-- `tsq notes <id>`
-- `tsq label <id> <label>`
-- `tsq unlabel <id> <label>`
-- `tsq labels`
-- `tsq history <id> [--limit <n>] [--type <event-type>] [--actor <name>] [--since <iso>]`
-- `tsq sync [--no-push]`
-- `tsq hooks install [--force]`
-- `tsq hooks uninstall`
-- `tsq migrate [--sync-branch|--worktree-name <name>]`
-- `tsq merge-driver <ancestor> <ours> <theirs>`
-
-Git repos default to worktree mode: `tsq init` creates/configures the `tsq-sync`
-branch and stores task data in a dedicated git worktree. Use `--sync-branch <name>`
-or `--worktree-name <name>` to choose a different branch/worktree name. Existing git repos with main-tree `.tasque`
-data and no `sync_branch` migrate automatically on the next `tsq` command. Fresh clones fetch
-the configured sync branch and create the worktree on first use. `tsq sync` pushes
-the sync branch to `origin` and sets upstream automatically when needed.
-Non-git directories use local `.tasque/` storage.
+This README keeps install, quickstart, storage, and release guidance only, so command syntax is not maintained in multiple places.
 
 ## `tasks.md` Batch Format
 
@@ -159,6 +87,19 @@ bullets are rejected with line-numbered validation errors.
 tsq create --from-file tasks.md
 tsq create --parent <id> --from-file tasks.md
 tsq create --from-file tasks.md --ensure
+```
+
+`tsq plan <parent> --from plan.md` accepts the same bullet hierarchy plus
+Markdown headings and inline labels:
+
+```md
+# CLI ergonomics #cli
+  - [ ] Add strict root tests #test
+```
+
+```bash
+tsq plan <parent-id> --from plan.md
+tsq plan <parent-id> --from plan.md --apply
 ```
 
 ## Version

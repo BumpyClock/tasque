@@ -11,17 +11,8 @@ pub fn now_iso() -> String {
 }
 
 pub fn find_tasque_root() -> Option<PathBuf> {
-    let mut dir = std::env::current_dir().ok()?;
-    loop {
-        if dir.join(".tasque").exists() {
-            return Some(dir);
-        }
-        let parent = dir.parent()?.to_path_buf();
-        if parent == dir {
-            return None;
-        }
-        dir = parent;
-    }
+    let dir = std::env::current_dir().ok()?;
+    dir.join(".tasque").exists().then_some(dir)
 }
 
 pub fn get_repo_root() -> PathBuf {

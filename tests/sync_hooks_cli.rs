@@ -1,56 +1,26 @@
 mod common;
 
-use common::{make_repo, run_cli, run_json};
+use common::{git, git_output, init_git_repo_with_identity, make_repo, run_cli, run_json};
 use serde_json::Value;
 use std::fs;
-use std::path::Path;
-use std::process::Command;
-
-fn git(repo: &Path, args: &[&str]) {
-    let output = Command::new("git")
-        // Per-invocation config keeps bare-repo/worktree tests portable when
-        // global Git safety config requires explicit bare repository trust.
-        .arg("-c")
-        .arg("safe.bareRepository=all")
-        .args(args)
-        .current_dir(repo)
-        .output()
-        .expect("git command failed");
-    assert!(
-        output.status.success(),
-        "git {:?} failed\nstdout:{}\nstderr:{}",
-        args,
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+fn git_out(repo: &std::path::Path, args: &[&str]) -> String {
+    let output = git_output(repo, args);
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
-fn git_out(repo: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
-        // Same per-command safety override as git(); this helper captures stdout.
-        .arg("-c")
-        .arg("safe.bareRepository=all")
-        .args(args)
-        .current_dir(repo)
-        .output()
-        .expect("git command failed");
-    assert!(
-        output.status.success(),
-        "git {:?} failed\nstdout:{}\nstderr:{}",
-        args,
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8_lossy(&output.stdout).trim().to_string()
+fn create_bare_origin(base: &std::path::Path) -> std::path::PathBuf {
+    let remote = base.join("origin.git");
+    let remote_arg = remote.to_string_lossy().to_string();
+    git(base, &["init", "--bare", remote_arg.as_str()]);
+    git(&remote, &["symbolic-ref", "HEAD", "refs/heads/main"]);
+    remote
 }
 
 #[test]
 fn hooks_install_and_uninstall_manage_pre_push_hook() {
     let repo = make_repo();
     let root = repo.path();
-    git(root, &["init"]);
-    git(root, &["config", "user.name", "rust-test"]);
-    git(root, &["config", "user.email", "rust-test@example.com"]);
+    init_git_repo_with_identity(root, None);
 
     let init = run_cli(root, ["init"]);
     assert_eq!(init.code, 0, "stderr: {}", init.stderr);
@@ -72,9 +42,7 @@ fn hooks_install_and_uninstall_manage_pre_push_hook() {
 fn init_defaults_to_sync_branch_configuration_in_git_repo() {
     let repo = make_repo();
     let root = repo.path();
-    git(root, &["init"]);
-    git(root, &["config", "user.name", "rust-test"]);
-    git(root, &["config", "user.email", "rust-test@example.com"]);
+    init_git_repo_with_identity(root, None);
 
     let init = run_cli(root, ["init"]);
     assert_eq!(init.code, 0, "stderr: {}", init.stderr);
@@ -96,12 +64,38 @@ fn init_defaults_to_sync_branch_configuration_in_git_repo() {
 }
 
 #[test]
+fn create_title_named_help_uses_sync_worktree() {
+    let repo = make_repo();
+    let root = repo.path();
+    init_git_repo_with_identity(root, None);
+
+    let init = run_cli(root, ["init", "--yes", "--no-wizard", "--json"]);
+    assert_eq!(init.code, 0, "stderr: {}", init.stderr);
+
+    let result = run_json(root, ["create", "help", "--force"]);
+    assert_eq!(result.cli.code, 0, "stderr: {}", result.cli.stderr);
+
+    let main_events = root.join(".tasque").join("events.jsonl");
+    let main_log = fs::read_to_string(main_events).unwrap_or_default();
+    assert_eq!(
+        main_log.lines().count(),
+        0,
+        "task event should be written to sync worktree, not main store"
+    );
+    let sync_events = root
+        .join(".git")
+        .join("tsq-sync")
+        .join(".tasque")
+        .join("events.jsonl");
+    let sync_log = fs::read_to_string(sync_events).expect("sync events");
+    assert_eq!(sync_log.lines().count(), 1);
+}
+
+#[test]
 fn init_install_skill_preserves_existing_sync_branch_config() {
     let repo = make_repo();
     let root = repo.path();
-    git(root, &["init"]);
-    git(root, &["config", "user.name", "rust-test"]);
-    git(root, &["config", "user.email", "rust-test@example.com"]);
+    init_git_repo_with_identity(root, None);
     fs::create_dir_all(root.join(".tasque")).expect("mkdir .tasque");
     let config_path = root.join(".tasque").join("config.json");
     let original_config = "{\n  \"schema_version\": 1,\n  \"snapshot_every\": 200,\n  \"sync_branch\": \"tasque-sync\"\n}\n";
@@ -135,9 +129,7 @@ fn init_install_skill_preserves_existing_sync_branch_config() {
 fn custom_worktree_name_auto_commits_and_syncs_pending_changes() {
     let repo = make_repo();
     let root = repo.path();
-    git(root, &["init"]);
-    git(root, &["config", "user.name", "rust-test"]);
-    git(root, &["config", "user.email", "rust-test@example.com"]);
+    init_git_repo_with_identity(root, None);
 
     let init = run_cli(root, ["init", "--worktree-name", "custom-sync"]);
     assert_eq!(init.code, 0, "stderr: {}", init.stderr);
@@ -180,17 +172,13 @@ fn sync_without_upstream_pushes_branch_to_origin_and_sets_upstream() {
     let root = base.join("repo");
     fs::create_dir(&root).expect("repo dir");
 
-    git(&root, &["init", "-b", "main"]);
-    git(&root, &["config", "user.name", "rust-test"]);
-    git(&root, &["config", "user.email", "rust-test@example.com"]);
+    init_git_repo_with_identity(&root, Some("main"));
     fs::write(root.join("README.md"), "seed\n").expect("seed");
     git(&root, &["add", "README.md"]);
     git(&root, &["commit", "-m", "seed main"]);
 
-    let remote = base.join("origin.git");
+    let remote = create_bare_origin(base);
     let remote_arg = remote.to_string_lossy().to_string();
-    git(base, &["init", "--bare", remote_arg.as_str()]);
-    git(&remote, &["symbolic-ref", "HEAD", "refs/heads/main"]);
     git(&root, &["remote", "add", "origin", remote_arg.as_str()]);
     git(&root, &["push", "-u", "origin", "main"]);
 
@@ -243,9 +231,7 @@ fn migrate_defaults_to_tsq_sync_worktree_name() {
     let create = run_cli(root, ["create", "Legacy migration task"]);
     assert_eq!(create.code, 0, "stderr: {}", create.stderr);
 
-    git(root, &["init"]);
-    git(root, &["config", "user.name", "rust-test"]);
-    git(root, &["config", "user.email", "rust-test@example.com"]);
+    init_git_repo_with_identity(root, None);
 
     let migrate = run_cli(root, ["migrate", "--json"]);
     assert_eq!(migrate.code, 0, "stderr: {}", migrate.stderr);
@@ -278,19 +264,15 @@ fn migrate_pushes_sync_branch_to_main_upstream_before_clearing_root_events() {
     let create = run_cli(&root, ["create", "Migrated remote task"]);
     assert_eq!(create.code, 0, "stderr: {}", create.stderr);
 
-    git(&root, &["init", "-b", "main"]);
-    git(&root, &["config", "user.name", "rust-test"]);
-    git(&root, &["config", "user.email", "rust-test@example.com"]);
+    init_git_repo_with_identity(&root, Some("main"));
     git(
         &root,
         &["add", ".tasque/config.json", ".tasque/events.jsonl"],
     );
     git(&root, &["commit", "-m", "seed legacy tasque data"]);
 
-    let remote = base.join("origin.git");
+    let remote = create_bare_origin(base);
     let remote_arg = remote.to_string_lossy().to_string();
-    git(base, &["init", "--bare", remote_arg.as_str()]);
-    git(&remote, &["symbolic-ref", "HEAD", "refs/heads/main"]);
     git(&root, &["remote", "add", "origin", remote_arg.as_str()]);
     git(&root, &["push", "-u", "origin", "main"]);
 
@@ -326,9 +308,7 @@ fn fresh_clone_fetches_remote_sync_branch_and_creates_worktree() {
     let source = base.join("source");
     fs::create_dir(&source).expect("source dir");
 
-    git(&source, &["init", "-b", "main"]);
-    git(&source, &["config", "user.name", "rust-test"]);
-    git(&source, &["config", "user.email", "rust-test@example.com"]);
+    init_git_repo_with_identity(&source, Some("main"));
 
     let init = run_cli(&source, ["init"]);
     assert_eq!(init.code, 0, "stderr: {}", init.stderr);
@@ -338,10 +318,8 @@ fn fresh_clone_fetches_remote_sync_branch_and_creates_worktree() {
     git(&source, &["add", ".tasque/config.json", ".gitattributes"]);
     git(&source, &["commit", "-m", "seed main config"]);
 
-    let remote = base.join("origin.git");
+    let remote = create_bare_origin(base);
     let remote_arg = remote.to_string_lossy().to_string();
-    git(base, &["init", "--bare", remote_arg.as_str()]);
-    git(&remote, &["symbolic-ref", "HEAD", "refs/heads/main"]);
     git(&source, &["remote", "add", "origin", remote_arg.as_str()]);
     git(&source, &["push", "origin", "HEAD:main"]);
     git(&source, &["push", "origin", "tsq-sync"]);

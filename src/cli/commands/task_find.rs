@@ -2,7 +2,7 @@ use crate::app::service::TasqueService;
 use crate::app::service_types::{ListFilter, SearchInput, SimilarInput};
 use crate::cli::action::{GlobalOpts, run_action};
 use crate::cli::parsers::{ListParseInput, apply_tree_defaults, parse_lane, parse_list_filter};
-use crate::cli::render::{print_task, print_task_list, print_task_tree};
+use crate::cli::render::{print_task, print_task_list, print_task_list_plain, print_task_tree};
 use crate::errors::TsqError;
 use clap::{Args, Subcommand};
 use std::collections::HashSet;
@@ -132,6 +132,12 @@ fn execute_find_ready(service: &TasqueService, args: FindReadyArgs, opts: Global
             },
             |tree| serde_json::json!({ "tree": tree }),
             |tree| {
+                if opts.plain() {
+                    for node in tree {
+                        print_task_list_plain(std::slice::from_ref(&node.task));
+                    }
+                    return Ok(());
+                }
                 print_task_tree(tree);
                 Ok(())
             },
@@ -158,7 +164,11 @@ fn execute_find_ready(service: &TasqueService, args: FindReadyArgs, opts: Global
         },
         |tasks| serde_json::json!({ "tasks": tasks }),
         |tasks| {
-            print_task_list(tasks);
+            if opts.plain() {
+                print_task_list_plain(tasks);
+            } else {
+                print_task_list(tasks);
+            }
             Ok(())
         },
     )
@@ -191,6 +201,12 @@ fn execute_find_list(
             || service.list_tree(&apply_tree_defaults(filter.clone(), args.full)),
             |tree| serde_json::json!({ "tree": tree }),
             |tree| {
+                if opts.plain() {
+                    for node in tree {
+                        print_task_list_plain(std::slice::from_ref(&node.task));
+                    }
+                    return Ok(());
+                }
                 print_task_tree(tree);
                 Ok(())
             },
@@ -211,7 +227,11 @@ fn execute_find_list(
             },
             |tasks| serde_json::json!({ "tasks": tasks }),
             |tasks| {
-                print_task_list(tasks);
+                if opts.plain() {
+                    print_task_list_plain(tasks);
+                } else {
+                    print_task_list(tasks);
+                }
                 Ok(())
             },
         )
@@ -231,8 +251,14 @@ pub fn execute_find_search(service: &TasqueService, args: FindSearchArgs, opts: 
         |tasks| {
             if args.full {
                 for task in tasks {
-                    print_task(task);
+                    if opts.plain() {
+                        print_task_list_plain(std::slice::from_ref(task));
+                    } else {
+                        print_task(task);
+                    }
                 }
+            } else if opts.plain() {
+                print_task_list_plain(tasks);
             } else {
                 print_task_list(tasks);
             }

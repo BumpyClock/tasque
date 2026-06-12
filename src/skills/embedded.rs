@@ -1,4 +1,5 @@
 use crate::errors::TsqError;
+use crate::skills::helpers::io_error_value;
 use rust_embed::RustEmbed;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -82,11 +83,4 @@ fn write_embedded_file(destination: &Path, contents: &[u8]) -> Result<(), TsqErr
     })?;
 
     Ok(())
-}
-
-fn io_error_value(error: &std::io::Error) -> serde_json::Value {
-    serde_json::json!({
-        "kind": format!("{:?}", error.kind()),
-        "message": error.to_string()
-    })
 }

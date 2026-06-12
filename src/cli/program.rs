@@ -1,12 +1,14 @@
 use crate::app::runtime::find_tasque_root;
 use crate::app::service::TasqueService;
 use crate::cli::action::{GlobalOpts, OutputFormat, emit_error};
-use crate::cli::commands::{dep, hooks, label, link, meta, note, skills, spec, sync, task};
+use crate::cli::commands::{dep, hooks, label, link, meta, note, plan, skills, spec, sync, task};
+use crate::cli::preparse::{PreparseResult, PreparsingFormat, preparse_args};
 use crate::errors::TsqError;
 use crate::output::err_envelope;
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand, ValueEnum};
 use std::io::IsTerminal;
+use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
 #[command(name = "tsq")]
@@ -22,6 +24,10 @@ use std::io::IsTerminal;
 pub struct Cli {
     #[arg(long, global = true)]
     pub json: bool,
+    #[arg(long, global = true)]
+    pub plain: bool,
+    #[arg(long, global = true, value_name = "PATH")]
+    pub root: Option<PathBuf>,
     #[arg(long, global = true, value_enum)]
     pub format: Option<FormatArg>,
     #[arg(long = "exact-id", global = true)]
@@ -34,23 +40,27 @@ pub struct Cli {
 pub enum FormatArg {
     Human,
     Json,
+    Plain,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum CommandKind {
     Init(meta::InitArgs),
     Doctor,
+    Root,
     Repair(meta::RepairArgs),
     Orphans,
     History(meta::HistoryArgs),
     Watch(meta::WatchArgs),
     Tui(meta::TuiArgs),
     Create(task::CreateArgs),
+    Plan(plan::PlanArgs),
     Show(task::ShowArgs),
     Find(task::FindArgs),
     Stale(task::StaleArgs),
     Edit(task::EditArgs),
     Claim(task::ClaimArgs),
+    Workon(task::WorkonArgs),
     Assign(task::AssignArgs),
     Start(task::TaskIdArgs),
     Open(task::TaskIdArgs),
@@ -98,8 +108,9 @@ pub fn run_cli(service: &TasqueService) -> i32 {
     let raw_args: Vec<String> = std::env::args_os()
         .map(|arg| arg.to_string_lossy().to_string())
         .collect();
-    if let Some(hint) = removed_command_hint(&raw_args) {
-        let opts = parse_global_opts_from_args(&raw_args);
+    let preparse = preparse_args(&raw_args);
+    if let Some(hint) = removed_command_hint(&raw_args, &preparse) {
+        let opts = parse_global_opts_from_preparse(&preparse);
         return emit_error("tsq", opts, TsqError::new("VALIDATION_ERROR", hint, 1));
     }
 
@@ -112,7 +123,9 @@ pub fn run_cli(service: &TasqueService) -> i32 {
             CommandKind::Tui(meta::TuiArgs::default()),
             GlobalOpts {
                 json: false,
+                plain: false,
                 exact_id: false,
+                explicit_root: false,
             },
         );
     }
@@ -121,12 +134,20 @@ pub fn run_cli(service: &TasqueService) -> i32 {
         Ok(parsed) => parsed,
         Err(error) => return handle_parse_error(service, error),
     };
-    let opts = match global_opts(cli.json, cli.format, cli.exact_id) {
+    let opts = match global_opts(
+        cli.json,
+        cli.plain,
+        cli.format,
+        cli.exact_id,
+        cli.root.is_some(),
+    ) {
         Ok(opts) => opts,
         Err(error) => {
             let fallback_opts = GlobalOpts {
                 json: true,
+                plain: false,
                 exact_id: cli.exact_id,
+                explicit_root: cli.root.is_some(),
             };
             return emit_error("tsq", fallback_opts, error);
         }
@@ -136,8 +157,9 @@ pub fn run_cli(service: &TasqueService) -> i32 {
 
 fn execute_command(service: &TasqueService, command: CommandKind, opts: GlobalOpts) -> i32 {
     if !is_init_safe_command(&command) && find_tasque_root().is_none() {
-        let code = "NOT_INITIALIZED";
-        let message = "No .tasque directory found. Run 'tsq init' first.";
+        let code = "NO_STORE";
+        let message =
+            "No Tasque store for this directory. Run 'tsq init' or use 'tsq --root <path> ...'.";
         if opts.json() {
             let command_line = format!("tsq {}", root_command_name(&command));
             let envelope = err_envelope(
@@ -159,17 +181,20 @@ fn execute_command(service: &TasqueService, command: CommandKind, opts: GlobalOp
     match command {
         CommandKind::Init(args) => meta::execute_init(service, args, opts),
         CommandKind::Doctor => meta::execute_doctor(service, opts),
+        CommandKind::Root => meta::execute_root(opts),
         CommandKind::Repair(args) => meta::execute_repair(service, args, opts),
         CommandKind::Orphans => meta::execute_orphans(service, opts),
         CommandKind::History(args) => meta::execute_history(service, args, opts),
         CommandKind::Watch(args) => meta::execute_watch(service, args, opts),
         CommandKind::Tui(args) => meta::execute_tui(service, args, opts),
         CommandKind::Create(args) => task::execute_create(service, args, opts),
+        CommandKind::Plan(args) => plan::execute_plan(service, args, opts),
         CommandKind::Show(args) => task::execute_show(service, args, opts),
         CommandKind::Find(args) => task::execute_find(service, args, opts),
         CommandKind::Stale(args) => task::execute_stale(service, args, opts),
         CommandKind::Edit(args) => task::execute_edit(service, args, opts),
         CommandKind::Claim(args) => task::execute_claim(service, args, opts),
+        CommandKind::Workon(args) => task::execute_workon(service, args, opts),
         CommandKind::Assign(args) => task::execute_assign(service, args, opts),
         CommandKind::Start(args) => task::execute_set_status(
             service,
@@ -282,42 +307,37 @@ fn handle_parse_error(service: &TasqueService, error: clap::Error) -> i32 {
 
 fn parse_global_opts_from_env() -> GlobalOpts {
     let args: Vec<String> = std::env::args().collect();
-    parse_global_opts_from_args(&args)
+    let preparse = preparse_args(&args);
+    parse_global_opts_from_preparse(&preparse)
 }
 
-fn parse_global_opts_from_args(args: &[String]) -> GlobalOpts {
-    let mut json = false;
-    let mut exact_id = false;
-    let mut format = None;
-    let mut iter = args.iter();
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--json" => json = true,
-            "--exact-id" => exact_id = true,
-            "--format" => {
-                format = match iter.next().map(String::as_str) {
-                    Some("json") => Some(FormatArg::Json),
-                    Some("human") => Some(FormatArg::Human),
-                    _ => format,
-                };
-            }
-            value if value.starts_with("--format=") => {
-                format = match value.strip_prefix("--format=") {
-                    Some("json") => Some(FormatArg::Json),
-                    Some("human") => Some(FormatArg::Human),
-                    _ => format,
-                };
-            }
-            _ => {}
-        }
-    }
-    global_opts(json, format, exact_id).unwrap_or(GlobalOpts { json, exact_id })
+fn parse_global_opts_from_preparse(preparse: &PreparseResult) -> GlobalOpts {
+    let format = preparse.format.map(|format| match format {
+        PreparsingFormat::Human => FormatArg::Human,
+        PreparsingFormat::Json => FormatArg::Json,
+        PreparsingFormat::Plain => FormatArg::Plain,
+    });
+    global_opts(
+        preparse.json,
+        preparse.plain,
+        format,
+        preparse.exact_id,
+        preparse.explicit_root(),
+    )
+    .unwrap_or(GlobalOpts {
+        json: preparse.json,
+        plain: preparse.plain,
+        exact_id: preparse.exact_id,
+        explicit_root: preparse.explicit_root(),
+    })
 }
 
 fn global_opts(
     json: bool,
+    plain: bool,
     format: Option<FormatArg>,
     exact_id: bool,
+    explicit_root: bool,
 ) -> Result<GlobalOpts, TsqError> {
     if json && matches!(format, Some(FormatArg::Human)) {
         return Err(TsqError::new(
@@ -326,19 +346,38 @@ fn global_opts(
             1,
         ));
     }
+    if json && (plain || matches!(format, Some(FormatArg::Plain))) {
+        return Err(TsqError::new(
+            "VALIDATION_ERROR",
+            "cannot combine --json with --plain or --format plain",
+            1,
+        ));
+    }
+    if plain && matches!(format, Some(FormatArg::Json)) {
+        return Err(TsqError::new(
+            "VALIDATION_ERROR",
+            "cannot combine --plain with --format json",
+            1,
+        ));
+    }
     let format = if json || matches!(format, Some(FormatArg::Json)) {
         OutputFormat::Json
+    } else if plain || matches!(format, Some(FormatArg::Plain)) {
+        OutputFormat::Plain
     } else {
         OutputFormat::Human
     };
     Ok(GlobalOpts {
         json: json || matches!(format, OutputFormat::Json),
+        plain: matches!(format, OutputFormat::Plain),
         exact_id,
+        explicit_root,
     })
 }
 
-fn removed_command_hint(args: &[String]) -> Option<&'static str> {
-    let (root_index, root) = first_command_token(args)?;
+fn removed_command_hint(args: &[String], preparse: &PreparseResult) -> Option<&'static str> {
+    let root_index = preparse.command_index?;
+    let root = preparse.command.as_deref()?;
     match root {
         "list" => Some("use `tsq find open` or `tsq find <status>`"),
         "ready" => Some("use `tsq find ready --lane coding`"),
@@ -372,29 +411,6 @@ fn removed_command_hint(args: &[String]) -> Option<&'static str> {
     }
 }
 
-fn first_command_token(args: &[String]) -> Option<(usize, &str)> {
-    let mut index = 1;
-    while index < args.len() {
-        let arg = args[index].as_str();
-        match arg {
-            "--json" | "--exact-id" => {
-                index += 1;
-            }
-            "--format" => {
-                index += 2;
-            }
-            _ if arg.starts_with("--format=") => {
-                index += 1;
-            }
-            _ if arg.starts_with('-') => {
-                index += 1;
-            }
-            _ => return Some((index, arg)),
-        }
-    }
-    None
-}
-
 fn is_missing_subcommand_error(kind: ErrorKind) -> bool {
     kind == ErrorKind::MissingSubcommand
         || kind == ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
@@ -413,6 +429,7 @@ fn is_init_safe_command(command: &CommandKind) -> bool {
         command,
         CommandKind::Init(_)
             | CommandKind::Doctor
+            | CommandKind::Root
             | CommandKind::MergeDriver(_)
             | CommandKind::Skills { .. }
     )
@@ -422,17 +439,20 @@ fn root_command_name(command: &CommandKind) -> &'static str {
     match command {
         CommandKind::Init(_) => "init",
         CommandKind::Doctor => "doctor",
+        CommandKind::Root => "root",
         CommandKind::Repair(_) => "repair",
         CommandKind::Orphans => "orphans",
         CommandKind::History(_) => "history",
         CommandKind::Watch(_) => "watch",
         CommandKind::Tui(_) => "tui",
         CommandKind::Create(_) => "create",
+        CommandKind::Plan(_) => "plan",
         CommandKind::Show(_) => "show",
         CommandKind::Find(_) => "find",
         CommandKind::Stale(_) => "stale",
         CommandKind::Edit(_) => "edit",
         CommandKind::Claim(_) => "claim",
+        CommandKind::Workon(_) => "workon",
         CommandKind::Assign(_) => "assign",
         CommandKind::Start(_) => "start",
         CommandKind::Open(_) => "open",

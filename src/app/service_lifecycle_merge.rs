@@ -1,4 +1,4 @@
-use super::service_lifecycle_helpers::{payload_map, status_to_string};
+use super::service_lifecycle_helpers::{duplicate_close_events, status_to_string};
 use crate::app::service_types::{
     DuplicateCandidateGroup, DuplicateCandidatesResult, MergeInput, MergeItem, MergeProjected,
     MergeResult, MergeSummary, MergeTarget, ServiceContext,
@@ -7,13 +7,12 @@ use crate::app::service_utils::{
     creates_duplicate_cycle, has_duplicate_link, must_resolve_existing, must_task,
     normalize_duplicate_title, sort_tasks,
 };
-use crate::app::storage::{
-    append_events, load_projected_state, persist_projection, with_write_lock,
-};
-use crate::domain::events::make_event;
+use crate::app::state::{load_projected_state, persist_projection};
 use crate::domain::projector::apply_events;
 use crate::errors::TsqError;
-use crate::types::{EventRecord, EventType, RelationType, Task, TaskStatus};
+use crate::store::events::append_events;
+use crate::store::lock::with_write_lock;
+use crate::types::{EventRecord, Task, TaskStatus};
 
 pub fn merge(ctx: &ServiceContext, input: &MergeInput) -> Result<MergeResult, TsqError> {
     if input.sources.is_empty() {
@@ -100,43 +99,14 @@ pub fn merge(ctx: &ServiceContext, input: &MergeInput) -> Result<MergeResult, Ts
                 continue;
             }
 
-            if !has_duplicate_link(&loaded.state, source_id, &target_id) {
-                events.push(make_event(
-                    &ctx.actor,
-                    &ctx.now.as_ref()(),
-                    EventType::LinkAdded,
-                    source_id,
-                    payload_map(
-                        serde_json::json!({"type": RelationType::Duplicates, "target": target_id}),
-                    ),
-                ));
-            }
-
-            events.push(make_event(
-                &ctx.actor,
-                &ctx.now.as_ref()(),
-                EventType::TaskUpdated,
-                source_id,
-                payload_map(serde_json::json!({"duplicate_of": target_id})),
-            ));
-
             let ts = ctx.now.as_ref()();
-            let mut payload = serde_json::json!({"status": TaskStatus::Closed, "closed_at": ts})
-                .as_object()
-                .cloned()
-                .unwrap_or_default();
-            if let Some(reason) = input.reason.as_ref() {
-                payload.insert(
-                    "reason".to_string(),
-                    serde_json::Value::String(reason.clone()),
-                );
-            }
-            events.push(make_event(
+            events.extend(duplicate_close_events(
                 &ctx.actor,
                 &ts,
-                EventType::TaskStatusSet,
                 source_id,
-                payload,
+                &target_id,
+                input.reason.as_deref(),
+                has_duplicate_link(&loaded.state, source_id, &target_id),
             ));
 
             merged.push(MergeItem {

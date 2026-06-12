@@ -3,6 +3,7 @@ use crate::domain::event_payload_codecs::{
     relation_type_from_str, task_kind_from_str, task_status_from_str,
 };
 use crate::errors::TsqError;
+use crate::store::atomic::{any_error_value, io_error_value};
 use crate::store::paths::get_paths;
 use crate::types::{EventLogMetadata, EventRecord, EventType};
 use serde_json::{Map, Value};
@@ -283,7 +284,7 @@ fn invalid_event_payload_field(
     )
 }
 
-fn event_type_to_string(event_type: &EventType) -> &'static str {
+fn event_type_to_string(event_type: &EventType) -> String {
     event_type_as_str(*event_type)
 }
 
@@ -718,14 +719,6 @@ fn parse_events_raw(
 pub fn read_events(repo_root: impl AsRef<Path>) -> Result<ReadEventsResult, TsqError> {
     let paths = get_paths(repo_root);
     read_events_from_path(&paths.events_file)
-}
-
-fn io_error_value(error: &std::io::Error) -> Value {
-    serde_json::json!({"kind": format!("{:?}", error.kind()), "message": error.to_string()})
-}
-
-fn any_error_value(error: &impl std::fmt::Display) -> Value {
-    serde_json::json!({"message": error.to_string()})
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {

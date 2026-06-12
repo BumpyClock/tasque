@@ -28,6 +28,18 @@ fn updated(task_id: &str, payload: Value) -> EventRecord {
     event(EventType::TaskUpdated, task_id, payload)
 }
 
+const DIRECT_REF_FIELDS: &[&str] = &["parent_id", "duplicate_of", "superseded_by", "replies_to"];
+
+fn invalid_optional_typed_fields() -> Vec<(&'static str, Value)> {
+    vec![
+        ("kind", json!("bug")),
+        ("priority", json!(8)),
+        ("status", json!("done")),
+        ("planning_state", json!("maybe")),
+        ("labels", json!(["ok", 1])),
+    ]
+}
+
 fn assert_invalid_event(events: &[EventRecord]) {
     let err = apply_events(&create_empty_state(), events).expect_err("expected invalid event");
     assert_eq!(err.code, "INVALID_EVENT");
@@ -50,13 +62,7 @@ fn task_created_defaults_optional_typed_fields_when_absent() {
 
 #[test]
 fn task_created_rejects_invalid_optional_typed_fields() {
-    for (field, value) in [
-        ("kind", json!("bug")),
-        ("priority", json!(8)),
-        ("status", json!("done")),
-        ("planning_state", json!("maybe")),
-        ("labels", json!(["ok", 1])),
-    ] {
+    for (field, value) in invalid_optional_typed_fields() {
         let mut payload = json!({"title": "bad"}).as_object().cloned().unwrap();
         payload.insert(field.to_string(), value);
         assert_invalid_event(&[created("tsq-bad00001", Value::Object(payload))]);
@@ -134,13 +140,7 @@ fn legacy_mixed_case_alias_still_resolves_and_queries() {
 
 #[test]
 fn task_updated_rejects_invalid_optional_typed_fields() {
-    for (field, value) in [
-        ("kind", json!("bug")),
-        ("priority", json!(8)),
-        ("status", json!("done")),
-        ("planning_state", json!("maybe")),
-        ("labels", json!(["ok", 1])),
-    ] {
+    for (field, value) in invalid_optional_typed_fields() {
         let mut payload = Map::new();
         payload.insert(field.to_string(), value);
         assert_invalid_event(&[
@@ -168,13 +168,13 @@ fn task_updated_applies_legacy_status_payload_when_value_is_valid() {
 
 #[test]
 fn task_created_rejects_missing_and_self_direct_refs() {
-    for field in ["parent_id", "duplicate_of", "superseded_by", "replies_to"] {
+    for field in DIRECT_REF_FIELDS {
         let mut missing = json!({"title": "bad"}).as_object().cloned().unwrap();
-        missing.insert(field.to_string(), json!("tsq-missing1"));
+        missing.insert((*field).to_string(), json!("tsq-missing1"));
         assert_invalid_event(&[created("tsq-root0001", Value::Object(missing))]);
 
         let mut self_ref = json!({"title": "bad"}).as_object().cloned().unwrap();
-        self_ref.insert(field.to_string(), json!("tsq-root0001"));
+        self_ref.insert((*field).to_string(), json!("tsq-root0001"));
         assert_invalid_event(&[created("tsq-root0001", Value::Object(self_ref))]);
     }
 }
@@ -204,16 +204,16 @@ fn task_updated_applies_valid_direct_refs_and_rejects_invalid_direct_refs() {
     assert_eq!(task.superseded_by.as_deref(), Some("tsq-target01"));
     assert_eq!(task.replies_to.as_deref(), Some("tsq-target01"));
 
-    for field in ["parent_id", "duplicate_of", "superseded_by", "replies_to"] {
+    for field in DIRECT_REF_FIELDS {
         let mut missing = Map::new();
-        missing.insert(field.to_string(), json!("tsq-missing1"));
+        missing.insert((*field).to_string(), json!("tsq-missing1"));
         assert_invalid_event(&[
             created("tsq-root0001", json!({"title": "root"})),
             updated("tsq-root0001", Value::Object(missing)),
         ]);
 
         let mut self_ref = Map::new();
-        self_ref.insert(field.to_string(), json!("tsq-root0001"));
+        self_ref.insert((*field).to_string(), json!("tsq-root0001"));
         assert_invalid_event(&[
             created("tsq-root0001", json!({"title": "root"})),
             updated("tsq-root0001", Value::Object(self_ref)),

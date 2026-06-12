@@ -64,63 +64,21 @@ pub struct SpecArgs {
 
 pub fn execute_spec(service: &TasqueService, command: SpecCommand, opts: GlobalOpts) -> i32 {
     match command {
-        SpecCommand::Attach(args) => run_action(
+        SpecCommand::Attach(args) => run_spec_attach(
+            service,
             "tsq spec attach",
             opts,
-            || {
-                service.spec_attach(SpecAttachInput {
-                    id: args.id.clone(),
-                    source: as_optional_string(args.source.as_deref()),
-                    file: as_optional_string(args.file.as_deref()),
-                    stdin: args.stdin,
-                    text: args.text.clone(),
-                    force: args.force,
-                    exact_id: opts.exact_id,
-                })
-            },
-            |data| data.clone(),
-            |data| {
-                print_task(&data.task);
-                println!("spec={}", data.spec.spec_path);
-                println!("spec_sha256={}", data.spec.spec_fingerprint);
-                Ok(())
+            SpecAttachInput {
+                id: args.id,
+                source: as_optional_string(args.source.as_deref()),
+                file: as_optional_string(args.file.as_deref()),
+                stdin: args.stdin,
+                text: args.text,
+                force: args.force,
+                exact_id: opts.exact_id,
             },
         ),
-        SpecCommand::Check(args) => run_action(
-            "tsq spec check",
-            opts,
-            || {
-                service.spec_check(SpecCheckInput {
-                    id: args.id.clone(),
-                    exact_id: opts.exact_id,
-                })
-            },
-            |data| data.clone(),
-            |data| {
-                println!("task={}", data.task_id);
-                println!("spec_ok={}", data.ok);
-                if let Some(spec_path) = data.spec.spec_path.as_deref() {
-                    println!("spec={}", spec_path);
-                }
-                if let Some(expected_fingerprint) = data.spec.expected_fingerprint.as_deref() {
-                    println!("spec_sha256_expected={}", expected_fingerprint);
-                }
-                if let Some(actual_fingerprint) = data.spec.actual_fingerprint.as_deref() {
-                    println!("spec_sha256_actual={}", actual_fingerprint);
-                }
-                if !data.spec.missing_sections.is_empty() {
-                    println!("missing_sections={}", data.spec.missing_sections.join(","));
-                }
-                for diagnostic in &data.diagnostics {
-                    println!(
-                        "diagnostic={}:{}",
-                        spec_diagnostic_code_to_string(&diagnostic.code),
-                        diagnostic.message
-                    );
-                }
-                Ok(())
-            },
-        ),
+        SpecCommand::Check(args) => run_spec_check(service, "tsq spec check", opts, args.id),
     }
 }
 
@@ -139,26 +97,18 @@ pub fn execute_spec_verb(service: &TasqueService, args: SpecArgs, opts: GlobalOp
     };
 
     match action {
-        SpecAction::Attach => run_action(
+        SpecAction::Attach => run_spec_attach(
+            service,
             "tsq spec",
             opts,
-            || {
-                service.spec_attach(SpecAttachInput {
-                    id: args.id.clone(),
-                    source: None,
-                    file: as_optional_string(args.file.as_deref()),
-                    stdin: args.stdin,
-                    text: args.text.clone(),
-                    force: args.force,
-                    exact_id: opts.exact_id,
-                })
-            },
-            |data| data.clone(),
-            |data| {
-                print_task(&data.task);
-                println!("spec={}", data.spec.spec_path);
-                println!("spec_sha256={}", data.spec.spec_fingerprint);
-                Ok(())
+            SpecAttachInput {
+                id: args.id.clone(),
+                source: None,
+                file: as_optional_string(args.file.as_deref()),
+                stdin: args.stdin,
+                text: args.text.clone(),
+                force: args.force,
+                exact_id: opts.exact_id,
             },
         ),
         SpecAction::Show => run_action(
@@ -212,41 +162,74 @@ pub fn execute_spec_verb(service: &TasqueService, args: SpecArgs, opts: GlobalOp
                 Ok(())
             },
         ),
-        SpecAction::Check => run_action(
-            "tsq spec",
-            opts,
-            || {
-                service.spec_check(SpecCheckInput {
-                    id: args.id.clone(),
-                    exact_id: opts.exact_id,
-                })
-            },
-            |data| data.clone(),
-            |data| {
-                println!("task={}", data.task_id);
-                println!("spec_ok={}", data.ok);
-                if let Some(spec_path) = data.spec.spec_path.as_deref() {
-                    println!("spec={}", spec_path);
-                }
-                if let Some(expected_fingerprint) = data.spec.expected_fingerprint.as_deref() {
-                    println!("spec_sha256_expected={}", expected_fingerprint);
-                }
-                if let Some(actual_fingerprint) = data.spec.actual_fingerprint.as_deref() {
-                    println!("spec_sha256_actual={}", actual_fingerprint);
-                }
-                if !data.spec.missing_sections.is_empty() {
-                    println!("missing_sections={}", data.spec.missing_sections.join(","));
-                }
-                for diagnostic in &data.diagnostics {
-                    println!(
-                        "diagnostic={}:{}",
-                        spec_diagnostic_code_to_string(&diagnostic.code),
-                        diagnostic.message
-                    );
-                }
-                Ok(())
-            },
-        ),
+        SpecAction::Check => run_spec_check(service, "tsq spec", opts, args.id.clone()),
+    }
+}
+
+fn run_spec_attach(
+    service: &TasqueService,
+    command_line: &'static str,
+    opts: GlobalOpts,
+    input: SpecAttachInput,
+) -> i32 {
+    run_action(
+        command_line,
+        opts,
+        || service.spec_attach(input),
+        |data| data.clone(),
+        |data| {
+            print_task(&data.task);
+            println!("spec={}", data.spec.spec_path);
+            println!("spec_sha256={}", data.spec.spec_fingerprint);
+            Ok(())
+        },
+    )
+}
+
+fn run_spec_check(
+    service: &TasqueService,
+    command_line: &'static str,
+    opts: GlobalOpts,
+    id: String,
+) -> i32 {
+    run_action(
+        command_line,
+        opts,
+        || {
+            service.spec_check(SpecCheckInput {
+                id,
+                exact_id: opts.exact_id,
+            })
+        },
+        |data| data.clone(),
+        |data| {
+            print_spec_check_result(data);
+            Ok(())
+        },
+    )
+}
+
+fn print_spec_check_result(data: &crate::app::storage::SpecCheckResult) {
+    println!("task={}", data.task_id);
+    println!("spec_ok={}", data.ok);
+    if let Some(spec_path) = data.spec.spec_path.as_deref() {
+        println!("spec={}", spec_path);
+    }
+    if let Some(expected_fingerprint) = data.spec.expected_fingerprint.as_deref() {
+        println!("spec_sha256_expected={}", expected_fingerprint);
+    }
+    if let Some(actual_fingerprint) = data.spec.actual_fingerprint.as_deref() {
+        println!("spec_sha256_actual={}", actual_fingerprint);
+    }
+    if !data.spec.missing_sections.is_empty() {
+        println!("missing_sections={}", data.spec.missing_sections.join(","));
+    }
+    for diagnostic in &data.diagnostics {
+        println!(
+            "diagnostic={}:{}",
+            spec_diagnostic_code_to_string(&diagnostic.code),
+            diagnostic.message
+        );
     }
 }
 

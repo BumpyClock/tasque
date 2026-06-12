@@ -10,12 +10,12 @@ mod service_specs;
 use crate::app::repair::{RepairOptions, execute_repair};
 use crate::app::service_types::*;
 use crate::app::service_utils::must_resolve_existing;
-use crate::app::storage::{
-    ensure_events_file, ensure_tasque_gitignore, load_projected_state, write_default_config,
-};
+use crate::app::state::load_projected_state;
+use crate::app::storage::{ensure_events_file, ensure_tasque_gitignore};
 use crate::app::sync::DEFAULT_SYNC_BRANCH;
 use crate::domain::dep_tree::build_dep_tree;
 use crate::skills::{apply_skill_operation, types::SkillAction};
+use crate::store::config::write_default_config;
 use crate::store::git;
 use crate::types::{DependencyType, RelationType, RepairResult, Task, TaskTreeNode};
 use crate::{app::service_lifecycle, app::service_query, errors::TsqError};
@@ -147,6 +147,10 @@ impl TasqueService {
 
     pub fn show(&self, id_raw: &str, exact_id: bool) -> Result<ShowResult, TsqError> {
         service_query::show(&self.ctx, id_raw, exact_id)
+    }
+
+    pub fn repo_root(&self) -> &str {
+        &self.ctx.repo_root
     }
 
     pub fn list(&self, filter: &ListFilter) -> Result<Vec<Task>, TsqError> {

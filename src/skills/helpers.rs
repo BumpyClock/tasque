@@ -166,6 +166,6 @@ fn preserve_permissions(source_path: &Path, destination_path: &Path) -> Result<(
     Ok(())
 }
 
-pub(super) fn io_error_value(error: &std::io::Error) -> serde_json::Value {
+pub(crate) fn io_error_value(error: &std::io::Error) -> serde_json::Value {
     serde_json::json!({"kind": error.kind().to_string(), "message": error.to_string()})
 }

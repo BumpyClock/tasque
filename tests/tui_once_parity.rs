@@ -278,7 +278,6 @@ fn spec_state_aliases(expected_state: &str) -> &'static [&'static str] {
     match expected_state {
         "attached" => &["attached", "spec attached", "s✓"],
         "missing" => &["missing", "spec missing", "s!"],
-        "invalid" => &["invalid", "invalid metadata", "spec invalid", "s✕", "s×"],
         _ => panic!("unsupported spec state '{expected_state}' in test helper"),
     }
 }

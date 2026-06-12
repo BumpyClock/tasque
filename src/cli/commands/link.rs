@@ -169,11 +169,6 @@ where
     )
 }
 
-fn relation_type_to_string(rel_type: RelationType) -> &'static str {
-    match rel_type {
-        RelationType::RelatesTo => "relates_to",
-        RelationType::RepliesTo => "replies_to",
-        RelationType::Duplicates => "duplicates",
-        RelationType::Supersedes => "supersedes",
-    }
+fn relation_type_to_string(rel_type: RelationType) -> String {
+    crate::domain::event_payload_codecs::relation_type_as_str(rel_type)
 }

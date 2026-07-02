@@ -88,8 +88,12 @@ export function WatchApp() {
 	}, [rows.length]);
 
 	const contentWidth = Math.max(40, dimensions.width - 6);
-	// Reserve rows for header (3) + summary (1) + footer (3) + borders/margins.
-	const rowBudget = Math.max(3, dimensions.height - 12);
+	// Reserve every non-list row so the selected item never clips off the bottom:
+	//   root padding 2 + header (border 2 + 3 lines, +1 when a warning shows)
+	//   + list marginTop 1 + list (border 2 + padding 2) + footer marginTop 1
+	//   + footer (border 2 + 1 line) = 16, or 17 with the warning line.
+	const chromeRows = 16 + (warning ? 1 : 0);
+	const rowBudget = Math.max(3, dimensions.height - chromeRows);
 	const [start, end] = visibleRange(selectedIndex, rows.length, rowBudget);
 	const visibleRows = rows.slice(start, end);
 

@@ -20,16 +20,27 @@ function task(overrides: Partial<TasqueTask> & { id: string }): TasqueTask {
 }
 
 describe("buildWatchRows", () => {
-	test("flat mode returns sorted rows with empty prefixes", () => {
+	test("flat mode sorts by the full status priority order", () => {
+		// Shuffled input across every status; expect the watch status order.
 		const rows = buildWatchRows(
 			[
-				task({ id: "tsq-2", status: "open" }),
-				task({ id: "tsq-1", status: "in_progress" }),
+				task({ id: "c", status: "canceled" }),
+				task({ id: "o", status: "open" }),
+				task({ id: "x", status: "closed" }),
+				task({ id: "i", status: "in_progress" }),
+				task({ id: "d", status: "deferred" }),
+				task({ id: "b", status: "blocked" }),
 			],
 			false,
 		);
-		// in_progress sorts before open.
-		expect(rows.map((row) => row.task.id)).toEqual(["tsq-1", "tsq-2"]);
+		expect(rows.map((row) => row.task.id)).toEqual([
+			"i",
+			"o",
+			"b",
+			"d",
+			"x",
+			"c",
+		]);
 		expect(rows.every((row) => row.prefix === "")).toBe(true);
 	});
 
@@ -45,6 +56,30 @@ describe("buildWatchRows", () => {
 		expect(child?.prefix.length ?? 0).toBeGreaterThan(0);
 		const parent = rows.find((row) => row.task.id === "tsq-1");
 		expect(parent?.prefix).toBe("");
+	});
+
+	test("tree mode nests grandchildren deeper than children", () => {
+		const rows = buildWatchRows(
+			[
+				task({ id: "root", kind: "epic" }),
+				task({ id: "child", parent_id: "root" }),
+				task({ id: "grandchild", parent_id: "child" }),
+			],
+			true,
+		);
+		const prefixLen = (id: string) =>
+			rows.find((row) => row.task.id === id)?.prefix.length ?? 0;
+		expect(prefixLen("root")).toBe(0);
+		expect(prefixLen("grandchild")).toBeGreaterThan(prefixLen("child"));
+	});
+
+	test("tree mode treats a task with an unknown parent as a root", () => {
+		const rows = buildWatchRows(
+			[task({ id: "orphan", parent_id: "does-not-exist" })],
+			true,
+		);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.prefix).toBe("");
 	});
 });
 

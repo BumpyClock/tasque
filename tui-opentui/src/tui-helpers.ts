@@ -1,4 +1,4 @@
-import type { DependencyNode } from "./data";
+import { type DependencyNode, type TsqSpawnResult, runTsq, spawnWarning } from "./data";
 import {
 	TAB_ORDER,
 	TASK_STATUS_ORDER,
@@ -122,25 +122,26 @@ function buildAncestorPrefix(siblingTrail: boolean[]): string {
 		.join("");
 }
 
-export function readSpecLines(
+export async function readSpecLines(
 	tsqBin: string,
 	taskId: string,
-): { lines: string[]; warning?: string } {
-	const subprocess = Bun.spawnSync([tsqBin, "--json", "spec", taskId, "--show"], {
-		stdin: "ignore",
-		stdout: "pipe",
-		stderr: "pipe",
-	});
+): Promise<{ lines: string[]; warning?: string }> {
+	let result: TsqSpawnResult;
+	try {
+		result = await runTsq([tsqBin, "--json", "spec", taskId, "--show"]);
+	} catch (error) {
+		return { lines: [], warning: spawnWarning(tsqBin, error) };
+	}
 
-	if (subprocess.exitCode !== 0) {
-		const stderr = new TextDecoder().decode(subprocess.stderr).trim();
+	if (result.exitCode !== 0) {
 		return {
 			lines: [],
-			warning: stderr || `Failed to run ${tsqBin} spec ${taskId} --show`,
+			warning:
+				result.stderr.trim() || `Failed to run ${tsqBin} spec ${taskId} --show`,
 		};
 	}
 
-	return parseSpecEnvelope(new TextDecoder().decode(subprocess.stdout));
+	return parseSpecEnvelope(result.stdout);
 }
 
 export function parseSpecEnvelope(stdout: string): {

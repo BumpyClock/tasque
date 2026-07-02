@@ -56,14 +56,14 @@ describeContract("tsq CLI contract", () => {
     }
   });
 
-  it("fetchTasks returns tasks via watch --once", () => {
+  it("fetchTasks returns tasks via watch --once", async () => {
     const config: TuiConfig = {
       intervalSeconds: 2,
       statusCsv: "open,in_progress,blocked,deferred,closed,canceled",
       initialTab: "tasks",
       tsqBin: bin as string,
     };
-    const snapshot = fetchTasks(config);
+    const snapshot = await fetchTasks(config);
     expect(snapshot.warning).toBeUndefined();
     const ids = snapshot.tasks.map((task) => task.id);
     expect(ids).toContain("tsq-1");
@@ -71,15 +71,15 @@ describeContract("tsq CLI contract", () => {
     expect(ids).toContain("tsq-2");
   });
 
-  it("fetchDependencyTree returns the root via the deps verb", () => {
-    const result = fetchDependencyTree(bin as string, "tsq-1.1");
+  it("fetchDependencyTree returns the root via the deps verb", async () => {
+    const result = await fetchDependencyTree(bin as string, "tsq-1.1");
     expect(result.warning).toBeUndefined();
     expect(result.root?.id).toBe("tsq-1.1");
     expect(result.root?.children.length).toBeGreaterThan(0);
   });
 
-  it("readSpecLines returns spec content via spec --show", () => {
-    const result = readSpecLines(bin as string, "tsq-1.1");
+  it("readSpecLines returns spec content via spec --show", async () => {
+    const result = await readSpecLines(bin as string, "tsq-1.1");
     expect(result.warning).toBeUndefined();
     expect(result.lines[0]).toBe("# hello contract");
   });

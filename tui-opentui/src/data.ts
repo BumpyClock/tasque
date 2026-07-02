@@ -56,30 +56,64 @@ export function readConfigFromEnv(): TuiConfig {
   };
 }
 
-export function fetchTasks(config: TuiConfig): DataSnapshot {
-  const args = ["--json", "watch", "--once", "--status", config.statusCsv];
-  if (config.assignee) {
-    args.push("--assignee", config.assignee);
-  }
+export interface TsqSpawnResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
 
-  const subprocess = Bun.spawnSync([config.tsqBin, ...args], {
+export async function runTsq(argv: string[]): Promise<TsqSpawnResult> {
+  const subprocess = Bun.spawn(argv, {
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
   });
 
-  const fetchedAt = new Date().toISOString();
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(subprocess.stdout).text(),
+    new Response(subprocess.stderr).text(),
+    subprocess.exited,
+  ]);
 
-  if (subprocess.exitCode !== 0) {
-    const stderr = bytesToString(subprocess.stderr).trim();
+  return { exitCode, stdout, stderr };
+}
+
+export function spawnWarning(bin: string, error: unknown): string {
+  const message =
+    error instanceof Error && error.message ? error.message : "unknown error";
+  return `Failed to run ${bin}: ${message}`;
+}
+
+export async function fetchTasks(config: TuiConfig): Promise<DataSnapshot> {
+  const args = ["--json", "watch", "--once", "--status", config.statusCsv];
+  if (config.assignee) {
+    args.push("--assignee", config.assignee);
+  }
+
+  let result: TsqSpawnResult;
+  try {
+    result = await runTsq([config.tsqBin, ...args]);
+  } catch (error) {
     return {
-      fetchedAt,
+      fetchedAt: new Date().toISOString(),
       tasks: [],
-      warning: stderr || `Failed to run ${config.tsqBin} ${args.join(" ")}`,
+      warning: spawnWarning(config.tsqBin, error),
     };
   }
 
-  const parsed = parseTasksEnvelope(bytesToString(subprocess.stdout));
+  const fetchedAt = new Date().toISOString();
+
+  if (result.exitCode !== 0) {
+    return {
+      fetchedAt,
+      tasks: [],
+      warning:
+        result.stderr.trim() ||
+        `Failed to run ${config.tsqBin} ${args.join(" ")}`,
+    };
+  }
+
+  const parsed = parseTasksEnvelope(result.stdout);
   return {
     fetchedAt,
     tasks: parsed.tasks,
@@ -111,10 +145,6 @@ export function parseTasksEnvelope(stdout: string): {
   return { tasks: payload.data?.tasks ?? [] };
 }
 
-function bytesToString(buffer: Uint8Array): string {
-  return new TextDecoder().decode(buffer);
-}
-
 interface DepEnvelope {
   ok: boolean;
   data?: {
@@ -126,27 +156,62 @@ interface DepEnvelope {
   };
 }
 
-export function fetchDependencyTree(
+export async function fetchDependencyTree(
   tsqBin: string,
   taskId: string,
-): { root?: DependencyNode; warning?: string } {
-  const subprocess = Bun.spawnSync(
-    [tsqBin, "--json", "deps", taskId, "--direction", "both", "--depth", "4"],
-    {
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "pipe",
-    },
-  );
+): Promise<{ root?: DependencyNode; warning?: string }> {
+  let result: TsqSpawnResult;
+  try {
+    result = await runTsq([
+      tsqBin,
+      "--json",
+      "deps",
+      taskId,
+      "--direction",
+      "both",
+      "--depth",
+      "4",
+    ]);
+  } catch (error) {
+    return { warning: spawnWarning(tsqBin, error) };
+  }
 
-  if (subprocess.exitCode !== 0) {
-    const stderr = bytesToString(subprocess.stderr).trim();
+  if (result.exitCode !== 0) {
     return {
-      warning: stderr || `Failed to run ${tsqBin} deps ${taskId}`,
+      warning: result.stderr.trim() || `Failed to run ${tsqBin} deps ${taskId}`,
     };
   }
 
-  return parseDependencyEnvelope(bytesToString(subprocess.stdout));
+  return parseDependencyEnvelope(result.stdout);
+}
+
+export function createInFlightGuard<T>(
+  fetcher: () => Promise<T>,
+): () => Promise<T | undefined> {
+  let inFlight = false;
+  return async () => {
+    if (inFlight) {
+      return undefined;
+    }
+    inFlight = true;
+    try {
+      return await fetcher();
+    } finally {
+      inFlight = false;
+    }
+  };
+}
+
+export function createLatestGuard(): <T>(
+  fetcher: () => Promise<T>,
+) => Promise<T | undefined> {
+  let sequence = 0;
+  return async <T,>(fetcher: () => Promise<T>) => {
+    sequence += 1;
+    const ticket = sequence;
+    const result = await fetcher();
+    return ticket === sequence ? result : undefined;
+  };
 }
 
 export function parseDependencyEnvelope(stdout: string): {

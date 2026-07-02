@@ -28,10 +28,7 @@ fn interactive_launch_ready(json: bool, once: bool) -> bool {
     {
         return false;
     }
-    !json
-        && !once
-        && std::io::stdin().is_terminal()
-        && std::io::stdout().is_terminal()
+    !json && !once && std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
 }
 
 fn launch_target_available() -> bool {

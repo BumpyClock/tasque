@@ -14,7 +14,6 @@ import {
 } from "./model";
 import {
   THEME,
-  buildTableLayout,
   buildTreePrefix,
   flattenDependencyTree,
   formatUpdatedAt,
@@ -24,10 +23,9 @@ import {
   renderMeter,
   specLabel,
   statusIcon,
-  tableHeader,
   treeDisplayId,
 } from "./tui-helpers";
-import type { SelectedByLane, SpecDialogState, TableLayout, TreeLine } from "./tui-types";
+import type { SelectedByLane, SpecDialogState, TreeLine } from "./tui-types";
 
 export function TabChip({
   tab,
@@ -48,72 +46,38 @@ export function TabChip({
 }
 
 export function EpicsView({
-  tasks,
+  progressList,
   selectedTaskId,
-  epicProgress,
   width,
 }: {
-  tasks: TasqueTask[];
+  progressList: EpicProgress[];
   selectedTaskId?: string;
-  epicProgress: EpicProgress | null;
   width: number;
 }) {
-  const layout = useMemo(() => buildTableLayout(width), [width]);
+  const titleWidth = Math.max(16, width - 48);
   return (
     <box flexDirection="column" gap={0}>
-      {epicProgress ? (
-        <box marginBottom={1} border borderColor={THEME.border} backgroundColor={THEME.raisedBg}>
+      {progressList.map(({ epic, children, done, inProgress, open }) => (
+        <box
+          key={epic.id}
+          backgroundColor={epic.id === selectedTaskId ? THEME.rowSelected : THEME.row}
+        >
           <text>
-            <span fg={THEME.text}>{epicProgress.epic.id}</span>
-            <span fg={THEME.muted}> {titleWithEllipsis(epicProgress.epic.title, 48)}</span>
-            <span fg={THEME.dim}> {renderMeter(epicProgress.done, epicProgress.children.length, 12)}</span>
-            <span fg={THEME.muted}> {epicProgress.done}/{epicProgress.children.length}</span>
+            <span fg={STATUS_COLORS[epic.status]}>{statusIcon(epic.status)} </span>
+            <span fg={THEME.text}>{epic.id}</span>
+            <span fg={THEME.muted}> {titleWithEllipsis(epic.title, titleWidth)}</span>
+            <span fg={THEME.dim}> {renderMeter(done, children.length, 12)}</span>
+            <span fg={THEME.muted}> {done}/{children.length}</span>
+            <br />
+            <span fg={THEME.dim}>  done {done} | in_progress {inProgress} | open {open}</span>
           </text>
         </box>
-      ) : null}
-      <text>
-        <span fg={THEME.dim}>{tableHeader(layout)}</span>
-      </text>
-      {tasks.map((task) => (
-        <TaskRow key={task.id} task={task} selected={task.id === selectedTaskId} layout={layout} />
       ))}
-      {tasks.length === 0 ? (
+      {progressList.length === 0 ? (
         <text>
           <span fg={THEME.dim}>No epic tasks found</span>
         </text>
       ) : null}
-    </box>
-  );
-}
-
-function TaskRow({
-  task,
-  selected,
-  layout,
-}: {
-  task: TasqueTask;
-  selected: boolean;
-  layout: TableLayout;
-}) {
-  const spec = specState(task);
-  return (
-    <box backgroundColor={selected ? THEME.rowSelected : THEME.row}>
-      <text>
-        <span fg={STATUS_COLORS[task.status]}>{statusIcon(task.status)} </span>
-        <span fg={THEME.text}>{pad(task.id, layout.idWidth)} </span>
-        <span fg={KIND_COLORS[task.kind]}>{pad(kindLabel(task.kind), layout.typeWidth)} </span>
-        <span fg={THEME.text}>
-          {pad(titleWithEllipsis(task.title, layout.titleWidth), layout.titleWidth)}{" "}
-        </span>
-        <span fg={THEME.dim}> </span>
-        <span fg={THEME.dim}>{pad(`P${task.priority}`, layout.priorityWidth)}</span>
-        {layout.showSpec ? (
-          <>
-            <span fg={THEME.dim}> </span>
-            <SpecPill state={spec} />
-          </>
-        ) : null}
-      </text>
     </box>
   );
 }

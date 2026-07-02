@@ -122,30 +122,76 @@ function buildAncestorPrefix(siblingTrail: boolean[]): string {
 		.join("");
 }
 
-export async function readSpecLines(
-	specPath: string,
-): Promise<{ lines: string[]; warning?: string }> {
-	try {
-		const text = await Bun.file(specPath).text();
-		if (text.length === 0) {
-			return { lines: ["(empty spec)"] };
-		}
-		return {
-			lines: text.replaceAll("\r\n", "\n").split("\n"),
-		};
-	} catch (error) {
+export function readSpecLines(
+	tsqBin: string,
+	taskId: string,
+): { lines: string[]; warning?: string } {
+	const subprocess = Bun.spawnSync([tsqBin, "--json", "spec", taskId, "--show"], {
+		stdin: "ignore",
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+
+	if (subprocess.exitCode !== 0) {
+		const stderr = new TextDecoder().decode(subprocess.stderr).trim();
 		return {
 			lines: [],
-			warning: `Failed to open spec: ${errorMessage(error)}`,
+			warning: stderr || `Failed to run ${tsqBin} spec ${taskId} --show`,
 		};
 	}
+
+	return parseSpecEnvelope(new TextDecoder().decode(subprocess.stdout));
 }
 
-function errorMessage(error: unknown): string {
-	if (error instanceof Error && error.message) {
-		return error.message;
+export function parseSpecEnvelope(stdout: string): {
+	lines: string[];
+	warning?: string;
+} {
+	let payload: unknown;
+	try {
+		payload = JSON.parse(stdout);
+	} catch {
+		return {
+			lines: [],
+			warning: "Unable to parse JSON output from tsq spec --show",
+		};
 	}
-	return "unknown error";
+
+	if (!payload || typeof payload !== "object") {
+		return { lines: [], warning: "Unexpected payload from tsq spec --show" };
+	}
+	const envelope = payload as Record<string, unknown>;
+
+	if (envelope.ok !== true) {
+		const error =
+			envelope.error && typeof envelope.error === "object"
+				? (envelope.error as Record<string, unknown>)
+				: undefined;
+		const message =
+			typeof error?.message === "string" ? error.message : undefined;
+		return {
+			lines: [],
+			warning: message ?? "tsq spec --show returned an error",
+		};
+	}
+
+	const data =
+		envelope.data && typeof envelope.data === "object"
+			? (envelope.data as Record<string, unknown>)
+			: undefined;
+	const spec =
+		data?.spec && typeof data.spec === "object"
+			? (data.spec as Record<string, unknown>)
+			: undefined;
+	const content = typeof spec?.content === "string" ? spec.content : undefined;
+	if (content === undefined) {
+		return { lines: [], warning: "Spec payload missing content" };
+	}
+
+	if (content.length === 0) {
+		return { lines: ["(empty spec)"] };
+	}
+	return { lines: content.replaceAll("\r\n", "\n").split("\n") };
 }
 
 export function buildFilterPresets(statusCsv: string): FilterPreset[] {

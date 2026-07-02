@@ -11,7 +11,7 @@ import {
   type TabKey,
   type TasqueTask,
   boardColumns,
-  buildEpicProgress,
+  buildEpicProgressList,
   computeSummary,
   sortTasks,
   specState,
@@ -81,18 +81,15 @@ export function App() {
     [activeFilter?.statuses, allTasks],
   );
   const summary = useMemo(() => computeSummary(filteredTasks), [filteredTasks]);
-  const epicProgress = useMemo(() => buildEpicProgress(filteredTasks), [filteredTasks]);
+  const epicProgressList = useMemo(() => buildEpicProgressList(filteredTasks), [filteredTasks]);
   const board = useMemo(() => boardColumns(filteredTasks), [filteredTasks]);
 
   const visibleTasks = useMemo(() => {
     if (tab === "epics") {
-      if (!epicProgress) {
-        return [] as TasqueTask[];
-      }
-      return epicProgress.children.length > 0 ? epicProgress.children : [epicProgress.epic];
+      return epicProgressList.map((progress) => progress.epic);
     }
     return filteredTasks;
-  }, [tab, filteredTasks, epicProgress]);
+  }, [tab, filteredTasks, epicProgressList]);
 
   const treeLines = useMemo(() => buildTreeLines(filteredTasks), [filteredTasks]);
   const selectedIndex = selectedByTab[tab];
@@ -161,28 +158,15 @@ export function App() {
     if (specState(task) !== "attached" || !task.spec_path) {
       return;
     }
-    const specPath = task.spec_path;
+    const result = readSpecLines(config.tsqBin, task.id);
     setSpecDialog({
       taskId: task.id,
       taskTitle: task.title,
-      specPath,
-      lines: ["Loading spec..."],
+      specPath: task.spec_path,
+      lines: result.lines,
+      warning: result.warning,
       offset: 0,
-      loading: true,
-    });
-    void readSpecLines(specPath).then((result) => {
-      setSpecDialog((current) => {
-        if (!current || current.taskId !== task.id || current.specPath !== specPath) {
-          return current;
-        }
-        return {
-          ...current,
-          lines: result.lines,
-          warning: result.warning,
-          offset: 0,
-          loading: false,
-        };
-      });
+      loading: false,
     });
   };
 
@@ -412,9 +396,8 @@ export function App() {
 
               {tab === "epics" ? (
                 <EpicsView
-                  tasks={visibleTasks.slice(start, end)}
+                  progressList={epicProgressList.slice(start, end)}
                   selectedTaskId={selectedTask?.id}
-                  epicProgress={epicProgress}
                   width={contentWidth}
                 />
               ) : null}

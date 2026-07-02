@@ -121,3 +121,122 @@ fn clone_materializes_worktree_and_configures_merge_driver() {
         "expected `tsq sync` to re-ensure the merge driver config"
     );
 }
+
+/// Build a legacy repo: main-tree `.tasque` data (no `sync_branch` in
+/// config), then git-init it and point `origin` at a nonexistent path so
+/// any push fails.
+fn make_legacy_repo_with_unreachable_origin(
+    base: &std::path::Path,
+    title: &str,
+) -> std::path::PathBuf {
+    let root = base.join("repo");
+    fs::create_dir(&root).expect("repo dir");
+
+    let init = run_cli(&root, ["init"]);
+    assert_eq!(init.code, 0, "stderr: {}", init.stderr);
+    let create = run_cli(&root, ["create", title]);
+    assert_eq!(create.code, 0, "stderr: {}", create.stderr);
+
+    let config = fs::read_to_string(root.join(".tasque").join("config.json")).expect("config");
+    assert!(
+        !config.contains("\"sync_branch\": \""),
+        "expected legacy config without sync_branch:\n{}",
+        config
+    );
+
+    init_git_repo_with_identity(&root, Some("main"));
+    let missing_remote = base.join("missing-origin.git");
+    let missing_remote_arg = missing_remote.to_string_lossy().to_string();
+    git(
+        &root,
+        &["remote", "add", "origin", missing_remote_arg.as_str()],
+    );
+
+    root
+}
+
+/// Implicit migration (any data command in a legacy repo) must not hard-fail
+/// a read path when the push to origin fails: push is best-effort with a
+/// stderr warning, and the main-tree events are cleared once the local
+/// worktree commit succeeds.
+#[test]
+fn implicit_migration_survives_unreachable_origin_with_warning() {
+    let repo = make_repo();
+    let base = repo.path();
+    let root = make_legacy_repo_with_unreachable_origin(base, "Offline implicit task");
+
+    let list = run_cli(&root, ["find", "open", "--json"]);
+    assert_eq!(
+        list.code, 0,
+        "expected read command to succeed despite failed push\nstdout:\n{}\nstderr:\n{}",
+        list.stdout, list.stderr
+    );
+    let envelope: Value = serde_json::from_str(list.stdout.trim()).expect("json envelope");
+    assert_eq!(envelope.get("ok").and_then(Value::as_bool), Some(true));
+    assert!(
+        list.stdout.contains("Offline implicit task"),
+        "expected migrated task in output:\n{}",
+        list.stdout
+    );
+    assert!(
+        list.stderr
+            .contains("tsq: warning: migrated events to sync branch but push to 'origin' failed"),
+        "expected best-effort push warning on stderr:\n{}",
+        list.stderr
+    );
+
+    let root_events =
+        fs::read_to_string(root.join(".tasque").join("events.jsonl")).expect("root events");
+    assert!(
+        root_events.is_empty(),
+        "expected main-tree events cleared after local migration"
+    );
+    let sync_events = fs::read_to_string(
+        root.join(".git")
+            .join("tsq-sync")
+            .join(".tasque")
+            .join("events.jsonl"),
+    )
+    .expect("sync worktree events");
+    assert!(
+        !sync_events.is_empty(),
+        "expected events present in sync worktree"
+    );
+}
+
+/// Explicit `tsq migrate` keeps push failures fatal, but the events must
+/// already be migrated and the main tree cleared (local commit lands before
+/// the push), so a later `tsq sync` can complete the push.
+#[test]
+fn explicit_migrate_fails_on_unreachable_origin_after_local_migration() {
+    let repo = make_repo();
+    let base = repo.path();
+    let root = make_legacy_repo_with_unreachable_origin(base, "Offline explicit task");
+
+    let migrate = run_cli(&root, ["migrate", "--json"]);
+    assert_ne!(
+        migrate.code, 0,
+        "expected explicit migrate to fail when push fails\nstdout:\n{}\nstderr:\n{}",
+        migrate.stdout, migrate.stderr
+    );
+    let envelope: Value = serde_json::from_str(migrate.stdout.trim()).expect("json envelope");
+    assert_eq!(envelope.get("ok").and_then(Value::as_bool), Some(false));
+
+    let root_events =
+        fs::read_to_string(root.join(".tasque").join("events.jsonl")).expect("root events");
+    assert!(
+        root_events.is_empty(),
+        "expected main-tree events cleared even when push fails"
+    );
+    let sync_events = fs::read_to_string(
+        root.join(".git")
+            .join("tsq-sync")
+            .join(".tasque")
+            .join("events.jsonl"),
+    )
+    .expect("sync worktree events");
+    assert!(
+        !sync_events.is_empty(),
+        "expected events migrated locally despite failed push"
+    );
+}

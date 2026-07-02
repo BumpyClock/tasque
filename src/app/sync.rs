@@ -35,7 +35,12 @@ pub fn resolve_effective_root(repo_root: &str) -> Result<String, TsqError> {
         None => {
             let repo_path = Path::new(repo_root);
             if git::is_git_repo(repo_path) && !git::is_sync_worktree_path(repo_path) {
-                let migrated = migrate_to_sync_branch(repo_root, DEFAULT_SYNC_BRANCH, "tsq")?;
+                let migrated = migrate_to_sync_branch(
+                    repo_root,
+                    DEFAULT_SYNC_BRANCH,
+                    "tsq",
+                    PushMode::BestEffort,
+                )?;
                 return Ok(migrated.worktree_path);
             }
             return Ok(repo_root.to_string());
@@ -130,6 +135,15 @@ fn setup_sync_branch_locked(repo_root: &str, branch: &str) -> Result<SyncSetupRe
     })
 }
 
+/// How migration should treat a failing push to the upstream remote.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PushMode {
+    /// Explicit `tsq migrate`: push failure is the command's failure.
+    Required,
+    /// Implicit resolve-path migration: push failure is a stderr warning.
+    BestEffort,
+}
+
 /// Migrate existing events from the repo root into a sync branch.
 ///
 /// Reads events from the current `.tasque/events.jsonl`, sets up the sync
@@ -138,6 +152,7 @@ pub fn migrate_to_sync_branch(
     repo_root: &str,
     branch: &str,
     actor: &str,
+    push: PushMode,
 ) -> Result<MigrateResult, TsqError> {
     let existing = read_events(repo_root)?;
 
@@ -169,10 +184,22 @@ pub fn migrate_to_sync_branch(
 
     let wt_path = Path::new(&setup.worktree_path);
     let _ = git::commit_worktree(wt_path, "chore: migrate tasque events to sync branch")?;
-    if let Some(remote) = git::current_upstream_remote(Path::new(repo_root))? {
-        git::push_current_set_upstream(wt_path, &remote, branch)?;
-    }
     clear_repo_events(repo_root)?;
+    if let Some(remote) = git::current_upstream_remote(Path::new(repo_root))? {
+        match push {
+            PushMode::Required => {
+                git::push_current_set_upstream(wt_path, &remote, branch)?;
+            }
+            PushMode::BestEffort => {
+                if let Err(error) = git::push_current_set_upstream(wt_path, &remote, branch) {
+                    eprintln!(
+                        "tsq: warning: migrated events to sync branch but push to '{remote}' failed: {}; run 'tsq sync' to push later",
+                        error.message
+                    );
+                }
+            }
+        }
+    }
 
     Ok(MigrateResult {
         events_migrated: to_append.len(),
@@ -692,8 +719,13 @@ mod tests {
         ];
         append_events(repo, &events).expect("append_events");
 
-        let result = migrate_to_sync_branch(&repo.to_string_lossy(), DEFAULT_SYNC_BRANCH, "test")
-            .expect("migrate");
+        let result = migrate_to_sync_branch(
+            &repo.to_string_lossy(),
+            DEFAULT_SYNC_BRANCH,
+            "test",
+            PushMode::Required,
+        )
+        .expect("migrate");
         assert_eq!(result.events_migrated, 0);
 
         let migrated = read_events(&result.worktree_path).expect("read_events");

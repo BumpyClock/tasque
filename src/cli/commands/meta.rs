@@ -4,7 +4,9 @@ use crate::cli::action::{GlobalOpts, run_action};
 use crate::cli::init_flow::{
     InitCommandOptions, InitPlan, InitResolutionContext, resolve_init_plan, run_init_wizard,
 };
-use crate::cli::opentui::{launch_opentui, should_launch_opentui};
+use crate::cli::opentui::{
+    launch_opentui, launch_opentui_watch, should_launch_opentui, should_launch_opentui_watch,
+};
 use crate::cli::parsers::{as_optional_string, parse_positive_int, parse_status_csv};
 use crate::cli::render::{print_history, print_orphans_result, print_repair_result};
 use crate::cli::tui::{TuiOptions, TuiView, start_tui};
@@ -326,6 +328,15 @@ pub fn execute_watch(service: &TasqueService, args: WatchArgs, opts: GlobalOpts)
             return error.exit_code;
         }
     };
+    if should_launch_opentui_watch(&watch_options) {
+        match launch_opentui_watch(&watch_options) {
+            Ok(exit_code) => return exit_code,
+            Err(error) => {
+                eprintln!("WARN: {}. Falling back to built-in watch renderer.", error);
+            }
+        }
+    }
+
     start_watch(service, watch_options)
 }
 

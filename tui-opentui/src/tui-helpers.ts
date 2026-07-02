@@ -1,4 +1,9 @@
-import { type DependencyNode, type TsqSpawnResult, runTsq, spawnWarning } from "./data";
+import {
+	type DependencyNode,
+	type TsqSpawnResult,
+	runTsq,
+	spawnWarning,
+} from "./data";
 import {
 	TAB_ORDER,
 	TASK_STATUS_ORDER,

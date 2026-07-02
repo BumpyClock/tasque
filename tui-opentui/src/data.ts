@@ -33,7 +33,7 @@ export interface DependencyNode {
   children: DependencyNode[];
 }
 
-const DEFAULT_STATUS = "open,in_progress";
+const DEFAULT_STATUS = "open,in_progress,blocked,deferred,closed,canceled";
 
 export function readConfigFromEnv(): TuiConfig {
   const intervalRaw = process.env.TSQ_TUI_INTERVAL ?? "2";
@@ -57,7 +57,7 @@ export function readConfigFromEnv(): TuiConfig {
 }
 
 export function fetchTasks(config: TuiConfig): DataSnapshot {
-  const args = ["--json", "list"];
+  const args = ["--json", "watch", "--once", "--status", config.statusCsv];
   if (config.assignee) {
     args.push("--assignee", config.assignee);
   }
@@ -79,31 +79,36 @@ export function fetchTasks(config: TuiConfig): DataSnapshot {
     };
   }
 
-  const stdout = bytesToString(subprocess.stdout);
+  const parsed = parseTasksEnvelope(bytesToString(subprocess.stdout));
+  return {
+    fetchedAt,
+    tasks: parsed.tasks,
+    warning: parsed.warning,
+  };
+}
 
+export function parseTasksEnvelope(stdout: string): {
+  tasks: TasqueTask[];
+  warning?: string;
+} {
   let payload: ListEnvelope;
   try {
     payload = JSON.parse(stdout) as ListEnvelope;
   } catch {
     return {
-      fetchedAt,
       tasks: [],
-      warning: "Unable to parse JSON output from tsq list",
+      warning: "Unable to parse JSON output from tsq watch --once",
     };
   }
 
   if (!payload.ok) {
     return {
-      fetchedAt,
       tasks: [],
-      warning: payload.error?.message ?? "tsq list returned an error",
+      warning: payload.error?.message ?? "tsq watch returned an error",
     };
   }
 
-  return {
-    fetchedAt,
-    tasks: payload.data?.tasks ?? [],
-  };
+  return { tasks: payload.data?.tasks ?? [] };
 }
 
 function bytesToString(buffer: Uint8Array): string {
@@ -126,17 +131,7 @@ export function fetchDependencyTree(
   taskId: string,
 ): { root?: DependencyNode; warning?: string } {
   const subprocess = Bun.spawnSync(
-    [
-      tsqBin,
-      "--json",
-      "dep",
-      "tree",
-      taskId,
-      "--direction",
-      "both",
-      "--depth",
-      "4",
-    ],
+    [tsqBin, "--json", "deps", taskId, "--direction", "both", "--depth", "4"],
     {
       stdin: "ignore",
       stdout: "pipe",
@@ -147,19 +142,26 @@ export function fetchDependencyTree(
   if (subprocess.exitCode !== 0) {
     const stderr = bytesToString(subprocess.stderr).trim();
     return {
-      warning: stderr || `Failed to run ${tsqBin} dep tree ${taskId}`,
+      warning: stderr || `Failed to run ${tsqBin} deps ${taskId}`,
     };
   }
 
+  return parseDependencyEnvelope(bytesToString(subprocess.stdout));
+}
+
+export function parseDependencyEnvelope(stdout: string): {
+  root?: DependencyNode;
+  warning?: string;
+} {
   let payload: DepEnvelope;
   try {
-    payload = JSON.parse(bytesToString(subprocess.stdout)) as DepEnvelope;
+    payload = JSON.parse(stdout) as DepEnvelope;
   } catch {
-    return { warning: "Unable to parse JSON output from tsq dep tree" };
+    return { warning: "Unable to parse JSON output from tsq deps" };
   }
 
   if (!payload.ok) {
-    return { warning: payload.error?.message ?? "tsq dep tree returned an error" };
+    return { warning: payload.error?.message ?? "tsq deps returned an error" };
   }
 
   const root = normalizeDependencyNode(payload.data?.root);

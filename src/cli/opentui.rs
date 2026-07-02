@@ -61,10 +61,7 @@ pub fn launch_opentui(options: &TuiOptions) -> Result<i32, String> {
     command.env("TSQ_TUI_INTERVAL", options.interval.to_string());
     command.env("TSQ_TUI_STATUS", status_csv(&options.statuses));
     command.env("TSQ_TUI_VIEW", view_to_env(options.view));
-
-    if let Some(assignee) = options.assignee.as_deref() {
-        command.env("TSQ_TUI_ASSIGNEE", assignee);
-    }
+    apply_assignee_env(&mut command, options.assignee.as_deref());
 
     run_command(command)
 }
@@ -76,12 +73,23 @@ pub fn launch_opentui_watch(options: &WatchOptions) -> Result<i32, String> {
     command.env("TSQ_TUI_INTERVAL", options.interval.to_string());
     command.env("TSQ_TUI_STATUS", status_csv(&options.statuses));
     command.env("TSQ_WATCH_TREE", if options.tree { "1" } else { "0" });
-
-    if let Some(assignee) = options.assignee.as_deref() {
-        command.env("TSQ_TUI_ASSIGNEE", assignee);
-    }
+    apply_assignee_env(&mut command, options.assignee.as_deref());
 
     run_command(command)
+}
+
+// Set the assignee filter only when requested, and otherwise clear any value
+// inherited from the parent environment so a stale `TSQ_TUI_ASSIGNEE` can't
+// silently filter a plain `tsq watch` / `tsq tui` run.
+fn apply_assignee_env(command: &mut Command, assignee: Option<&str>) {
+    match assignee {
+        Some(value) => {
+            command.env("TSQ_TUI_ASSIGNEE", value);
+        }
+        None => {
+            command.env_remove("TSQ_TUI_ASSIGNEE");
+        }
+    }
 }
 
 fn build_launch_command() -> Result<Command, String> {
@@ -257,6 +265,47 @@ mod tests {
         std::fs::write(&entry, "").expect("entry");
 
         assert!(!dependencies_are_available(&entry));
+    }
+
+    #[test]
+    fn interactive_gate_rejects_json_and_once() {
+        // The `--json` and `--once` bypass paths never launch OpenTUI, regardless
+        // of TTY state, so the OpenTUI app's own `watch --once --json` subprocess
+        // always falls through to the plain Rust path (no launch recursion).
+        assert!(!interactive_launch_ready(true, false));
+        assert!(!interactive_launch_ready(false, true));
+    }
+
+    #[test]
+    fn interactive_gate_respects_disable_env() {
+        unsafe {
+            std::env::set_var("TSQ_OPENTUI_DISABLE", "1");
+        }
+        let disabled = interactive_launch_ready(false, false);
+        unsafe {
+            std::env::remove_var("TSQ_OPENTUI_DISABLE");
+        }
+        assert!(!disabled);
+    }
+
+    #[test]
+    fn assignee_env_set_when_present() {
+        let mut command = Command::new("true");
+        apply_assignee_env(&mut command, Some("alice"));
+        let key = std::ffi::OsStr::new("TSQ_TUI_ASSIGNEE");
+        let found = command.get_envs().find(|(name, _)| *name == key);
+        assert_eq!(found, Some((key, Some(std::ffi::OsStr::new("alice")))));
+    }
+
+    #[test]
+    fn assignee_env_cleared_when_absent() {
+        let mut command = Command::new("true");
+        apply_assignee_env(&mut command, None);
+        // `env_remove` records an explicit removal (key -> None) so the child
+        // cannot inherit a stale TSQ_TUI_ASSIGNEE from the parent environment.
+        let key = std::ffi::OsStr::new("TSQ_TUI_ASSIGNEE");
+        let found = command.get_envs().find(|(name, _)| *name == key);
+        assert_eq!(found, Some((key, None)));
     }
 
     #[test]

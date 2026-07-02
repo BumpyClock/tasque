@@ -42,3 +42,15 @@ export function metaBadge(task: TasqueTask): string {
 export function readWatchTreeFlag(): boolean {
 	return process.env.TSQ_WATCH_TREE?.trim() === "1";
 }
+
+// Rows of fixed vertical chrome around the watch list, so the visible-row budget
+// tracks the real rendered height and the selected row never clips off-screen.
+// Keeping this named and tested guards against the off-by-N class of bug that
+// caused an earlier clipping regression.
+//   root padding 2 + header (border 2 + 3 lines, +1 when a warning shows)
+//   + list marginTop 1 + list (border 2 + padding 2) + footer marginTop 1
+//   + footer (border 2 + 1 line) = 16, or 17 with the warning line.
+export function watchListRowBudget(height: number, hasWarning: boolean): number {
+	const chromeRows = 16 + (hasWarning ? 1 : 0);
+	return Math.max(3, height - chromeRows);
+}

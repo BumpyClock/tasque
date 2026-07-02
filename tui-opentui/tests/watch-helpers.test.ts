@@ -4,6 +4,7 @@ import {
 	buildWatchRows,
 	filterLabel,
 	metaBadge,
+	watchListRowBudget,
 } from "../src/watch-helpers";
 
 function task(overrides: Partial<TasqueTask> & { id: string }): TasqueTask {
@@ -89,6 +90,19 @@ describe("filterLabel", () => {
 	});
 	test("with assignee", () => {
 		expect(filterLabel("open", "alice")).toBe("status:open assignee:alice");
+	});
+});
+
+describe("watchListRowBudget", () => {
+	test("reserves 16 chrome rows without a warning", () => {
+		expect(watchListRowBudget(30, false)).toBe(14);
+	});
+	test("reserves one extra row when a warning shows", () => {
+		expect(watchListRowBudget(30, true)).toBe(13);
+	});
+	test("never drops below a 3-row floor on tiny terminals", () => {
+		expect(watchListRowBudget(10, false)).toBe(3);
+		expect(watchListRowBudget(4, true)).toBe(3);
 	});
 });
 

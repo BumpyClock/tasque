@@ -9,6 +9,29 @@ fn git_out(repo: &std::path::Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
+/// Assert that events were migrated out of the main tree into the sync
+/// worktree: root `events.jsonl` cleared, sync worktree `events.jsonl`
+/// populated. Shared by the implicit- and explicit-migration tests.
+fn assert_events_migrated_to_sync_worktree(root: &std::path::Path) {
+    let root_events =
+        fs::read_to_string(root.join(".tasque").join("events.jsonl")).expect("root events");
+    assert!(
+        root_events.is_empty(),
+        "expected main-tree events cleared after local migration"
+    );
+    let sync_events = fs::read_to_string(
+        root.join(".git")
+            .join("tsq-sync")
+            .join(".tasque")
+            .join("events.jsonl"),
+    )
+    .expect("sync worktree events");
+    assert!(
+        !sync_events.is_empty(),
+        "expected events present in sync worktree"
+    );
+}
+
 fn create_bare_origin(base: &std::path::Path) -> std::path::PathBuf {
     let remote = base.join("origin.git");
     let remote_arg = remote.to_string_lossy().to_string();
@@ -137,11 +160,12 @@ fn make_legacy_repo_with_unreachable_origin(
     let create = run_cli(&root, ["create", title]);
     assert_eq!(create.code, 0, "stderr: {}", create.stderr);
 
-    let config = fs::read_to_string(root.join(".tasque").join("config.json")).expect("config");
+    let config_text = fs::read_to_string(root.join(".tasque").join("config.json")).expect("config");
+    let config: Value = serde_json::from_str(&config_text).expect("config must be valid JSON");
     assert!(
-        !config.contains("\"sync_branch\": \""),
+        config.get("sync_branch").is_none(),
         "expected legacy config without sync_branch:\n{}",
-        config
+        config_text
     );
 
     init_git_repo_with_identity(&root, Some("main"));
@@ -185,23 +209,7 @@ fn implicit_migration_survives_unreachable_origin_with_warning() {
         list.stderr
     );
 
-    let root_events =
-        fs::read_to_string(root.join(".tasque").join("events.jsonl")).expect("root events");
-    assert!(
-        root_events.is_empty(),
-        "expected main-tree events cleared after local migration"
-    );
-    let sync_events = fs::read_to_string(
-        root.join(".git")
-            .join("tsq-sync")
-            .join(".tasque")
-            .join("events.jsonl"),
-    )
-    .expect("sync worktree events");
-    assert!(
-        !sync_events.is_empty(),
-        "expected events present in sync worktree"
-    );
+    assert_events_migrated_to_sync_worktree(&root);
 }
 
 /// Explicit `tsq migrate` keeps push failures fatal, but the events must
@@ -214,29 +222,13 @@ fn explicit_migrate_fails_on_unreachable_origin_after_local_migration() {
     let root = make_legacy_repo_with_unreachable_origin(base, "Offline explicit task");
 
     let migrate = run_cli(&root, ["migrate", "--json"]);
-    assert_ne!(
-        migrate.code, 0,
-        "expected explicit migrate to fail when push fails\nstdout:\n{}\nstderr:\n{}",
+    assert_eq!(
+        migrate.code, 2,
+        "expected explicit migrate to fail with storage/IO error when push fails\nstdout:\n{}\nstderr:\n{}",
         migrate.stdout, migrate.stderr
     );
     let envelope: Value = serde_json::from_str(migrate.stdout.trim()).expect("json envelope");
     assert_eq!(envelope.get("ok").and_then(Value::as_bool), Some(false));
 
-    let root_events =
-        fs::read_to_string(root.join(".tasque").join("events.jsonl")).expect("root events");
-    assert!(
-        root_events.is_empty(),
-        "expected main-tree events cleared even when push fails"
-    );
-    let sync_events = fs::read_to_string(
-        root.join(".git")
-            .join("tsq-sync")
-            .join(".tasque")
-            .join("events.jsonl"),
-    )
-    .expect("sync worktree events");
-    assert!(
-        !sync_events.is_empty(),
-        "expected events migrated locally despite failed push"
-    );
+    assert_events_migrated_to_sync_worktree(&root);
 }

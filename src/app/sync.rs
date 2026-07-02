@@ -192,9 +192,13 @@ pub fn migrate_to_sync_branch(
             }
             PushMode::BestEffort => {
                 if let Err(error) = git::push_current_set_upstream(wt_path, &remote, branch) {
+                    // `remote` is git-derived and `error.message` may carry
+                    // untrusted data; sanitize both before writing to stderr to
+                    // avoid emitting raw terminal control sequences.
                     eprintln!(
-                        "tsq: warning: migrated events to sync branch but push to '{remote}' failed: {}; run 'tsq sync' to push later",
-                        error.message
+                        "tsq: warning: migrated events to sync branch but push to '{}' failed: {}; run 'tsq sync' to push later",
+                        crate::cli::render::sanitize_inline(&remote),
+                        crate::cli::render::sanitize_inline(&error.message)
                     );
                 }
             }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { parseDependencyEnvelope, parseTasksEnvelope } from "../src/data";
+import { parseDependencyEnvelope, parseTasksEnvelope, runTsq } from "../src/data";
 import { parseSpecEnvelope } from "../src/tui-helpers";
 
 const sampleTask = {
@@ -47,6 +47,26 @@ describe("parseTasksEnvelope", () => {
     const result = parseTasksEnvelope(JSON.stringify({ ok: true }));
     expect(result.tasks).toEqual([]);
     expect(result.warning).toBeUndefined();
+  });
+
+  it("warns on a null payload", () => {
+    const result = parseTasksEnvelope("null");
+    expect(result.tasks).toEqual([]);
+    expect(result.warning).toBe("Unexpected payload from tsq watch --once");
+  });
+
+  it("warns on a non-object payload", () => {
+    const result = parseTasksEnvelope(JSON.stringify("oops"));
+    expect(result.tasks).toEqual([]);
+    expect(result.warning).toBe("Unexpected payload from tsq watch --once");
+  });
+
+  it("warns on a non-array tasks field", () => {
+    const result = parseTasksEnvelope(
+      JSON.stringify({ ok: true, data: { tasks: "not-a-list" } }),
+    );
+    expect(result.tasks).toEqual([]);
+    expect(result.warning).toBe("Task payload missing tasks array");
   });
 });
 
@@ -98,6 +118,18 @@ describe("parseDependencyEnvelope", () => {
     expect(result.root).toBeUndefined();
     expect(result.warning).toBe("Dependency tree payload missing root node");
   });
+
+  it("warns on a null payload", () => {
+    const result = parseDependencyEnvelope("null");
+    expect(result.root).toBeUndefined();
+    expect(result.warning).toBe("Unexpected payload from tsq deps");
+  });
+
+  it("warns on a non-object payload", () => {
+    const result = parseDependencyEnvelope(JSON.stringify(42));
+    expect(result.root).toBeUndefined();
+    expect(result.warning).toBe("Unexpected payload from tsq deps");
+  });
 });
 
 describe("parseSpecEnvelope", () => {
@@ -147,5 +179,28 @@ describe("parseSpecEnvelope", () => {
     );
     expect(result.lines).toEqual([]);
     expect(result.warning).toBe("Spec payload missing content");
+  });
+});
+
+describe("runTsq", () => {
+  it("returns stdout, stderr, and exitCode for a normal process", async () => {
+    const result = await runTsq([
+      process.execPath,
+      "-e",
+      "process.stdout.write('hi'); process.stderr.write('bye'); process.exit(3)",
+    ]);
+
+    expect(result).toEqual({ exitCode: 3, stdout: "hi", stderr: "bye" });
+  });
+
+  it("returns a non-zero exit when a process times out", async () => {
+    const start = Date.now();
+    const result = await runTsq(
+      [process.execPath, "-e", "setInterval(() => {}, 1000)"],
+      { timeoutMs: 300 },
+    );
+
+    expect(result.exitCode).not.toBe(0);
+    expect(Date.now() - start).toBeLessThan(5000);
   });
 });

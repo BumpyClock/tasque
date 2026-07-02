@@ -249,7 +249,7 @@ fn render_board_view(data: &TuiFrameData, width: usize) -> Vec<String> {
 }
 
 fn render_board_card(task: &Task) -> String {
-    let title = sanitize_inline(&truncate_with_ellipsis(&task.title, 18));
+    let title = truncate_with_ellipsis(&sanitize_inline(&task.title), 18);
     format!(
         "{} {} {} {}",
         style::task_id(&task.id),
@@ -283,10 +283,10 @@ fn render_inspector(data: &TuiFrameData, width: usize) -> Vec<String> {
     lines.push(format!("id={}", style::task_id(&task.id)));
     lines.push(format!(
         "title={}",
-        sanitize_inline(&truncate_with_ellipsis(
-            &task.title,
+        truncate_with_ellipsis(
+            &sanitize_inline(&task.title),
             width.saturating_sub(8).max(12)
-        ))
+        )
     ));
     lines.push(format!(
         "status={} kind={} priority={} planning={}",
@@ -412,9 +412,9 @@ fn render_table_row(task: &Task, selected: bool, title_width: usize) -> String {
         marker,
         task.id,
         type_pill(task.kind),
-        sanitize_inline(&truncate_with_ellipsis(&task.title, title_width)),
+        truncate_with_ellipsis(&sanitize_inline(&task.title), title_width),
         status_pill(task.status),
-        sanitize_inline(&truncate_with_ellipsis(assignee, 12)),
+        truncate_with_ellipsis(&sanitize_inline(assignee), 12),
         priority_pill(task.priority),
         spec_pill(task),
     )

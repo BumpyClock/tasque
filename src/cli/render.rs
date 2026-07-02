@@ -12,11 +12,12 @@ pub struct TreeRenderOptions {
 
 const MAX_NARROW_TREE_PREFIX_WIDTH: usize = 24;
 
-/// Escape C0/C1 control characters and DEL for safe terminal display.
+/// Escape C0/C1 control characters, DEL, and bidi controls for safe terminal display.
 /// `\\`, `\t`, `\r`, `\n` keep their existing readable escapes; ESC and every
-/// other control character are rendered as `\x{:02x}`. All other characters
-/// (including newlines' surrounding text, Unicode, emoji) pass through
-/// unchanged.
+/// other byte-sized control character are rendered as `\x{:02x}`. Bidi controls
+/// render as `\u{...}` so they cannot reorder nearby terminal text. All other
+/// characters (including newlines' surrounding text, Unicode, emoji) pass
+/// through unchanged.
 pub(crate) fn sanitize_inline(value: &str) -> String {
     sanitize(value, false)
 }
@@ -36,6 +37,9 @@ fn sanitize(value: &str, keep_newlines: bool) -> String {
             '\r' => out.push_str("\\r"),
             '\n' if keep_newlines => out.push('\n'),
             '\n' => out.push_str("\\n"),
+            c if is_bidi_control(c) => {
+                out.push_str(&format!("\\u{{{:x}}}", c as u32));
+            }
             c if is_unsafe_control(c) => {
                 out.push_str(&format!("\\x{:02x}", c as u32));
             }
@@ -47,7 +51,11 @@ fn sanitize(value: &str, keep_newlines: bool) -> String {
 
 fn is_unsafe_control(ch: char) -> bool {
     let code = ch as u32;
-    code < 0x20 || code == 0x7f || (0x80..=0x9f).contains(&code)
+    code < 0x20 || code == 0x7f || (0x80..=0x9f).contains(&code) || is_bidi_control(ch)
+}
+
+fn is_bidi_control(ch: char) -> bool {
+    matches!(ch as u32, 0x202a..=0x202e | 0x2066..=0x2069)
 }
 
 fn plain_cell(value: &str) -> String {
@@ -165,10 +173,18 @@ pub fn print_task(task: &Task) {
         println!("{}={}", style::key("assignee"), sanitize_inline(assignee));
     }
     if let Some(external_ref) = &task.external_ref {
-        println!("{}={}", style::key("external_ref"), external_ref);
+        println!(
+            "{}={}",
+            style::key("external_ref"),
+            sanitize_inline(external_ref)
+        );
     }
     if let Some(discovered_from) = &task.discovered_from {
-        println!("{}={}", style::key("discovered_from"), discovered_from);
+        println!(
+            "{}={}",
+            style::key("discovered_from"),
+            sanitize_inline(discovered_from)
+        );
     }
     if let Some(parent) = &task.parent_id {
         println!("{}={}", style::key("parent"), parent);
@@ -436,10 +452,10 @@ fn render_tree_node(
                 meta_width,
             );
             if max_title_width > 0 {
-                primary_parts.push(sanitize_inline(&truncate_with_ellipsis(
-                    &node.task.title,
+                primary_parts.push(truncate_with_ellipsis(
+                    &sanitize_inline(&node.task.title),
                     max_title_width,
-                )));
+                ));
             }
         }
         Density::Medium | Density::Wide => {
@@ -1014,6 +1030,12 @@ mod tests {
     fn sanitize_inline_escapes_c1_csi() {
         // U+009B is the single-byte CSI introducer in the C1 control range.
         assert_eq!(sanitize_inline("a\u{9b}b"), "a\\x9bb");
+    }
+
+    #[test]
+    fn sanitize_inline_escapes_bidi_controls() {
+        assert_eq!(sanitize_inline("safe\u{202e}txt"), "safe\\u{202e}txt");
+        assert_eq!(sanitize_inline("safe\u{2066}txt"), "safe\\u{2066}txt");
     }
 
     #[test]

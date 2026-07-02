@@ -158,8 +158,18 @@ export function boardColumns(
 
 export function buildEpicProgressList(tasks: TasqueTask[]): EpicProgress[] {
 	const epics = tasks.filter((task) => task.kind === "epic");
+	const childrenByParent = new Map<string, TasqueTask[]>();
+	for (const task of tasks) {
+		if (!task.parent_id) {
+			continue;
+		}
+		const children = childrenByParent.get(task.parent_id) ?? [];
+		children.push(task);
+		childrenByParent.set(task.parent_id, children);
+	}
+
 	return epics.map((epic) => {
-		const children = tasks.filter((task) => task.parent_id === epic.id);
+		const children = childrenByParent.get(epic.id) ?? [];
 
 		let done = 0;
 		let open = 0;

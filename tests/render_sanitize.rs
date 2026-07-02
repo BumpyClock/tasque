@@ -7,6 +7,7 @@ use serde_json::Value;
 // terminal-injection payload. `\u{1b}` is ESC (0x1b), `\u{7}` is BEL (0x07).
 const EVIL_TITLE: &str = "evil\u{1b}]0;pwned\u{7}title";
 const ESC_BYTE: u8 = 0x1b;
+const BEL_BYTE: u8 = 0x07;
 
 fn assert_no_raw_esc(output: &str) {
     // Piped stdout from these commands must never contain a literal,
@@ -16,6 +17,11 @@ fn assert_no_raw_esc(output: &str) {
     assert!(
         !output.as_bytes().contains(&ESC_BYTE),
         "human output contained a raw ESC byte: {:?}",
+        output
+    );
+    assert!(
+        !output.as_bytes().contains(&BEL_BYTE),
+        "human output contained a raw BEL byte: {:?}",
         output
     );
     assert!(

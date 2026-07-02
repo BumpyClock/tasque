@@ -134,6 +134,12 @@ export async function readSpecLines(
 	}
 
 	if (result.exitCode !== 0) {
+		if (result.stdout.trim()) {
+			const parsed = parseSpecEnvelopeResult(result.stdout);
+			if (parsed.kind === "envelope-error") {
+				return { lines: parsed.lines, warning: parsed.warning };
+			}
+		}
 		return {
 			lines: [],
 			warning:
@@ -144,22 +150,38 @@ export async function readSpecLines(
 	return parseSpecEnvelope(result.stdout);
 }
 
+type SpecEnvelopeResult = {
+	kind: "ok" | "envelope-error" | "parse-error";
+	lines: string[];
+	warning?: string;
+};
+
 export function parseSpecEnvelope(stdout: string): {
 	lines: string[];
 	warning?: string;
 } {
+	const parsed = parseSpecEnvelopeResult(stdout);
+	return { lines: parsed.lines, warning: parsed.warning };
+}
+
+function parseSpecEnvelopeResult(stdout: string): SpecEnvelopeResult {
 	let payload: unknown;
 	try {
 		payload = JSON.parse(stdout);
 	} catch {
 		return {
+			kind: "parse-error",
 			lines: [],
 			warning: "Unable to parse JSON output from tsq spec --show",
 		};
 	}
 
 	if (!payload || typeof payload !== "object") {
-		return { lines: [], warning: "Unexpected payload from tsq spec --show" };
+		return {
+			kind: "parse-error",
+			lines: [],
+			warning: "Unexpected payload from tsq spec --show",
+		};
 	}
 	const envelope = payload as Record<string, unknown>;
 
@@ -171,6 +193,7 @@ export function parseSpecEnvelope(stdout: string): {
 		const message =
 			typeof error?.message === "string" ? error.message : undefined;
 		return {
+			kind: "envelope-error",
 			lines: [],
 			warning: message ?? "tsq spec --show returned an error",
 		};
@@ -186,13 +209,17 @@ export function parseSpecEnvelope(stdout: string): {
 			: undefined;
 	const content = typeof spec?.content === "string" ? spec.content : undefined;
 	if (content === undefined) {
-		return { lines: [], warning: "Spec payload missing content" };
+		return {
+			kind: "envelope-error",
+			lines: [],
+			warning: "Spec payload missing content",
+		};
 	}
 
 	if (content.length === 0) {
-		return { lines: ["(empty spec)"] };
+		return { kind: "ok", lines: ["(empty spec)"] };
 	}
-	return { lines: content.replaceAll("\r\n", "\n").split("\n") };
+	return { kind: "ok", lines: content.replace(/\r\n?/g, "\n").split("\n") };
 }
 
 export function buildFilterPresets(statusCsv: string): FilterPreset[] {

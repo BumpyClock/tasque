@@ -467,7 +467,7 @@ fn render_flat_tasks(tasks: &[Task], width: usize) -> Vec<String> {
                 "{} {} {}",
                 status,
                 style::task_id(&task.id),
-                sanitize_inline(&truncate_with_ellipsis(&task.title, title_width))
+                truncate_with_ellipsis(&sanitize_inline(&task.title), title_width)
             ));
             lines.push(format!("  {}", meta));
         } else {

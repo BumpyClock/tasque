@@ -150,8 +150,21 @@ fn skills_refresh_ignores_untrusted_cwd_skills_source() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
 
+    let old_placeholder = "<!-- tsq-managed-skill:v1 -->\n# Old Tasque Skill\n";
+    assert!(
+        output.status.success(),
+        "expected refresh to succeed\nstdout:\n{}\nstderr:\n{}",
+        stdout,
+        stderr
+    );
+
     let refreshed = fs::read_to_string(claude_skill_dir.join("SKILL.md"))
         .expect("expected SKILL.md to still exist after refresh");
+    assert_ne!(
+        refreshed, old_placeholder,
+        "managed SKILL.md should be refreshed from the trusted source, not left as the pre-existing placeholder\nstdout:\n{}\nstderr:\n{}",
+        stdout, stderr
+    );
     assert!(
         !refreshed.contains("INJECTED-BY-CWD-TEST"),
         "untrusted CWD SKILLS/ payload must never reach a managed target\nstdout:\n{}\nstderr:\n{}\nrefreshed SKILL.md:\n{}",

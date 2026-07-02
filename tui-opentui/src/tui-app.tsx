@@ -1,5 +1,5 @@
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   type DataSnapshot,
   type DependencyNode,
@@ -63,6 +63,7 @@ export function App() {
   const [filterIndex, setFilterIndex] = useState(0);
   const [dependencyRoot, setDependencyRoot] = useState<DependencyNode | undefined>();
   const [dependencyWarning, setDependencyWarning] = useState<string | undefined>();
+  const refreshTasksRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     setFilterIndex((current) => Math.min(current, filterPresets.length - 1));
@@ -80,6 +81,10 @@ export function App() {
       }
       setSnapshot(next);
       setWarning(next.warning);
+    };
+
+    refreshTasksRef.current = () => {
+      void refresh();
     };
 
     void refresh();
@@ -152,13 +157,16 @@ export function App() {
       setDependencyWarning(undefined);
       return;
     }
+    setDependencyRoot(undefined);
+    setDependencyWarning(undefined);
+    let cancelled = false;
     // Debounce rapid selection changes; the latest-guard discards responses
     // that resolve after a newer fetch has been issued.
     const timer = setTimeout(() => {
       void latestDependencyFetch(() =>
         fetchDependencyTree(config.tsqBin, taskId),
       ).then((dependency) => {
-        if (!dependency) {
+        if (cancelled || !dependency) {
           return;
         }
         setDependencyRoot(dependency.root);
@@ -166,6 +174,7 @@ export function App() {
       });
     }, 150);
     return () => {
+      cancelled = true;
       clearTimeout(timer);
     };
   }, [config.tsqBin, latestDependencyFetch, selectedTask?.id, tab]);
@@ -203,7 +212,7 @@ export function App() {
     void readSpecLines(config.tsqBin, task.id).then((result) => {
       setSpecDialog((current) => {
         // Stale check: apply only if the dialog is still open for this task.
-        if (!current || current.taskId !== task.id) {
+        if (!current || current.taskId !== task.id || current.specPath !== task.spec_path) {
           return current;
         }
         return {
@@ -268,10 +277,7 @@ export function App() {
     }
 
     if (key.name === "r") {
-      void fetchTasks(config).then((next) => {
-        setSnapshot(next);
-        setWarning(next.warning);
-      });
+      refreshTasksRef.current();
       return;
     }
 
@@ -354,7 +360,10 @@ export function App() {
       };
     });
   });
-  const itemBudget = tab === "tasks" ? Math.max(2, Math.floor(tableRowBudget / 2)) : tableRowBudget;
+  const itemBudget =
+    tab === "tasks" || tab === "epics"
+      ? Math.max(2, Math.floor(tableRowBudget / 2))
+      : tableRowBudget;
   const [start, end] = visibleRange(selectedIndex, rowCount, itemBudget);
 
   return (

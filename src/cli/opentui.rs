@@ -1,5 +1,7 @@
 use crate::app::runtime::find_tasque_root;
 use crate::cli::tui::{TuiOptions, TuiView};
+use crate::cli::watch::WatchOptions;
+use crate::types::TaskStatus;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -11,6 +13,14 @@ const BUNDLED_TUI_BINARY: &str = "tsq-tui.exe";
 const BUNDLED_TUI_BINARY: &str = "tsq-tui";
 
 pub fn should_launch_opentui(options: &TuiOptions) -> bool {
+    interactive_launch_ready(options.json, options.once) && launch_target_available()
+}
+
+pub fn should_launch_opentui_watch(options: &WatchOptions) -> bool {
+    interactive_launch_ready(options.json, options.once) && launch_target_available()
+}
+
+fn interactive_launch_ready(json: bool, once: bool) -> bool {
     if std::env::var("TSQ_OPENTUI_DISABLE")
         .ok()
         .as_deref()
@@ -18,14 +28,13 @@ pub fn should_launch_opentui(options: &TuiOptions) -> bool {
     {
         return false;
     }
-    if options.json
-        || options.once
-        || !std::io::stdin().is_terminal()
-        || !std::io::stdout().is_terminal()
-    {
-        return false;
-    }
+    !json
+        && !once
+        && std::io::stdin().is_terminal()
+        && std::io::stdout().is_terminal()
+}
 
+fn launch_target_available() -> bool {
     if explicit_bundled_tui_path().is_some() && resolve_bundled_tui_path().is_some() {
         return true;
     }
@@ -45,8 +54,39 @@ pub fn should_launch_opentui(options: &TuiOptions) -> bool {
 }
 
 pub fn launch_opentui(options: &TuiOptions) -> Result<i32, String> {
+    let mut command = build_launch_command()?;
+    apply_shared_env(&mut command);
+    // Clear any inherited watch mode so `tsq tui` always renders the tabbed App.
+    command.env_remove("TSQ_TUI_MODE");
+    command.env("TSQ_TUI_INTERVAL", options.interval.to_string());
+    command.env("TSQ_TUI_STATUS", status_csv(&options.statuses));
+    command.env("TSQ_TUI_VIEW", view_to_env(options.view));
+
+    if let Some(assignee) = options.assignee.as_deref() {
+        command.env("TSQ_TUI_ASSIGNEE", assignee);
+    }
+
+    run_command(command)
+}
+
+pub fn launch_opentui_watch(options: &WatchOptions) -> Result<i32, String> {
+    let mut command = build_launch_command()?;
+    apply_shared_env(&mut command);
+    command.env("TSQ_TUI_MODE", "watch");
+    command.env("TSQ_TUI_INTERVAL", options.interval.to_string());
+    command.env("TSQ_TUI_STATUS", status_csv(&options.statuses));
+    command.env("TSQ_WATCH_TREE", if options.tree { "1" } else { "0" });
+
+    if let Some(assignee) = options.assignee.as_deref() {
+        command.env("TSQ_TUI_ASSIGNEE", assignee);
+    }
+
+    run_command(command)
+}
+
+fn build_launch_command() -> Result<Command, String> {
     let prefer_bundle = explicit_bundled_tui_path().is_some() || explicit_entry_path().is_none();
-    let mut command = if let Some(bundle) = if prefer_bundle {
+    let command = if let Some(bundle) = if prefer_bundle {
         resolve_bundled_tui_path()
     } else {
         None
@@ -61,23 +101,19 @@ pub fn launch_opentui(options: &TuiOptions) -> Result<i32, String> {
         command.arg("run").arg(&entry);
         command
     };
+    Ok(command)
+}
 
+fn apply_shared_env(command: &mut Command) {
     if let Ok(bin) = std::env::current_exe() {
         command.env("TSQ_TUI_BIN", bin);
     }
-
-    command.env("TSQ_TUI_INTERVAL", options.interval.to_string());
-    command.env("TSQ_TUI_STATUS", status_csv(options));
-    command.env("TSQ_TUI_VIEW", view_to_env(options.view));
-
-    if let Some(assignee) = options.assignee.as_deref() {
-        command.env("TSQ_TUI_ASSIGNEE", assignee);
-    }
-
     if let Some(root) = find_tasque_root() {
         command.current_dir(root);
     }
+}
 
+fn run_command(mut command: Command) -> Result<i32, String> {
     let status = command
         .status()
         .map_err(|error| format!("failed launching OpenTUI: {error}"))?;
@@ -179,9 +215,8 @@ fn view_to_env(view: TuiView) -> &'static str {
     }
 }
 
-fn status_csv(options: &TuiOptions) -> String {
-    options
-        .statuses
+fn status_csv(statuses: &[TaskStatus]) -> String {
+    statuses
         .iter()
         .map(|status| crate::domain::event_payload_codecs::task_status_as_str(*status))
         .collect::<Vec<_>>()

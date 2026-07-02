@@ -2,7 +2,7 @@ use crate::app::service::TasqueService;
 use crate::app::service_types::ListFilter;
 use crate::cli::render::{
     TreeRenderOptions, format_meta_badge, format_status, format_status_text, render_task_tree,
-    status_to_string, truncate_with_ellipsis,
+    sanitize_inline, status_to_string, truncate_with_ellipsis,
 };
 use crate::cli::style;
 use crate::cli::terminal::{Density, resolve_density, resolve_width};
@@ -467,7 +467,7 @@ fn render_flat_tasks(tasks: &[Task], width: usize) -> Vec<String> {
                 "{} {} {}",
                 status,
                 style::task_id(&task.id),
-                truncate_with_ellipsis(&task.title, title_width)
+                sanitize_inline(&truncate_with_ellipsis(&task.title, title_width))
             ));
             lines.push(format!("  {}", meta));
         } else {
@@ -475,7 +475,7 @@ fn render_flat_tasks(tasks: &[Task], width: usize) -> Vec<String> {
                 "{}  {}  {}  {}",
                 status,
                 style::task_id(&task.id),
-                task.title,
+                sanitize_inline(&task.title),
                 meta
             ));
         }

@@ -184,7 +184,6 @@ pub fn migrate_to_sync_branch(
 
     let wt_path = Path::new(&setup.worktree_path);
     let _ = git::commit_worktree(wt_path, "chore: migrate tasque events to sync branch")?;
-    clear_repo_events(repo_root)?;
     if let Some(remote) = git::current_upstream_remote(Path::new(repo_root))? {
         match push {
             PushMode::Required => {
@@ -204,6 +203,7 @@ pub fn migrate_to_sync_branch(
             }
         }
     }
+    clear_repo_events(repo_root)?;
 
     Ok(MigrateResult {
         events_migrated: to_append.len(),

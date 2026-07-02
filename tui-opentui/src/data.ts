@@ -71,6 +71,7 @@ export async function runTsq(
     stdout: "pipe",
     stderr: "pipe",
     timeout: options.timeoutMs ?? 10_000,
+    killSignal: "SIGKILL",
   });
 
   const [stdout, stderr, exitCode] = await Promise.all([
@@ -146,6 +147,10 @@ export function parseTasksEnvelope(stdout: string): {
     };
   }
   const envelope = payload as ListEnvelope;
+
+  if (typeof envelope.ok !== "boolean") {
+    return { tasks: [], warning: "Unexpected payload from tsq watch --once" };
+  }
 
   if (!envelope.ok) {
     return {
@@ -253,6 +258,10 @@ export function parseDependencyEnvelope(stdout: string): {
     return { warning: "Unexpected payload from tsq deps" };
   }
   const envelope = payload as DepEnvelope;
+
+  if (typeof envelope.ok !== "boolean") {
+    return { warning: "Unexpected payload from tsq deps" };
+  }
 
   if (!envelope.ok) {
     return { warning: envelope.error?.message ?? "tsq deps returned an error" };

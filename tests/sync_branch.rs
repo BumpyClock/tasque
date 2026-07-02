@@ -6,6 +6,12 @@ use std::fs;
 
 fn git_out(repo: &std::path::Path, args: &[&str]) -> String {
     let output = git_output(repo, args);
+    assert!(
+        output.status.success(),
+        "git {:?} failed: {}",
+        args,
+        String::from_utf8_lossy(&output.stderr)
+    );
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
@@ -212,9 +218,9 @@ fn implicit_migration_survives_unreachable_origin_with_warning() {
     assert_events_migrated_to_sync_worktree(&root);
 }
 
-/// Explicit `tsq migrate` keeps push failures fatal, but the events must
-/// already be migrated and the main tree cleared (local commit lands before
-/// the push), so a later `tsq sync` can complete the push.
+/// Explicit `tsq migrate` keeps push failures fatal and preserves the original
+/// main-tree events when the required push fails. The sync worktree commit has
+/// landed locally, so a later successful migrate can dedupe and clear safely.
 #[test]
 fn explicit_migrate_fails_on_unreachable_origin_after_local_migration() {
     let repo = make_repo();
@@ -230,5 +236,21 @@ fn explicit_migrate_fails_on_unreachable_origin_after_local_migration() {
     let envelope: Value = serde_json::from_str(migrate.stdout.trim()).expect("json envelope");
     assert_eq!(envelope.get("ok").and_then(Value::as_bool), Some(false));
 
-    assert_events_migrated_to_sync_worktree(&root);
+    let root_events =
+        fs::read_to_string(root.join(".tasque").join("events.jsonl")).expect("root events");
+    assert!(
+        !root_events.is_empty(),
+        "expected main-tree events preserved after required push failure"
+    );
+    let sync_events = fs::read_to_string(
+        root.join(".git")
+            .join("tsq-sync")
+            .join(".tasque")
+            .join("events.jsonl"),
+    )
+    .expect("sync worktree events");
+    assert!(
+        !sync_events.is_empty(),
+        "expected events present in sync worktree"
+    );
 }

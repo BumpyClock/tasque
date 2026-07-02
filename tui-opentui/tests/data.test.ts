@@ -61,6 +61,14 @@ describe("parseTasksEnvelope", () => {
     expect(result.warning).toBe("Unexpected payload from tsq watch --once");
   });
 
+  it("warns on a non-boolean ok field", () => {
+    const result = parseTasksEnvelope(
+      JSON.stringify({ ok: "false", data: { tasks: [sampleTask] } }),
+    );
+    expect(result.tasks).toEqual([]);
+    expect(result.warning).toBe("Unexpected payload from tsq watch --once");
+  });
+
   it("warns on a non-array tasks field", () => {
     const result = parseTasksEnvelope(
       JSON.stringify({ ok: true, data: { tasks: "not-a-list" } }),
@@ -127,6 +135,12 @@ describe("parseDependencyEnvelope", () => {
 
   it("warns on a non-object payload", () => {
     const result = parseDependencyEnvelope(JSON.stringify(42));
+    expect(result.root).toBeUndefined();
+    expect(result.warning).toBe("Unexpected payload from tsq deps");
+  });
+
+  it("warns on a non-boolean ok field", () => {
+    const result = parseDependencyEnvelope(JSON.stringify({ ok: "true" }));
     expect(result.root).toBeUndefined();
     expect(result.warning).toBe("Unexpected payload from tsq deps");
   });

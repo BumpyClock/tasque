@@ -136,7 +136,7 @@ export async function readSpecLines(
 	if (result.exitCode !== 0) {
 		if (result.stdout.trim()) {
 			const parsed = parseSpecEnvelopeResult(result.stdout);
-			if (parsed.kind === "envelope-error") {
+			if (parsed.kind === "envelope-error" || parsed.kind === "parse-error") {
 				return { lines: parsed.lines, warning: parsed.warning };
 			}
 		}

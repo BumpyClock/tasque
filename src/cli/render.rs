@@ -51,11 +51,11 @@ fn sanitize(value: &str, keep_newlines: bool) -> String {
 
 fn is_unsafe_control(ch: char) -> bool {
     let code = ch as u32;
-    code < 0x20 || code == 0x7f || (0x80..=0x9f).contains(&code) || is_bidi_control(ch)
+    code < 0x20 || code == 0x7f || (0x80..=0x9f).contains(&code)
 }
 
 fn is_bidi_control(ch: char) -> bool {
-    matches!(ch as u32, 0x202a..=0x202e | 0x2066..=0x2069)
+    matches!(ch as u32, 0x061c | 0x200e | 0x200f | 0x202a..=0x202e | 0x2066..=0x2069)
 }
 
 fn plain_cell(value: &str) -> String {
@@ -1034,6 +1034,9 @@ mod tests {
 
     #[test]
     fn sanitize_inline_escapes_bidi_controls() {
+        assert_eq!(sanitize_inline("safe\u{061c}txt"), "safe\\u{61c}txt");
+        assert_eq!(sanitize_inline("safe\u{200e}txt"), "safe\\u{200e}txt");
+        assert_eq!(sanitize_inline("safe\u{200f}txt"), "safe\\u{200f}txt");
         assert_eq!(sanitize_inline("safe\u{202e}txt"), "safe\\u{202e}txt");
         assert_eq!(sanitize_inline("safe\u{2066}txt"), "safe\\u{2066}txt");
     }

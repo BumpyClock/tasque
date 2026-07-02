@@ -57,7 +57,11 @@ pub fn resolve_effective_root(repo_root: &str) -> Result<String, TsqError> {
         ));
     }
 
-    let worktree = with_setup_lock(repo_root, || git::ensure_worktree(repo_path, &branch))?;
+    let worktree = with_setup_lock(repo_root, || {
+        let wt = git::ensure_worktree(repo_path, &branch)?;
+        git::setup_merge_driver_config(repo_path)?;
+        Ok(wt)
+    })?;
     Ok(worktree.to_string_lossy().to_string())
 }
 
@@ -196,6 +200,7 @@ pub fn sync_worktree(repo_root: &str, push: bool) -> Result<SyncRunResult, TsqEr
 
     let branch = git::current_branch(path)?
         .ok_or_else(|| TsqError::new("GIT_ERROR", "failed determining current branch", 2))?;
+    git::setup_merge_driver_config(path)?;
     let committed = git::commit_worktree(path, SYNC_COMMIT_MESSAGE)?;
     let mut has_upstream = git::has_upstream(path)?;
     let pushed = if !push {

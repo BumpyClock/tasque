@@ -1,4 +1,4 @@
-import type { DependencyNode } from "./data";
+import { type DependencyNode, type TsqSpawnResult, runTsq, spawnWarning } from "./data";
 import {
 	TAB_ORDER,
 	TASK_STATUS_ORDER,
@@ -123,29 +123,103 @@ function buildAncestorPrefix(siblingTrail: boolean[]): string {
 }
 
 export async function readSpecLines(
-	specPath: string,
+	tsqBin: string,
+	taskId: string,
 ): Promise<{ lines: string[]; warning?: string }> {
+	let result: TsqSpawnResult;
 	try {
-		const text = await Bun.file(specPath).text();
-		if (text.length === 0) {
-			return { lines: ["(empty spec)"] };
+		result = await runTsq([tsqBin, "--json", "spec", taskId, "--show"]);
+	} catch (error) {
+		return { lines: [], warning: spawnWarning(tsqBin, error) };
+	}
+
+	if (result.exitCode !== 0) {
+		if (result.stdout.trim()) {
+			const parsed = parseSpecEnvelopeResult(result.stdout);
+			if (parsed.kind === "envelope-error" || parsed.kind === "parse-error") {
+				return { lines: parsed.lines, warning: parsed.warning };
+			}
 		}
 		return {
-			lines: text.replaceAll("\r\n", "\n").split("\n"),
-		};
-	} catch (error) {
-		return {
 			lines: [],
-			warning: `Failed to open spec: ${errorMessage(error)}`,
+			warning:
+				result.stderr.trim() || `Failed to run ${tsqBin} spec ${taskId} --show`,
 		};
 	}
+
+	return parseSpecEnvelope(result.stdout);
 }
 
-function errorMessage(error: unknown): string {
-	if (error instanceof Error && error.message) {
-		return error.message;
+type SpecEnvelopeResult = {
+	kind: "ok" | "envelope-error" | "parse-error";
+	lines: string[];
+	warning?: string;
+};
+
+export function parseSpecEnvelope(stdout: string): {
+	lines: string[];
+	warning?: string;
+} {
+	const parsed = parseSpecEnvelopeResult(stdout);
+	return { lines: parsed.lines, warning: parsed.warning };
+}
+
+function parseSpecEnvelopeResult(stdout: string): SpecEnvelopeResult {
+	let payload: unknown;
+	try {
+		payload = JSON.parse(stdout);
+	} catch {
+		return {
+			kind: "parse-error",
+			lines: [],
+			warning: "Unable to parse JSON output from tsq spec --show",
+		};
 	}
-	return "unknown error";
+
+	if (!payload || typeof payload !== "object") {
+		return {
+			kind: "parse-error",
+			lines: [],
+			warning: "Unexpected payload from tsq spec --show",
+		};
+	}
+	const envelope = payload as Record<string, unknown>;
+
+	if (envelope.ok !== true) {
+		const error =
+			envelope.error && typeof envelope.error === "object"
+				? (envelope.error as Record<string, unknown>)
+				: undefined;
+		const message =
+			typeof error?.message === "string" ? error.message : undefined;
+		return {
+			kind: "envelope-error",
+			lines: [],
+			warning: message ?? "tsq spec --show returned an error",
+		};
+	}
+
+	const data =
+		envelope.data && typeof envelope.data === "object"
+			? (envelope.data as Record<string, unknown>)
+			: undefined;
+	const spec =
+		data?.spec && typeof data.spec === "object"
+			? (data.spec as Record<string, unknown>)
+			: undefined;
+	const content = typeof spec?.content === "string" ? spec.content : undefined;
+	if (content === undefined) {
+		return {
+			kind: "envelope-error",
+			lines: [],
+			warning: "Spec payload missing content",
+		};
+	}
+
+	if (content.length === 0) {
+		return { kind: "ok", lines: ["(empty spec)"] };
+	}
+	return { kind: "ok", lines: content.replace(/\r\n?/g, "\n").split("\n") };
 }
 
 export function buildFilterPresets(statusCsv: string): FilterPreset[] {

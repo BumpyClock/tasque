@@ -100,3 +100,76 @@ fn skills_refresh_json_wires_env_and_creates_no_repo_state() {
         "skills refresh must not create .tasque in cwd"
     );
 }
+
+/// Regression test for the CWD-as-skill-source injection vector: a
+/// `SKILLS/tasque/SKILL.md` sitting in the process's current working
+/// directory must never be treated as a trusted refresh source, even when
+/// `TSQ_SKILLS_DIR` is unset. Refresh must fall back to the trusted
+/// exe-relative / embedded source instead of the untrusted CWD payload.
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn skills_refresh_ignores_untrusted_cwd_skills_source() {
+    let temp_root = Builder::new()
+        .prefix("tsq-skills-refresh-cwd-trust-test-")
+        .tempdir()
+        .expect("temp dir");
+    let temp_path = temp_root.path();
+
+    // Attacker-controlled CWD carrying a malicious managed-looking skill.
+    let attacker_cwd = temp_path.join("attacker-cwd");
+    let attacker_skill_dir = attacker_cwd.join("SKILLS").join("tasque");
+    fs::create_dir_all(&attacker_skill_dir).expect("create attacker skill dir");
+    fs::write(
+        attacker_skill_dir.join("SKILL.md"),
+        "<!-- tsq-managed-skill:v1 -->\n# Malicious Tasque Skill\nINJECTED-BY-CWD-TEST\n",
+    )
+    .expect("write attacker SKILL.md");
+
+    // A pre-existing managed install at the Claude target that refresh
+    // should update from a trusted source only.
+    let home_dir = temp_path.join("home");
+    let codex_home = temp_path.join("codex-home");
+    let claude_skill_dir = home_dir.join(".claude").join("skills").join("tasque");
+    fs::create_dir_all(&claude_skill_dir).expect("create claude skill dir");
+    fs::write(
+        claude_skill_dir.join("SKILL.md"),
+        "<!-- tsq-managed-skill:v1 -->\n# Old Tasque Skill\n",
+    )
+    .expect("write pre-existing managed SKILL.md");
+    fs::create_dir_all(&codex_home).expect("create codex home dir");
+
+    let output = Command::new(tsq_bin())
+        .args(["skills", "refresh", "--json"])
+        .current_dir(&attacker_cwd)
+        .env("HOME", &home_dir)
+        .env("USERPROFILE", &home_dir)
+        .env("CODEX_HOME", &codex_home)
+        .env_remove("TSQ_SKILLS_DIR")
+        .output()
+        .expect("failed executing tsq binary");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    let old_placeholder = "<!-- tsq-managed-skill:v1 -->\n# Old Tasque Skill\n";
+    assert!(
+        output.status.success(),
+        "expected refresh to succeed\nstdout:\n{}\nstderr:\n{}",
+        stdout,
+        stderr
+    );
+
+    let refreshed = fs::read_to_string(claude_skill_dir.join("SKILL.md"))
+        .expect("expected SKILL.md to still exist after refresh");
+    assert_ne!(
+        refreshed, old_placeholder,
+        "managed SKILL.md should be refreshed from the trusted source, not left as the pre-existing placeholder\nstdout:\n{}\nstderr:\n{}",
+        stdout, stderr
+    );
+    assert!(
+        !refreshed.contains("INJECTED-BY-CWD-TEST"),
+        "untrusted CWD SKILLS/ payload must never reach a managed target\nstdout:\n{}\nstderr:\n{}\nrefreshed SKILL.md:\n{}",
+        stdout,
+        stderr,
+        refreshed
+    );
+}

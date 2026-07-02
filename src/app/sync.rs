@@ -35,7 +35,12 @@ pub fn resolve_effective_root(repo_root: &str) -> Result<String, TsqError> {
         None => {
             let repo_path = Path::new(repo_root);
             if git::is_git_repo(repo_path) && !git::is_sync_worktree_path(repo_path) {
-                let migrated = migrate_to_sync_branch(repo_root, DEFAULT_SYNC_BRANCH, "tsq")?;
+                let migrated = migrate_to_sync_branch(
+                    repo_root,
+                    DEFAULT_SYNC_BRANCH,
+                    "tsq",
+                    PushMode::BestEffort,
+                )?;
                 return Ok(migrated.worktree_path);
             }
             return Ok(repo_root.to_string());
@@ -57,7 +62,11 @@ pub fn resolve_effective_root(repo_root: &str) -> Result<String, TsqError> {
         ));
     }
 
-    let worktree = with_setup_lock(repo_root, || git::ensure_worktree(repo_path, &branch))?;
+    let worktree = with_setup_lock(repo_root, || {
+        let wt = git::ensure_worktree(repo_path, &branch)?;
+        git::setup_merge_driver_config(repo_path)?;
+        Ok(wt)
+    })?;
     Ok(worktree.to_string_lossy().to_string())
 }
 
@@ -126,6 +135,15 @@ fn setup_sync_branch_locked(repo_root: &str, branch: &str) -> Result<SyncSetupRe
     })
 }
 
+/// How migration should treat a failing push to the upstream remote.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PushMode {
+    /// Explicit `tsq migrate`: push failure is the command's failure.
+    Required,
+    /// Implicit resolve-path migration: push failure is a stderr warning.
+    BestEffort,
+}
+
 /// Migrate existing events from the repo root into a sync branch.
 ///
 /// Reads events from the current `.tasque/events.jsonl`, sets up the sync
@@ -134,6 +152,7 @@ pub fn migrate_to_sync_branch(
     repo_root: &str,
     branch: &str,
     actor: &str,
+    push: PushMode,
 ) -> Result<MigrateResult, TsqError> {
     let existing = read_events(repo_root)?;
 
@@ -166,7 +185,23 @@ pub fn migrate_to_sync_branch(
     let wt_path = Path::new(&setup.worktree_path);
     let _ = git::commit_worktree(wt_path, "chore: migrate tasque events to sync branch")?;
     if let Some(remote) = git::current_upstream_remote(Path::new(repo_root))? {
-        git::push_current_set_upstream(wt_path, &remote, branch)?;
+        match push {
+            PushMode::Required => {
+                git::push_current_set_upstream(wt_path, &remote, branch)?;
+            }
+            PushMode::BestEffort => {
+                if let Err(error) = git::push_current_set_upstream(wt_path, &remote, branch) {
+                    // `remote` is git-derived and `error.message` may carry
+                    // untrusted data; sanitize both before writing to stderr to
+                    // avoid emitting raw terminal control sequences.
+                    eprintln!(
+                        "tsq: warning: migrated events to sync branch but push to '{}' failed: {}; run 'tsq sync' to push later",
+                        crate::cli::render::sanitize_inline(&remote),
+                        crate::cli::render::sanitize_inline(&error.message)
+                    );
+                }
+            }
+        }
     }
     clear_repo_events(repo_root)?;
 
@@ -196,6 +231,7 @@ pub fn sync_worktree(repo_root: &str, push: bool) -> Result<SyncRunResult, TsqEr
 
     let branch = git::current_branch(path)?
         .ok_or_else(|| TsqError::new("GIT_ERROR", "failed determining current branch", 2))?;
+    git::setup_merge_driver_config(path)?;
     let committed = git::commit_worktree(path, SYNC_COMMIT_MESSAGE)?;
     let mut has_upstream = git::has_upstream(path)?;
     let pushed = if !push {
@@ -687,8 +723,13 @@ mod tests {
         ];
         append_events(repo, &events).expect("append_events");
 
-        let result = migrate_to_sync_branch(&repo.to_string_lossy(), DEFAULT_SYNC_BRANCH, "test")
-            .expect("migrate");
+        let result = migrate_to_sync_branch(
+            &repo.to_string_lossy(),
+            DEFAULT_SYNC_BRANCH,
+            "test",
+            PushMode::Required,
+        )
+        .expect("migrate");
         assert_eq!(result.events_migrated, 0);
 
         let migrated = read_events(&result.worktree_path).expect("read_events");

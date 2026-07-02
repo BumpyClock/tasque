@@ -12,12 +12,54 @@ pub struct TreeRenderOptions {
 
 const MAX_NARROW_TREE_PREFIX_WIDTH: usize = 24;
 
+/// Escape C0/C1 control characters, DEL, and bidi controls for safe terminal display.
+/// `\\`, `\t`, `\r`, `\n` keep their existing readable escapes; ESC and every
+/// other byte-sized control character are rendered as `\x{:02x}`. Bidi controls
+/// render as `\u{...}` so they cannot reorder nearby terminal text. All other
+/// characters (including newlines' surrounding text, Unicode, emoji) pass
+/// through unchanged.
+pub(crate) fn sanitize_inline(value: &str) -> String {
+    sanitize(value, false)
+}
+
+/// Same escaping as `sanitize_inline`, but preserves real newlines for
+/// multi-line human-output contexts (spec content, note bodies).
+pub(crate) fn sanitize_block(value: &str) -> String {
+    sanitize(value, true)
+}
+
+fn sanitize(value: &str, keep_newlines: bool) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '\t' => out.push_str("\\t"),
+            '\r' => out.push_str("\\r"),
+            '\n' if keep_newlines => out.push('\n'),
+            '\n' => out.push_str("\\n"),
+            c if is_bidi_control(c) => {
+                out.push_str(&format!("\\u{{{:x}}}", c as u32));
+            }
+            c if is_unsafe_control(c) => {
+                out.push_str(&format!("\\x{:02x}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+fn is_unsafe_control(ch: char) -> bool {
+    let code = ch as u32;
+    code < 0x20 || code == 0x7f || (0x80..=0x9f).contains(&code)
+}
+
+fn is_bidi_control(ch: char) -> bool {
+    matches!(ch as u32, 0x061c | 0x200e | 0x200f | 0x202a..=0x202e | 0x2066..=0x2069)
+}
+
 fn plain_cell(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('\t', "\\t")
-        .replace('\r', "\\r")
-        .replace('\n', "\\n")
+    sanitize_inline(value)
 }
 
 pub fn print_task_list(tasks: &[Task]) {
@@ -32,12 +74,15 @@ pub fn print_task_list(tasks: &[Task]) {
         .map(|task| {
             vec![
                 task.id.clone(),
-                task.alias.clone(),
+                sanitize_inline(&task.alias),
                 task.priority.to_string(),
                 task_kind_to_string(task.kind).to_string(),
                 status_to_string(task.status).to_string(),
-                task.assignee.clone().unwrap_or_else(|| "-".to_string()),
-                task.title.clone(),
+                task.assignee
+                    .as_deref()
+                    .map(sanitize_inline)
+                    .unwrap_or_else(|| "-".to_string()),
+                sanitize_inline(&task.title),
             ]
         })
         .collect();
@@ -102,7 +147,12 @@ pub fn print_task_list_plain(tasks: &[Task]) {
 }
 
 pub fn print_task(task: &Task) {
-    println!("{} {} {}", style::task_id(&task.id), task.alias, task.title);
+    println!(
+        "{} {} {}",
+        style::task_id(&task.id),
+        sanitize_inline(&task.alias),
+        sanitize_inline(&task.title)
+    );
     println!(
         "{}={} {}={} {}={}",
         style::key("kind"),
@@ -120,13 +170,21 @@ pub fn print_task(task: &Task) {
         );
     }
     if let Some(assignee) = &task.assignee {
-        println!("{}={}", style::key("assignee"), assignee);
+        println!("{}={}", style::key("assignee"), sanitize_inline(assignee));
     }
     if let Some(external_ref) = &task.external_ref {
-        println!("{}={}", style::key("external_ref"), external_ref);
+        println!(
+            "{}={}",
+            style::key("external_ref"),
+            sanitize_inline(external_ref)
+        );
     }
     if let Some(discovered_from) = &task.discovered_from {
-        println!("{}={}", style::key("discovered_from"), discovered_from);
+        println!(
+            "{}={}",
+            style::key("discovered_from"),
+            sanitize_inline(discovered_from)
+        );
     }
     if let Some(parent) = &task.parent_id {
         println!("{}={}", style::key("parent"), parent);
@@ -138,7 +196,11 @@ pub fn print_task(task: &Task) {
         println!("{}={}", style::key("duplicate_of"), duplicate_of);
     }
     if let Some(description) = &task.description {
-        println!("{}={}", style::key("description"), description);
+        println!(
+            "{}={}",
+            style::key("description"),
+            sanitize_inline(description)
+        );
     }
     println!("{}={}", style::key("notes"), task.notes.len());
     if let (Some(spec_path), Some(spec_fingerprint)) = (&task.spec_path, &task.spec_fingerprint) {
@@ -271,8 +333,9 @@ pub fn print_show_result_plain(data: &ShowResult) {
 
 pub fn print_spec_content(data: &SpecContentResult) {
     println!("--- spec: {} ---", data.spec_path);
-    print!("{}", data.content);
-    if !data.content.ends_with('\n') {
+    let sanitized = sanitize_block(&data.content);
+    print!("{}", sanitized);
+    if !sanitized.ends_with('\n') {
         println!();
     }
     println!("--- end spec ---");
@@ -389,11 +452,14 @@ fn render_tree_node(
                 meta_width,
             );
             if max_title_width > 0 {
-                primary_parts.push(truncate_with_ellipsis(&node.task.title, max_title_width));
+                primary_parts.push(truncate_with_ellipsis(
+                    &sanitize_inline(&node.task.title),
+                    max_title_width,
+                ));
             }
         }
         Density::Medium | Density::Wide => {
-            primary_parts.push(node.task.title.clone());
+            primary_parts.push(sanitize_inline(&node.task.title));
             primary_parts.push(meta);
             if density == Density::Wide
                 && let Some(flow) = &flow
@@ -495,7 +561,7 @@ pub fn print_merge_result(result: &MergeResult) {
         "{}={} \"{}\" [{}]",
         style::key("target"),
         style::task_id(&result.target.id),
-        result.target.title,
+        sanitize_inline(&result.target.title),
         result.target.status
     );
     if let Some(summary) = &result.plan_summary {
@@ -544,7 +610,7 @@ fn format_meta_badge_text(task: &Task) -> String {
     let assignee = task
         .assignee
         .as_ref()
-        .map(|value| format!(" @{}", value))
+        .map(|value| format!(" @{}", sanitize_inline(value)))
         .unwrap_or_default();
     format!("[p{}{}]", task.priority, assignee)
 }
@@ -786,7 +852,7 @@ pub fn print_task_note(task_id: &str, note: &TaskNote) {
         note.actor,
         style::muted(&note.event_id)
     );
-    println!("{}", note.text);
+    println!("{}", sanitize_block(&note.text));
 }
 
 pub fn print_task_notes(task_id: &str, notes: &[TaskNote]) {
@@ -808,7 +874,7 @@ pub fn print_task_notes(task_id: &str, notes: &[TaskNote]) {
             note.actor,
             style::muted(&note.event_id)
         );
-        println!("{}", note.text);
+        println!("{}", sanitize_block(&note.text));
     }
 }
 
@@ -877,7 +943,7 @@ fn print_dep_node(node: &DepTreeNode, prefix: &str, is_last: bool, is_root: bool
         style::tree_prefix(connector),
         format_status(node.task.status),
         style::task_id(&node.task.id),
-        node.task.title,
+        sanitize_inline(&node.task.title),
         dir_tag,
         type_tag
     );
@@ -946,6 +1012,62 @@ fn event_type_to_string(event_type: crate::types::EventType) -> String {
 mod tests {
     use super::*;
     use crate::types::{PlanningState, TaskKind};
+
+    #[test]
+    fn sanitize_inline_escapes_esc() {
+        assert_eq!(sanitize_inline("a\u{1b}b"), "a\\x1bb");
+    }
+
+    #[test]
+    fn sanitize_inline_escapes_osc_sequence_including_bel() {
+        // ESC ] 0 ; x BEL — an OSC window-title sequence.
+        let input = "evil\u{1b}]0;pwned\u{7}title";
+        let expected = "evil\\x1b]0;pwned\\x07title";
+        assert_eq!(sanitize_inline(input), expected);
+    }
+
+    #[test]
+    fn sanitize_inline_escapes_c1_csi() {
+        // U+009B is the single-byte CSI introducer in the C1 control range.
+        assert_eq!(sanitize_inline("a\u{9b}b"), "a\\x9bb");
+    }
+
+    #[test]
+    fn sanitize_inline_escapes_bidi_controls() {
+        assert_eq!(sanitize_inline("safe\u{061c}txt"), "safe\\u{61c}txt");
+        assert_eq!(sanitize_inline("safe\u{200e}txt"), "safe\\u{200e}txt");
+        assert_eq!(sanitize_inline("safe\u{200f}txt"), "safe\\u{200f}txt");
+        assert_eq!(sanitize_inline("safe\u{202e}txt"), "safe\\u{202e}txt");
+        assert_eq!(sanitize_inline("safe\u{2066}txt"), "safe\\u{2066}txt");
+    }
+
+    #[test]
+    fn sanitize_inline_escapes_del() {
+        assert_eq!(sanitize_inline("a\u{7f}b"), "a\\x7fb");
+    }
+
+    #[test]
+    fn sanitize_inline_escapes_backslash_tab_cr_lf() {
+        assert_eq!(sanitize_inline("a\\b\tc\rd\ne"), "a\\\\b\\tc\\rd\\ne");
+    }
+
+    #[test]
+    fn sanitize_inline_passes_through_plain_ascii_and_emoji() {
+        let input = "Fix auth redirect 🎉 — done!";
+        assert_eq!(sanitize_inline(input), input);
+    }
+
+    #[test]
+    fn sanitize_block_preserves_real_newlines_but_escapes_control_chars() {
+        let input = "line one\nline\u{1b}two\nline three";
+        let expected = "line one\nline\\x1btwo\nline three";
+        assert_eq!(sanitize_block(input), expected);
+    }
+
+    #[test]
+    fn sanitize_block_still_escapes_backslash_tab_cr() {
+        assert_eq!(sanitize_block("a\\b\tc\rd"), "a\\\\b\\tc\\rd");
+    }
 
     #[test]
     fn narrow_tree_lines_fit_terminal_width_for_deep_hierarchies() {

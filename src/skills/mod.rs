@@ -430,9 +430,6 @@ fn resolve_managed_skill_source_directory(
     if let Ok(dir) = env::var("TSQ_SKILLS_DIR") {
         roots.push(normalize_directory(PathBuf::from(dir), &default_home)?);
     }
-    if let Ok(cwd) = env::current_dir() {
-        roots.push(cwd.join("SKILLS"));
-    }
     if let Ok(exe_path) = env::current_exe()
         && let Some(exe_dir) = exe_path.parent()
     {

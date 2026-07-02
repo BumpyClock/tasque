@@ -1,7 +1,10 @@
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  type DataSnapshot,
   type DependencyNode,
+  createInFlightGuard,
+  createLatestGuard,
   fetchDependencyTree,
   fetchTasks,
   readConfigFromEnv,
@@ -11,7 +14,7 @@ import {
   type TabKey,
   type TasqueTask,
   boardColumns,
-  buildEpicProgress,
+  buildEpicProgressList,
   computeSummary,
   sortTasks,
   specState,
@@ -38,8 +41,11 @@ export function App() {
   const dimensions = useTerminalDimensions();
 
   const [tab, setTab] = useState<TabKey>(config.initialTab);
-  const [snapshot, setSnapshot] = useState(() => fetchTasks(config));
-  const [warning, setWarning] = useState<string | undefined>(snapshot.warning);
+  const [snapshot, setSnapshot] = useState<DataSnapshot>({
+    fetchedAt: "-",
+    tasks: [],
+  });
+  const [warning, setWarning] = useState<string | undefined>();
   const [selectedByTab, setSelectedByTab] = useState<SelectedByTab>({
     tasks: 0,
     epics: 0,
@@ -57,21 +63,38 @@ export function App() {
   const [filterIndex, setFilterIndex] = useState(0);
   const [dependencyRoot, setDependencyRoot] = useState<DependencyNode | undefined>();
   const [dependencyWarning, setDependencyWarning] = useState<string | undefined>();
+  const refreshTasksRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     setFilterIndex((current) => Math.min(current, filterPresets.length - 1));
   }, [filterPresets.length]);
 
   useEffect(() => {
-    const refresh = () => {
-      const next = fetchTasks(config);
+    let cancelled = false;
+    const guardedFetch = createInFlightGuard(() => fetchTasks(config));
+
+    const refresh = async () => {
+      const next = await guardedFetch();
+      if (cancelled || !next) {
+        // Skipped poll (previous fetch still in flight) or effect torn down.
+        return;
+      }
       setSnapshot(next);
       setWarning(next.warning);
     };
 
-    refresh();
-    const timer = setInterval(refresh, config.intervalSeconds * 1000);
-    return () => clearInterval(timer);
+    refreshTasksRef.current = () => {
+      void refresh();
+    };
+
+    void refresh();
+    const timer = setInterval(() => {
+      void refresh();
+    }, config.intervalSeconds * 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
   }, [config]);
 
   const allTasks = useMemo(() => sortTasks(snapshot.tasks), [snapshot.tasks]);
@@ -81,18 +104,15 @@ export function App() {
     [activeFilter?.statuses, allTasks],
   );
   const summary = useMemo(() => computeSummary(filteredTasks), [filteredTasks]);
-  const epicProgress = useMemo(() => buildEpicProgress(filteredTasks), [filteredTasks]);
+  const epicProgressList = useMemo(() => buildEpicProgressList(filteredTasks), [filteredTasks]);
   const board = useMemo(() => boardColumns(filteredTasks), [filteredTasks]);
 
   const visibleTasks = useMemo(() => {
     if (tab === "epics") {
-      if (!epicProgress) {
-        return [] as TasqueTask[];
-      }
-      return epicProgress.children.length > 0 ? epicProgress.children : [epicProgress.epic];
+      return epicProgressList.map((progress) => progress.epic);
     }
     return filteredTasks;
-  }, [tab, filteredTasks, epicProgress]);
+  }, [tab, filteredTasks, epicProgressList]);
 
   const treeLines = useMemo(() => buildTreeLines(filteredTasks), [filteredTasks]);
   const selectedIndex = selectedByTab[tab];
@@ -125,19 +145,39 @@ export function App() {
   const tableRowBudget = Math.max(4, dimensions.height - 18);
   const specDialogBodyRows = Math.max(6, dimensions.height - 21);
 
+  const latestDependencyFetch = useMemo(() => createLatestGuard(), []);
+
   useEffect(() => {
     if (tab !== "deps") {
       return;
     }
-    if (!selectedTask?.id) {
+    const taskId = selectedTask?.id;
+    if (!taskId) {
       setDependencyRoot(undefined);
       setDependencyWarning(undefined);
       return;
     }
-    const dependency = fetchDependencyTree(config.tsqBin, selectedTask.id);
-    setDependencyRoot(dependency.root);
-    setDependencyWarning(dependency.warning);
-  }, [config.tsqBin, selectedTask?.id, tab]);
+    setDependencyRoot(undefined);
+    setDependencyWarning(undefined);
+    let cancelled = false;
+    // Debounce rapid selection changes; the latest-guard discards responses
+    // that resolve after a newer fetch has been issued.
+    const timer = setTimeout(() => {
+      void latestDependencyFetch(() =>
+        fetchDependencyTree(config.tsqBin, taskId),
+      ).then((dependency) => {
+        if (cancelled || !dependency) {
+          return;
+        }
+        setDependencyRoot(dependency.root);
+        setDependencyWarning(dependency.warning);
+      });
+    }, 150);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [config.tsqBin, latestDependencyFetch, selectedTask?.id, tab]);
 
   useEffect(() => {
     if (rowCount === 0 || tab === "board") {
@@ -161,18 +201,18 @@ export function App() {
     if (specState(task) !== "attached" || !task.spec_path) {
       return;
     }
-    const specPath = task.spec_path;
     setSpecDialog({
       taskId: task.id,
       taskTitle: task.title,
-      specPath,
+      specPath: task.spec_path,
       lines: ["Loading spec..."],
       offset: 0,
       loading: true,
     });
-    void readSpecLines(specPath).then((result) => {
+    void readSpecLines(config.tsqBin, task.id).then((result) => {
       setSpecDialog((current) => {
-        if (!current || current.taskId !== task.id || current.specPath !== specPath) {
+        // Stale check: apply only if the dialog is still open for this task.
+        if (!current || current.taskId !== task.id || current.specPath !== task.spec_path) {
           return current;
         }
         return {
@@ -237,9 +277,7 @@ export function App() {
     }
 
     if (key.name === "r") {
-      const next = fetchTasks(config);
-      setSnapshot(next);
-      setWarning(next.warning);
+      refreshTasksRef.current();
       return;
     }
 
@@ -322,7 +360,10 @@ export function App() {
       };
     });
   });
-  const itemBudget = tab === "tasks" ? Math.max(2, Math.floor(tableRowBudget / 2)) : tableRowBudget;
+  const itemBudget =
+    tab === "tasks" || tab === "epics"
+      ? Math.max(2, Math.floor(tableRowBudget / 2))
+      : tableRowBudget;
   const [start, end] = visibleRange(selectedIndex, rowCount, itemBudget);
 
   return (
@@ -412,9 +453,8 @@ export function App() {
 
               {tab === "epics" ? (
                 <EpicsView
-                  tasks={visibleTasks.slice(start, end)}
+                  progressList={epicProgressList.slice(start, end)}
                   selectedTaskId={selectedTask?.id}
-                  epicProgress={epicProgress}
                   width={contentWidth}
                 />
               ) : null}

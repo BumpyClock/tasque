@@ -156,34 +156,42 @@ export function boardColumns(
 	return lanes;
 }
 
-export function buildEpicProgress(tasks: TasqueTask[]): EpicProgress | null {
+export function buildEpicProgressList(tasks: TasqueTask[]): EpicProgress[] {
 	const epics = tasks.filter((task) => task.kind === "epic");
-	const epic = epics.at(0);
-	if (!epic) {
-		return null;
-	}
-	const children = tasks.filter((task) => task.parent_id === epic.id);
-
-	let done = 0;
-	let open = 0;
-	let inProgress = 0;
-	for (const child of children) {
-		if (child.status === "closed" || child.status === "canceled") {
-			done += 1;
-		} else if (child.status === "in_progress" || child.status === "blocked") {
-			inProgress += 1;
-		} else {
-			open += 1;
+	const childrenByParent = new Map<string, TasqueTask[]>();
+	for (const task of tasks) {
+		if (!task.parent_id) {
+			continue;
 		}
+		const children = childrenByParent.get(task.parent_id) ?? [];
+		children.push(task);
+		childrenByParent.set(task.parent_id, children);
 	}
 
-	return {
-		epic,
-		children,
-		done,
-		open,
-		inProgress,
-	};
+	return epics.map((epic) => {
+		const children = childrenByParent.get(epic.id) ?? [];
+
+		let done = 0;
+		let open = 0;
+		let inProgress = 0;
+		for (const child of children) {
+			if (child.status === "closed" || child.status === "canceled") {
+				done += 1;
+			} else if (child.status === "in_progress" || child.status === "blocked") {
+				inProgress += 1;
+			} else {
+				open += 1;
+			}
+		}
+
+		return {
+			epic,
+			children,
+			done,
+			open,
+			inProgress,
+		};
+	});
 }
 
 export function normalizeTab(value: string | undefined): TabKey {

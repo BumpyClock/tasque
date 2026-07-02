@@ -42,6 +42,15 @@ jobs:
       - run: bun run typecheck
         working-directory: tui-opentui
 
+      - uses: dtolnay/rust-toolchain@stable
+
+      - run: cargo build --quiet --bin tsq
+
+      - run: bun test
+        working-directory: tui-opentui
+        env:
+          TSQ_CONTRACT_BIN: ${{ github.workspace }}/target/debug/tsq
+
       - uses: actions/setup-node@v4
         with:
           node-version: "24"

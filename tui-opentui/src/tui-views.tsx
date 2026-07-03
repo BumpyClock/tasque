@@ -12,9 +12,9 @@ import {
   specState,
   titleWithEllipsis,
 } from "./model";
+import { buildTreePrefix, treeMarker } from "./tree";
 import {
   THEME,
-  buildTreePrefix,
   flattenDependencyTree,
   formatUpdatedAt,
   kindLabel,
@@ -23,7 +23,6 @@ import {
   renderMeter,
   specLabel,
   statusIcon,
-  treeDisplayId,
 } from "./tui-helpers";
 import type { SelectedByLane, SpecDialogState, TreeLine } from "./tui-types";
 
@@ -184,20 +183,28 @@ export function TreeView({
   lines,
   selectedTaskId,
   width,
+  idWidth,
 }: {
   lines: TreeLine[];
   selectedTaskId?: string;
   width: number;
+  idWidth: number;
 }) {
-  const titleWidth = Math.max(18, width - 18);
   return (
     <box flexDirection="column" gap={0}>
       {lines.map((line) => {
         const selected = line.task.id === selectedTaskId;
         const spec = specState(line.task);
-        const displayId = treeDisplayId(line.task.id, line.depth);
         const titlePrefix = buildTreePrefix(line);
-        const metadataLead = " ".repeat(2 + 13 + 1 + titlePrefix.length);
+        const marker = `${treeMarker(line.hasChildren, line.isCollapsed)} `;
+        const hiddenBadge = line.isCollapsed
+          ? ` (+${line.descendantCount})`
+          : "";
+        const titleWidth = Math.max(
+          18,
+          width - 2 - idWidth - 1 - titlePrefix.length - marker.length - hiddenBadge.length,
+        );
+        const metadataLead = " ".repeat(2 + idWidth + 1 + titlePrefix.length + marker.length);
         return (
           <box
             key={`${line.task.id}-tree`}
@@ -205,11 +212,13 @@ export function TreeView({
           >
             <text>
               <span fg={STATUS_COLORS[line.task.status]}>{statusIcon(line.task.status)} </span>
-              <span fg={THEME.text}>{pad(displayId, 13)} </span>
+              <span fg={THEME.text}>{pad(line.task.id, idWidth)} </span>
               <span fg={THEME.dim}>{titlePrefix}</span>
+              <span fg={line.hasChildren ? THEME.muted : THEME.dim}>{marker}</span>
               <strong>
                 <span fg={THEME.text}>{titleWithEllipsis(line.task.title, titleWidth)}</span>
               </strong>
+              <span fg={THEME.muted}>{hiddenBadge}</span>
               <br />
               <span fg={THEME.dim}>{metadataLead}</span>
               <span fg={THEME.muted}>P{line.task.priority}</span>

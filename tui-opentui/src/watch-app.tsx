@@ -11,6 +11,12 @@ import {
 	computeSummary,
 	titleWithEllipsis,
 } from "./model";
+import {
+	collapsibleTaskIds,
+	idColumnWidth,
+	resolveSelectionIndex,
+	treeMarker,
+} from "./tree";
 import { THEME, clampIndex, pad, statusIcon, visibleRange } from "./tui-helpers";
 import {
 	buildWatchRows,
@@ -33,6 +39,7 @@ export function WatchApp() {
 	const [warning, setWarning] = useState<string | undefined>();
 	const [paused, setPaused] = useState(false);
 	const [selectedIndex, setSelectedIndex] = useState(0);
+	const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
 
 	const pausedRef = useRef(paused);
 	pausedRef.current = paused;
@@ -71,8 +78,14 @@ export function WatchApp() {
 	}, [config]);
 
 	const rows = useMemo(
-		() => buildWatchRows(snapshot.tasks, tree),
-		[snapshot.tasks, tree],
+		() => buildWatchRows(snapshot.tasks, tree, collapsed),
+		[collapsed, snapshot.tasks, tree],
+	);
+	// Sized from every fetched task (not just visible rows) so the column does
+	// not jitter when folds or scrolling change which IDs are on screen.
+	const idWidth = useMemo(
+		() => idColumnWidth(snapshot.tasks.map((task) => task.id)),
+		[snapshot.tasks],
 	);
 	const summary = useMemo(
 		() => computeSummary(snapshot.tasks),
@@ -93,6 +106,35 @@ export function WatchApp() {
 	const [start, end] = visibleRange(selectedIndex, rows.length, rowBudget);
 	const visibleRows = rows.slice(start, end);
 
+	// Apply a new fold set and remap selection so the same task (or its nearest
+	// visible ancestor, when it just got hidden) stays selected.
+	const applyCollapsed = (next: ReadonlySet<string>, followId?: string) => {
+		const nextRows = buildWatchRows(snapshot.tasks, tree, next);
+		const targetId = followId ?? rows[selectedIndex]?.task.id;
+		setCollapsed(next);
+		setSelectedIndex(
+			resolveSelectionIndex(
+				nextRows.map((row) => row.task.id),
+				targetId,
+				snapshot.tasks,
+				selectedIndex,
+			),
+		);
+	};
+
+	const toggleFold = (row: (typeof rows)[number] | undefined) => {
+		if (!row?.hasChildren) {
+			return;
+		}
+		const next = new Set(collapsed);
+		if (next.has(row.task.id)) {
+			next.delete(row.task.id);
+		} else {
+			next.add(row.task.id);
+		}
+		applyCollapsed(next);
+	};
+
 	useKeyboard((key) => {
 		if (key.ctrl && key.name === "c") {
 			renderer.destroy();
@@ -105,6 +147,42 @@ export function WatchApp() {
 		if (key.name === "r") {
 			refreshRef.current();
 			return;
+		}
+
+		if (tree) {
+			const selectedRow = rows[selectedIndex];
+			if (key.name === "space") {
+				toggleFold(selectedRow);
+				return;
+			}
+			if (key.name === "left" || key.name === "h") {
+				if (selectedRow?.hasChildren && !selectedRow.isCollapsed) {
+					toggleFold(selectedRow);
+				} else if (selectedRow?.task.parent_id) {
+					// Leaf or already folded: jump to the parent row.
+					applyCollapsed(collapsed, selectedRow.task.parent_id);
+				}
+				return;
+			}
+			if (key.name === "right" || key.name === "l") {
+				if (selectedRow?.isCollapsed) {
+					toggleFold(selectedRow);
+				} else if (selectedRow?.hasChildren) {
+					// Already expanded: step into the first child.
+					setSelectedIndex((current) =>
+						clampIndex(current + 1, rows.length),
+					);
+				}
+				return;
+			}
+			if (key.name === "-") {
+				applyCollapsed(collapsibleTaskIds(snapshot.tasks));
+				return;
+			}
+			if (key.name === "=" || key.name === "+") {
+				applyCollapsed(new Set());
+				return;
+			}
 		}
 		if (key.name === "p") {
 			setPaused((current) => {
@@ -214,10 +292,23 @@ export function WatchApp() {
 							const meta = metaBadge(row.task);
 							// Fixed columns keep every cell painted so the live buffer
 							// never leaves stale glyphs between refreshes.
-							const idField = pad(row.task.id, 9);
+							const idField = pad(row.task.id, idWidth);
+							const marker = tree
+								? `${treeMarker(row.hasChildren, row.isCollapsed)} `
+								: "";
+							const hiddenBadge = row.isCollapsed
+								? ` (+${row.descendantCount})`
+								: "";
 							const titleBudget = Math.max(
 								12,
-								contentWidth - 2 - 9 - 1 - row.prefix.length - (meta.length + 2),
+								contentWidth -
+									2 -
+									idWidth -
+									1 -
+									row.prefix.length -
+									marker.length -
+									hiddenBadge.length -
+									(meta.length + 2),
 							);
 							const title = titleWithEllipsis(row.task.title, titleBudget);
 							return (
@@ -231,7 +322,11 @@ export function WatchApp() {
 										</span>
 										<span fg={THEME.focus}>{idField} </span>
 										<span fg={THEME.dim}>{row.prefix}</span>
+										<span fg={row.hasChildren ? THEME.muted : THEME.dim}>
+											{marker}
+										</span>
 										<span fg={THEME.text}>{title}</span>
+										<span fg={THEME.muted}>{hiddenBadge}</span>
 										<span fg={THEME.dim}>{`  ${meta}`}</span>
 									</text>
 								</box>
@@ -250,7 +345,7 @@ export function WatchApp() {
 			>
 				<text>
 					<span fg={THEME.dim}>
-						{`q/esc quit  r refresh  p ${paused ? "resume" : "pause"}  j/k or up/down scroll  g/G top/bottom`}
+						{`q/esc quit  r refresh  p ${paused ? "resume" : "pause"}  j/k scroll  g/G top/bottom${tree ? "  space/h/l fold  -/= fold all" : ""}`}
 					</span>
 				</text>
 			</box>

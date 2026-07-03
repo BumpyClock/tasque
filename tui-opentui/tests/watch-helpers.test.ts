@@ -82,6 +82,34 @@ describe("buildWatchRows", () => {
 		expect(rows).toHaveLength(1);
 		expect(rows[0]?.prefix).toBe("");
 	});
+
+	test("tree mode hides descendants of collapsed parents", () => {
+		const rows = buildWatchRows(
+			[
+				task({ id: "tsq-1", kind: "epic" }),
+				task({ id: "tsq-1.1", parent_id: "tsq-1" }),
+				task({ id: "tsq-1.1.1", parent_id: "tsq-1.1" }),
+				task({ id: "tsq-2" }),
+			],
+			true,
+			new Set(["tsq-1"]),
+		);
+		expect(rows.map((row) => row.task.id)).toEqual(["tsq-1", "tsq-2"]);
+		expect(rows[0]?.isCollapsed).toBe(true);
+		expect(rows[0]?.descendantCount).toBe(2);
+	});
+
+	test("flat mode ignores the collapsed set", () => {
+		const rows = buildWatchRows(
+			[task({ id: "tsq-1" }), task({ id: "tsq-1.1", parent_id: "tsq-1" })],
+			false,
+			new Set(["tsq-1"]),
+		);
+		expect(rows).toHaveLength(2);
+		expect(rows.every((row) => !row.hasChildren && !row.isCollapsed)).toBe(
+			true,
+		);
+	});
 });
 
 describe("filterLabel", () => {

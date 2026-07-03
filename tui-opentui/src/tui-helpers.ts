@@ -16,7 +16,6 @@ import type {
 	DependencyLine,
 	FilterPreset,
 	TableLayout,
-	TreeLine,
 } from "./tui-types";
 
 export const THEME = {
@@ -99,32 +98,6 @@ export function formatUpdatedAt(iso: string): string {
 	const month = shortMonths[parsed.getMonth()] ?? "???";
 	const day = `${parsed.getDate()}`.padStart(2, "0");
 	return `${day} ${month} ${year}`;
-}
-
-export function treeDisplayId(taskId: string, depth: number): string {
-	if (depth <= 0) {
-		return taskId;
-	}
-	const dotIndex = taskId.indexOf(".");
-	if (dotIndex >= 0 && dotIndex < taskId.length - 1) {
-		return taskId.slice(dotIndex);
-	}
-	return taskId;
-}
-
-export function buildTreePrefix(line: TreeLine): string {
-	if (line.depth <= 0) {
-		return "";
-	}
-	const ancestors = buildAncestorPrefix(line.siblingTrail);
-	const own = line.isLastSibling ? "└─" : "├─";
-	return `${ancestors}${own} `;
-}
-
-function buildAncestorPrefix(siblingTrail: boolean[]): string {
-	return siblingTrail
-		.map((hasMoreSiblings) => (hasMoreSiblings ? "│ " : "  "))
-		.join("");
 }
 
 export async function readSpecLines(
@@ -277,55 +250,6 @@ export function applyTaskFilter(
 		return tasks;
 	}
 	return tasks.filter((task) => statuses.includes(task.status));
-}
-
-export function buildTreeLines(tasks: TasqueTask[]): TreeLine[] {
-	const byParent = new Map<string, TasqueTask[]>();
-	const byId = new Map(tasks.map((task) => [task.id, task]));
-
-	for (const task of tasks) {
-		const parent = task.parent_id;
-		if (!parent || !byId.has(parent)) {
-			continue;
-		}
-		const list = byParent.get(parent) ?? [];
-		list.push(task);
-		byParent.set(parent, list);
-	}
-
-	const roots = tasks.filter(
-		(task) => !task.parent_id || !byId.has(task.parent_id),
-	);
-	const output: TreeLine[] = [];
-
-	const walk = (
-		task: TasqueTask,
-		depth: number,
-		siblingTrail: boolean[],
-		isLastSibling: boolean,
-	) => {
-		const children = byParent.get(task.id) ?? [];
-		output.push({
-			task,
-			depth,
-			isLastSibling,
-			siblingTrail,
-		});
-		children.forEach((child, index) => {
-			walk(
-				child,
-				depth + 1,
-				[...siblingTrail, index < children.length - 1],
-				index === children.length - 1,
-			);
-		});
-	};
-
-	roots.forEach((root, rootIndex) => {
-		walk(root, 0, [], rootIndex >= roots.length - 1);
-	});
-
-	return output;
 }
 
 export function flattenDependencyTree(

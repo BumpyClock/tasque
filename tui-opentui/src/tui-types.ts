@@ -9,6 +9,9 @@ export interface TreeLine {
   depth: number;
   isLastSibling: boolean;
   siblingTrail: boolean[];
+  hasChildren: boolean;
+  isCollapsed: boolean;
+  descendantCount: number;
 }
 
 export interface TableLayout {

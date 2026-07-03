@@ -20,10 +20,15 @@ import {
   specState,
 } from "./model";
 import {
+  buildTreeLines,
+  collapsibleTaskIds,
+  idColumnWidth,
+  resolveSelectionIndex,
+} from "./tree";
+import {
   THEME,
   applyTaskFilter,
   buildFilterPresets,
-  buildTreeLines,
   clampIndex,
   clampNumber,
   nextLane,
@@ -59,6 +64,7 @@ export function App() {
     done: 0,
   });
   const [specDialog, setSpecDialog] = useState<SpecDialogState | undefined>();
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const filterPresets = useMemo(() => buildFilterPresets(config.statusCsv), [config.statusCsv]);
   const [filterIndex, setFilterIndex] = useState(0);
   const [dependencyRoot, setDependencyRoot] = useState<DependencyNode | undefined>();
@@ -114,7 +120,16 @@ export function App() {
     return filteredTasks;
   }, [tab, filteredTasks, epicProgressList]);
 
-  const treeLines = useMemo(() => buildTreeLines(filteredTasks), [filteredTasks]);
+  const treeLines = useMemo(
+    () => buildTreeLines(filteredTasks, collapsed),
+    [collapsed, filteredTasks],
+  );
+  // Sized from the whole filtered list (not the visible slice) so the ID
+  // column does not jitter when folds or scrolling change what is on screen.
+  const treeIdWidth = useMemo(
+    () => idColumnWidth(filteredTasks.map((task) => task.id)),
+    [filteredTasks],
+  );
   const selectedIndex = selectedByTab[tab];
   const selectedTask = useMemo(() => {
     if (tab === "board") {
@@ -226,6 +241,36 @@ export function App() {
     });
   };
 
+  // Apply a new fold set on the Tasks tab and remap selection so the same task
+  // (or its nearest visible ancestor, when it just got hidden) stays selected.
+  const applyCollapsed = (next: ReadonlySet<string>, followId?: string) => {
+    const nextLines = buildTreeLines(filteredTasks, next);
+    const targetId = followId ?? treeLines[selectedByTab.tasks]?.task.id;
+    setCollapsed(next);
+    setSelectedByTab((current) => ({
+      ...current,
+      tasks: resolveSelectionIndex(
+        nextLines.map((line) => line.task.id),
+        targetId,
+        filteredTasks,
+        current.tasks,
+      ),
+    }));
+  };
+
+  const toggleFold = (line: (typeof treeLines)[number] | undefined) => {
+    if (!line?.hasChildren) {
+      return;
+    }
+    const next = new Set(collapsed);
+    if (next.has(line.task.id)) {
+      next.delete(line.task.id);
+    } else {
+      next.add(line.task.id);
+    }
+    applyCollapsed(next);
+  };
+
   useKeyboard((key) => {
     if (key.ctrl && key.name === "c") {
       renderer.destroy();
@@ -326,6 +371,43 @@ export function App() {
     if (tab === "board" && (key.name === "l" || key.name === "right")) {
       setLane((current) => nextLane(current));
       return;
+    }
+
+    if (tab === "tasks") {
+      const selectedLine = treeLines[selectedByTab.tasks];
+      if (key.name === "space") {
+        toggleFold(selectedLine);
+        return;
+      }
+      if (key.name === "left" || key.name === "h") {
+        if (selectedLine?.hasChildren && !selectedLine.isCollapsed) {
+          toggleFold(selectedLine);
+        } else if (selectedLine?.task.parent_id) {
+          // Leaf or already folded: jump to the parent row.
+          applyCollapsed(collapsed, selectedLine.task.parent_id);
+        }
+        return;
+      }
+      if (key.name === "right" || key.name === "l") {
+        if (selectedLine?.isCollapsed) {
+          toggleFold(selectedLine);
+        } else if (selectedLine?.hasChildren) {
+          // Already expanded: step into the first child.
+          setSelectedByTab((current) => ({
+            ...current,
+            tasks: clampIndex(current.tasks + 1, treeLines.length),
+          }));
+        }
+        return;
+      }
+      if (key.name === "-") {
+        applyCollapsed(collapsibleTaskIds(filteredTasks));
+        return;
+      }
+      if (key.name === "=" || key.name === "+") {
+        applyCollapsed(new Set());
+        return;
+      }
     }
 
     const moveUp = key.name === "up" || key.name === "k";
@@ -448,6 +530,7 @@ export function App() {
                   lines={treeLines.slice(start, end)}
                   selectedTaskId={selectedTask?.id}
                   width={contentWidth}
+                  idWidth={treeIdWidth}
                 />
               ) : null}
 
@@ -487,7 +570,9 @@ export function App() {
           <span fg={THEME.dim}>
             {specDialog
               ? "esc/enter/q close spec  j/k or up/down scroll  pgup/pgdn page  home/end jump"
-              : "q/esc quit  tab 1/2/3/4 switch view  j/k or up/down move  h/l board lane  f filter  enter open spec  r refresh"}
+              : tab === "tasks"
+                ? "q/esc quit  tab 1/2/3/4 view  j/k move  space/h/l fold  -/= fold all  f filter  enter spec  r refresh"
+                : "q/esc quit  tab 1/2/3/4 switch view  j/k or up/down move  h/l board lane  f filter  enter open spec  r refresh"}
           </span>
         </text>
       </box>

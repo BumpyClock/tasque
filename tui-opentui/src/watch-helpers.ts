@@ -1,25 +1,38 @@
 import { type TasqueTask, sortTasks } from "./model";
-import { buildTreePrefix, buildTreeLines } from "./tui-helpers";
+import { buildTreeLines, buildTreePrefix } from "./tree";
 
 export interface WatchRow {
 	task: TasqueTask;
 	prefix: string;
+	hasChildren: boolean;
+	isCollapsed: boolean;
+	descendantCount: number;
 }
 
 // Build the ordered rows for the watch list. Flat mode is a plain sorted list;
-// tree mode reuses the shared tree builder so parent/child indentation matches
-// `tsq watch --tree` and the Tasks tab of `tsq tui`.
+// tree mode reuses the shared tree builder so parent/child indentation and
+// fold state match the Tasks tab of `tsq tui`.
 export function buildWatchRows(
 	tasks: TasqueTask[],
 	tree: boolean,
+	collapsed?: ReadonlySet<string>,
 ): WatchRow[] {
 	const sorted = sortTasks(tasks);
 	if (!tree) {
-		return sorted.map((task) => ({ task, prefix: "" }));
+		return sorted.map((task) => ({
+			task,
+			prefix: "",
+			hasChildren: false,
+			isCollapsed: false,
+			descendantCount: 0,
+		}));
 	}
-	return buildTreeLines(sorted).map((line) => ({
+	return buildTreeLines(sorted, collapsed).map((line) => ({
 		task: line.task,
 		prefix: buildTreePrefix(line),
+		hasChildren: line.hasChildren,
+		isCollapsed: line.isCollapsed,
+		descendantCount: line.descendantCount,
 	}));
 }
 

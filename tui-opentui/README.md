@@ -63,6 +63,18 @@ TSQ_CONTRACT_BIN=/abs/path/to/tsq bun test      # also runs real-binary contract
 - `Enter`: open spec dialog for the selected task (when a spec is attached)
 - `r`: refresh now
 
+Tasks tab folding (parents show `▾`/`▸` markers; collapsed rows show `(+N)`
+hidden-descendant counts):
+- `Space`: toggle fold on the selected parent
+- `h` / `Left`: collapse the selected parent, or jump to the parent row
+- `l` / `Right`: expand the selected parent, or step into the first child
+- `-`: collapse all parents
+- `=` / `+`: expand all
+
+The watch view (launched with `TSQ_TUI_MODE=watch`) supports the same folding
+keys when tree mode is on (`TSQ_WATCH_TREE=1`), plus `p` pause and `g` / `G`
+top/bottom. The `tsq` CLI sets both variables when running `tsq watch --tree`.
+
 Spec dialog:
 - `Esc` / `Enter` / `q`: close
 - `j` / `k` or `Up` / `Down`: scroll

@@ -113,37 +113,11 @@ pub fn current_branch(repo_root: &Path) -> Result<Option<String>, TsqError> {
     }
 }
 
-pub fn current_upstream_remote(repo_root: &Path) -> Result<Option<String>, TsqError> {
-    let Some(branch) = current_branch(repo_root)? else {
-        return Ok(None);
-    };
-    let key = format!("branch.{branch}.remote");
-    if run_git_status(repo_root, &["config", "--get", &key])? {
-        let remote = run_git(repo_root, &["config", "--get", &key])?;
-        if !remote.is_empty() && remote != "." {
-            return Ok(Some(remote));
-        }
-    }
-    if has_remote(repo_root, "origin")? {
-        return Ok(Some("origin".to_string()));
-    }
-    Ok(None)
-}
-
 /// Returns true if a local branch with the given name exists.
 pub fn branch_exists(repo_root: &Path, name: &str) -> Result<bool, TsqError> {
     validate_branch_name(name)?;
     let refspec = format!("refs/heads/{}", name);
     run_git_status(repo_root, &["show-ref", "--verify", "--quiet", &refspec])
-}
-
-pub fn remote_branch_exists(repo_root: &Path, name: &str) -> Result<bool, TsqError> {
-    validate_branch_name(name)?;
-    let refspec = format!("refs/heads/{}", name);
-    run_git_status(
-        repo_root,
-        &["ls-remote", "--exit-code", "--heads", "origin", &refspec],
-    )
 }
 
 pub fn remote_tracking_branch_exists(repo_root: &Path, name: &str) -> Result<bool, TsqError> {
@@ -162,9 +136,7 @@ pub fn track_remote_branch(repo_root: &Path, name: &str) -> Result<(), TsqError>
 }
 
 pub fn fetch_remote_branch(repo_root: &Path, name: &str) -> Result<(), TsqError> {
-    validate_branch_name(name)?;
-    let remote_ref = format!("+refs/heads/{name}:refs/remotes/origin/{name}");
-    run_git(repo_root, &["fetch", "origin", &remote_ref])?;
+    fetch_branch(repo_root, "origin", name)?;
     track_remote_branch(repo_root, name)?;
     Ok(())
 }
@@ -185,18 +157,146 @@ pub fn has_remote(repo_root: &Path, name: &str) -> Result<bool, TsqError> {
     run_git_status(repo_root, &["remote", "get-url", name])
 }
 
-pub fn push_current(repo_root: &Path) -> Result<(), TsqError> {
-    run_git(repo_root, &["push"])?;
-    Ok(())
-}
-
 pub fn push_current_set_upstream(
     repo_root: &Path,
     remote: &str,
     branch: &str,
 ) -> Result<(), TsqError> {
+    match push_branch_with_status(repo_root, remote, branch)? {
+        PushOutcome::Ok => Ok(()),
+        PushOutcome::Rejected(stderr) => Err(git_error("git push failed", stderr)),
+    }
+}
+
+/// Outcome of a push attempt that distinguishes recoverable rejections from
+/// hard errors.
+#[derive(Debug)]
+pub enum PushOutcome {
+    /// Push succeeded.
+    Ok,
+    /// Remote rejected the push because it advanced during our push attempt.
+    /// Recoverable by fetch + merge + retry. Carries raw stderr for diagnostics.
+    Rejected(String),
+}
+
+/// Push `branch` to `remote`, setting upstream, and classify the result.
+///
+/// A non-fast-forward / fetch-first / ref-lock race returns
+/// `PushOutcome::Rejected` (recoverable); any other failure is a hard `TsqError`.
+pub fn push_branch_with_status(
+    repo_root: &Path,
+    remote: &str,
+    branch: &str,
+) -> Result<PushOutcome, TsqError> {
     validate_branch_name(branch)?;
-    run_git(repo_root, &["push", "-u", remote, branch])?;
+    let output = Command::new("git")
+        .args(["push", "-u", remote, branch])
+        .current_dir(repo_root)
+        .env("LC_ALL", "C")
+        .env("LANG", "C")
+        .output()
+        .map_err(|_| git_not_available())?;
+    if output.status.success() {
+        return Ok(PushOutcome::Ok);
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let lower = stderr.to_lowercase();
+    if lower.contains("non-fast-forward")
+        || lower.contains("fetch first")
+        || lower.contains("[rejected]")
+        || lower.contains("cannot lock ref")
+        || lower.contains("failed to update ref")
+    {
+        return Ok(PushOutcome::Rejected(stderr));
+    }
+    Err(git_error("git push failed", stderr))
+}
+
+/// Result of merging a remote tracking branch into the current worktree branch.
+#[derive(Debug)]
+pub enum MergeStatus {
+    /// Merge completed (fast-forward, real merge, or already up to date).
+    Clean,
+    /// Merge stopped with unmerged paths; the list of conflicted paths.
+    Conflict(Vec<String>),
+}
+
+/// Returns true if a merge is in progress (`MERGE_HEAD` exists).
+pub fn merge_in_progress(repo_root: &Path) -> Result<bool, TsqError> {
+    Ok(git_dir(repo_root)?.join("MERGE_HEAD").exists())
+}
+
+/// Returns the list of unmerged (conflicted) paths in the worktree.
+pub fn unmerged_paths(repo_root: &Path) -> Result<Vec<String>, TsqError> {
+    let out = run_git(repo_root, &["diff", "--name-only", "--diff-filter=U"])?;
+    Ok(out
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(String::from)
+        .collect())
+}
+
+/// Returns true if `remote` publishes a branch named `branch`.
+pub fn remote_has_branch(repo_root: &Path, remote: &str, branch: &str) -> Result<bool, TsqError> {
+    validate_branch_name(branch)?;
+    let refspec = format!("refs/heads/{}", branch);
+    run_git_status(
+        repo_root,
+        &["ls-remote", "--exit-code", "--heads", remote, &refspec],
+    )
+}
+
+/// Fetch `branch` from `remote` into its remote-tracking ref.
+pub fn fetch_branch(repo_root: &Path, remote: &str, branch: &str) -> Result<(), TsqError> {
+    validate_branch_name(branch)?;
+    let remote_ref = format!("+refs/heads/{branch}:refs/remotes/{remote}/{branch}");
+    run_git(repo_root, &["fetch", remote, &remote_ref])?;
+    Ok(())
+}
+
+/// Merge the `<remote>/<branch>` tracking ref into the current worktree branch.
+///
+/// Uses `--no-edit` so the merge is non-interactive. Allows unrelated histories
+/// because two machines can independently create the sync branch before either
+/// has pushed it; event replay validation still gates the merged result.
+/// On conflict, the merge is left in progress (`MERGE_HEAD` set) and the
+/// unmerged paths are returned.
+pub fn merge_tracking_branch(
+    repo_root: &Path,
+    remote: &str,
+    branch: &str,
+) -> Result<MergeStatus, TsqError> {
+    validate_branch_name(branch)?;
+    let tracking = format!("{remote}/{branch}");
+    let output = Command::new("git")
+        .args([
+            "merge",
+            "--no-edit",
+            "--allow-unrelated-histories",
+            &tracking,
+        ])
+        .current_dir(repo_root)
+        .output()
+        .map_err(|_| git_not_available())?;
+    if output.status.success() {
+        return Ok(MergeStatus::Clean);
+    }
+    let unmerged = unmerged_paths(repo_root)?;
+    if !unmerged.is_empty() {
+        return Ok(MergeStatus::Conflict(unmerged));
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    Err(git_error("git merge failed", stderr))
+}
+
+/// Finalize an in-progress merge whose conflicts have been resolved.
+///
+/// Stages any resolved/pending changes and creates the merge commit, preserving
+/// the merge message (`--no-edit`).
+pub fn finalize_merge(repo_root: &Path) -> Result<(), TsqError> {
+    run_git(repo_root, &["add", "--all"])?;
+    run_git(repo_root, &["commit", "--no-edit"])?;
     Ok(())
 }
 
@@ -306,7 +406,7 @@ pub fn ensure_worktree(repo_root: &Path, branch: &str) -> Result<PathBuf, TsqErr
     if !branch_exists(repo_root, branch)? {
         if remote_tracking_branch_exists(repo_root, branch)? {
             track_remote_branch(repo_root, branch)?;
-        } else if remote_branch_exists(repo_root, branch)? {
+        } else if remote_has_branch(repo_root, "origin", branch)? {
             fetch_remote_branch(repo_root, branch)?;
         }
     }
@@ -520,15 +620,28 @@ pub fn setup_merge_driver_config(repo_root: &Path) -> Result<(), TsqError> {
             "Tasque JSONL event merge",
         ],
     )?;
+    let exe = std::env::current_exe().map_err(|error| {
+        git_error(
+            "Failed determining current executable for merge driver",
+            error.to_string(),
+        )
+    })?;
+    let driver = format!(
+        "{} merge-driver %O %A %B",
+        shell_quote(&exe.to_string_lossy())
+    );
     run_git(
         repo_root,
-        &[
-            "config",
-            "merge.tasque-events.driver",
-            "tsq merge-driver %O %A %B",
-        ],
+        &["config", "merge.tasque-events.driver", &driver],
     )?;
     Ok(())
+}
+
+fn shell_quote(value: &str) -> String {
+    if value.is_empty() {
+        return "''".to_string();
+    }
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 // ---------------------------------------------------------------------------
@@ -696,7 +809,10 @@ mod tests {
         let name = run_git(tmp.path(), &["config", "merge.tasque-events.name"]).unwrap();
         assert_eq!(name, "Tasque JSONL event merge");
         let driver = run_git(tmp.path(), &["config", "merge.tasque-events.driver"]).unwrap();
-        assert_eq!(driver, "tsq merge-driver %O %A %B");
+        assert!(
+            driver.ends_with(" merge-driver %O %A %B"),
+            "unexpected driver command: {driver}"
+        );
     }
 
     #[test]

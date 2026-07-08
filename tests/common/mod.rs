@@ -1,11 +1,22 @@
 #![allow(dead_code)]
 
+use regex::Regex;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::OnceLock;
+use std::sync::{LazyLock, OnceLock};
 use tasque::types::SCHEMA_VERSION;
 use tempfile::{Builder, TempDir};
+
+static RANDOM_CANONICAL_ID: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^tsq-[0123456789abcdefghjkmnpqrstvwxyz]{8}$").expect("random canonical id regex")
+});
+
+/// Matches the flat random canonical id shape (`tsq-<8 crockford base32 chars>`)
+/// used for new root and child task ids.
+pub fn is_random_canonical_id(id: &str) -> bool {
+    RANDOM_CANONICAL_ID.is_match(id)
+}
 
 #[derive(Debug)]
 pub struct CliOutput {

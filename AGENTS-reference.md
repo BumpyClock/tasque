@@ -65,7 +65,7 @@ Write path:
 
 Task fields:
 
-- `id` (`tsq-<number>` root, `<parent>.<n>` child); legacy `tsq-<8 crockford base32 chars>` IDs remain valid
+- `id` (new tasks mint flat random canonical `tsq-<8 lowercase crockford chars>` to avoid sync collisions; sequential `tsq-<number>` root and `<parent>.<n>` child ids remain valid/readable; legacy `tsq-<8 crockford base32 chars>` also valid; `--id` accepts any of these)
 - `alias` (kebab-case slug generated from the creation title; stable across title edits)
 - `kind` (`task|feature|epic`)
 - `title`
@@ -111,7 +111,7 @@ Relation types:
 Notes:
 
 - For `find ready` and status-based `find` commands, `--full` is only valid with `--tree`. `--tree --full` keeps the full status set instead of applying the default tree status narrowing. `find search --full` remains valid without `--tree`.
-- `--id <id>` accepts `tsq-<number>` or legacy `tsq-<8 crockford base32 chars>`.
+- `--id <id>` accepts random canonical `tsq-<8 lowercase crockford chars>`, sequential root `tsq-<number>`, child `<parent>.<n>`, and legacy `tsq-<8 crockford base32 chars>` ids.
 - Commands that accept a task ID also accept exact aliases and unique alias prefixes unless `--exact-id` is used.
 - `tsq find similar "<text>"` shows ranked duplicate candidates with scores and reasons.
 - `tsq create` refuses similar open/in-progress/blocked/deferred tasks unless `--force` is passed.
@@ -160,7 +160,7 @@ Notes:
 - `tsq labels`
 - `tsq history <id> [--limit <n>] [--type <event-type>] [--actor <name>] [--since <iso>]`
 - `tsq root`
-- `tsq sync [--no-push]`
+- `tsq sync [--no-push]` — two-way sync: commit local changes, fetch remote (`origin`), merge, push; sets upstream on first push; `--no-push` commits locally only. See [docs/sync.md](./docs/sync.md) for conflict resolution.
 - `tsq hooks install [--force]`
 - `tsq hooks uninstall`
 - `tsq migrate [--sync-branch|--worktree-name <name>]`
@@ -237,7 +237,9 @@ Error:
 
 ## Repo Conventions
 
-- commit `.tasque/events.jsonl` and `.tasque/config.json`
+- commit `.gitattributes` (registers `.tasque/events.jsonl merge=tasque-events`)
+- in the main code worktree, commit `.tasque/config.json` (the sync-branch pointer)
+- task data (`events.jsonl`, `specs/`, `config.json`) is committed by `tsq sync` inside the sync worktree; do not stage it manually
 - do not commit `.tasque/state.json`
 - do not create or edit `.tasque/tasks.jsonl`
 - snapshots optional to commit (default local-only)

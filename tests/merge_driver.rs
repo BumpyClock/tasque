@@ -5,6 +5,9 @@ use serde_json::{Map, Value};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use tasque::domain::projector::apply_events;
+use tasque::domain::state::create_empty_state;
+use tasque::store::events::read_events_from_path;
 use tasque::types::{EventRecord, EventType};
 
 struct MergeRun {
@@ -146,7 +149,10 @@ fn test_merge_driver_duplicate_events() {
 
     assert_eq!(run.result.code, 0, "stderr: {}", run.result.stderr);
     assert_eq!(read_jsonl(&run.ours_path).len(), 6);
-    assert!(run.result.stderr.contains("duplicates removed"));
+    assert_eq!(
+        merged_ids(&run.ours_path),
+        vec!["01AAA", "01AAB", "01AAC", "01BBB", "01BBC", "01CCC"]
+    );
 }
 
 #[test]
@@ -191,8 +197,210 @@ fn test_merge_driver_preserves_causal_source_order_when_ids_sort_backwards() {
     assert_eq!(run.result.code, 0, "stderr: {}", run.result.stderr);
     assert_eq!(
         merged_ids(&run.ours_path),
-        vec!["02CREATE", "01UPDATE", "03THEIRS"]
+        vec!["02CREATE", "03THEIRS", "01UPDATE"]
     );
+}
+
+#[test]
+fn test_merge_driver_concurrent_updates_use_timestamp_order() {
+    let repo_left = make_repo();
+    let repo_right = make_repo();
+    let create = make_event("02CREATE", "original");
+    let mut earlier_update = make_update_event("ZZZEARLY", &create.task_id, "earlier");
+    earlier_update.ts = "2026-01-01T11:00:00.000Z".to_string();
+    let mut later_update = make_update_event("AAAALATE", &create.task_id, "later");
+    later_update.ts = "2026-01-01T08:00:00.000-05:00".to_string();
+
+    let base_events = vec![create.clone()];
+    let ours_events = vec![create.clone(), later_update.clone()];
+    let theirs_events = vec![create, earlier_update];
+    let run_left = run_merge_driver(repo_left.path(), &base_events, &ours_events, &theirs_events);
+    let run_right = run_merge_driver(
+        repo_right.path(),
+        &base_events,
+        &theirs_events,
+        &ours_events,
+    );
+
+    assert_eq!(
+        run_left.result.code, 0,
+        "stderr: {}",
+        run_left.result.stderr
+    );
+    assert_eq!(
+        run_right.result.code, 0,
+        "stderr: {}",
+        run_right.result.stderr
+    );
+    assert_eq!(
+        fs::read_to_string(&run_left.ours_path).unwrap(),
+        fs::read_to_string(&run_right.ours_path).unwrap(),
+        "timestamp tie-break must be byte-identical regardless of merge direction"
+    );
+
+    let merged_events = read_events_from_path(&run_left.ours_path)
+        .expect("merged events")
+        .events;
+    let state = apply_events(&create_empty_state(), &merged_events).expect("replay merged events");
+    assert_eq!(state.tasks["tsq-02CREATE"].title, "later");
+    assert_eq!(
+        merged_ids(&run_left.ours_path),
+        vec!["02CREATE", "ZZZEARLY", "AAAALATE"]
+    );
+}
+
+#[test]
+fn test_merge_driver_commutative_independent_creates() {
+    // Both sides add independent root task creates. A<-B and B<-A must produce
+    // byte-identical merged output.
+    let repo_left = make_repo();
+    let repo_right = make_repo();
+
+    let ours_events = vec![
+        make_event("01AAA", "ours-task"),
+        make_event("01AAB", "ours-task-2"),
+    ];
+    let theirs_events = vec![
+        make_event("01BBB", "theirs-task"),
+        make_event("01BBC", "theirs-task-2"),
+    ];
+
+    let run_left = run_merge_driver(repo_left.path(), &[], &ours_events, &theirs_events);
+    let run_right = run_merge_driver(repo_right.path(), &[], &theirs_events, &ours_events);
+
+    assert_eq!(
+        run_left.result.code, 0,
+        "stderr: {}",
+        run_left.result.stderr
+    );
+    assert_eq!(
+        run_right.result.code, 0,
+        "stderr: {}",
+        run_right.result.stderr
+    );
+
+    let left_out = fs::read_to_string(&run_left.ours_path).unwrap();
+    let right_out = fs::read_to_string(&run_right.ours_path).unwrap();
+    assert_eq!(
+        left_out, right_out,
+        "merged output must be byte-identical regardless of merge direction"
+    );
+    assert_eq!(
+        merged_ids(&run_left.ours_path),
+        vec!["01AAA", "01AAB", "01BBB", "01BBC"]
+    );
+}
+
+#[test]
+fn test_merge_driver_event_id_fallback_dedup() {
+    // Legacy records carrying only `event_id` (no `id`) still dedup correctly
+    // against a peer carrying `id` with the same value.
+    let repo = make_repo();
+    let mut payload = Map::new();
+    payload.insert("title".to_string(), Value::String("shared".to_string()));
+    let legacy_only_event_id = EventRecord {
+        id: None,
+        event_id: Some("01SHARED".to_string()),
+        ts: "2026-01-01T00:00:00Z".to_string(),
+        actor: "test".to_string(),
+        event_type: EventType::TaskCreated,
+        task_id: "tsq-01SHARED".to_string(),
+        payload: payload.clone(),
+    };
+    let canonical = EventRecord {
+        id: Some("01SHARED".to_string()),
+        event_id: Some("01SHARED".to_string()),
+        ..legacy_only_event_id.clone()
+    };
+
+    let run = run_merge_driver(
+        repo.path(),
+        &[],
+        std::slice::from_ref(&legacy_only_event_id),
+        std::slice::from_ref(&canonical),
+    );
+
+    assert_eq!(run.result.code, 0, "stderr: {}", run.result.stderr);
+    let merged = read_jsonl(&run.ours_path);
+    assert_eq!(merged.len(), 1);
+    assert_eq!(merged[0]["id"].as_str(), Some("01SHARED"));
+    assert_eq!(merged[0]["event_id"].as_str(), Some("01SHARED"));
+
+    let repo_swapped = make_repo();
+    let run_swapped = run_merge_driver(
+        repo_swapped.path(),
+        &[],
+        std::slice::from_ref(&canonical),
+        std::slice::from_ref(&legacy_only_event_id),
+    );
+    assert_eq!(
+        run_swapped.result.code, 0,
+        "stderr: {}",
+        run_swapped.result.stderr
+    );
+    let merged_swapped = read_jsonl(&run_swapped.ours_path);
+    assert_eq!(merged_swapped.len(), 1);
+    assert_eq!(merged_swapped[0]["id"].as_str(), Some("01SHARED"));
+    assert_eq!(merged_swapped[0]["event_id"].as_str(), Some("01SHARED"));
+}
+
+#[test]
+fn test_merge_driver_duplicate_task_id_yields_replay_failure() {
+    // Two sides independently create events with distinct event ids but the
+    // SAME task_id. The merged stream is causally invalid (TASK_EXISTS), so the
+    // merge driver must surface MERGE_REPLAY_FAILED instead of writing a bad file.
+    let repo = make_repo();
+    let ours_event = make_event("01OURS", "ours-title");
+    let mut theirs_event = make_event("01THRS", "theirs-title");
+    // Collision: same task_id as ours, different event id.
+    theirs_event.task_id = ours_event.task_id.clone();
+
+    let run = run_merge_driver(repo.path(), &[], &[ours_event], &[theirs_event]);
+
+    assert_eq!(run.result.code, 2, "stderr: {}", run.result.stderr);
+    assert!(
+        run.result.stderr.contains("MERGE_REPLAY_FAILED"),
+        "stderr: {}",
+        run.result.stderr
+    );
+    // Replay failure must not have overwritten the working file with the bad
+    // merged stream; it should still hold only the original ours input.
+    assert_eq!(read_jsonl(&run.ours_path).len(), 1);
+    assert_eq!(merged_ids(&run.ours_path), vec!["01OURS"]);
+}
+
+#[test]
+fn test_merge_driver_cycle_fallback_is_deterministic() {
+    // If two sources contain the same independent events in opposite order,
+    // source-order constraints form a cycle. The fallback must stay stable and
+    // direction-independent instead of producing merge-order drift.
+    let repo_left = make_repo();
+    let repo_right = make_repo();
+    let first = make_event("01AAA", "first");
+    let second = make_event("01BBB", "second");
+
+    let ours = vec![second.clone(), first.clone()];
+    let theirs = vec![first, second];
+
+    let run_left = run_merge_driver(repo_left.path(), &[], &ours, &theirs);
+    let run_right = run_merge_driver(repo_right.path(), &[], &theirs, &ours);
+
+    assert_eq!(
+        run_left.result.code, 0,
+        "stderr: {}",
+        run_left.result.stderr
+    );
+    assert_eq!(
+        run_right.result.code, 0,
+        "stderr: {}",
+        run_right.result.stderr
+    );
+    assert_eq!(
+        fs::read_to_string(&run_left.ours_path).unwrap(),
+        fs::read_to_string(&run_right.ours_path).unwrap(),
+        "cycle fallback must be byte-identical regardless of merge direction"
+    );
+    assert_eq!(merged_ids(&run_left.ours_path), vec!["01AAA", "01BBB"]);
 }
 
 #[test]

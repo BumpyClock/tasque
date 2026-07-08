@@ -1,11 +1,9 @@
 use crate::app::service_types::{CreateBatchInput, CreateInput, ServiceContext, UpdateInput};
-use crate::app::service_utils::{
-    must_resolve_existing, must_task, normalize_duplicate_title, unique_root_id,
-};
+use crate::app::service_utils::{must_resolve_existing, must_task, normalize_duplicate_title};
 use crate::app::state::{load_projected_state, persist_projection};
 use crate::domain::alias::allocate_alias;
 use crate::domain::events::make_event;
-use crate::domain::ids::{RootIdAllocator, is_valid_root_id, next_child_id};
+use crate::domain::ids::{TaskIdAllocator, is_valid_root_id, make_task_id};
 use crate::domain::labels::add_label;
 use crate::domain::projector::apply_events;
 use crate::domain::similarity::{
@@ -95,11 +93,7 @@ pub fn create(ctx: &ServiceContext, input: &CreateInput) -> Result<Task, TsqErro
                 input.force,
                 input.skip_duplicate_check,
             )?;
-            let id = if let Some(parent) = parent_id.as_ref() {
-                next_child_id(&loaded.state, parent)
-            } else {
-                unique_root_id(&loaded.state, &input.title)?
-            };
+            let id = make_task_id(&loaded.state);
             (id, parent_id)
         };
 
@@ -397,7 +391,7 @@ pub fn create_batch(ctx: &ServiceContext, input: &CreateBatchInput) -> Result<Ve
         let mut result_tasks: Vec<Task> = Vec::with_capacity(planned.len());
         let mut working_state = loaded.state.clone();
         let mut parent_stack: Vec<String> = Vec::new(); // depth → created/reused ID
-        let mut root_id_allocator: Option<RootIdAllocator> = None;
+        let mut id_allocator = TaskIdAllocator::new(&loaded.state);
 
         // Track tasks created in this batch by (normalized_title, parent_id)
         // so ensure can reuse earlier batch-created tasks for exact duplicates.
@@ -447,17 +441,7 @@ pub fn create_batch(ctx: &ServiceContext, input: &CreateBatchInput) -> Result<Ve
                         }
                     }
 
-                    let id = if let Some(parent) = parent_id.as_ref() {
-                        next_child_id(&working_state, parent)
-                    } else {
-                        if root_id_allocator.is_none() {
-                            root_id_allocator = Some(RootIdAllocator::new(&loaded.state)?);
-                        }
-                        root_id_allocator
-                            .as_mut()
-                            .expect("root id allocator initialized")
-                            .next_id()?
-                    };
+                    let id = id_allocator.next_id();
 
                     let description = if input.body_file.is_some() {
                         input.body_file.clone()

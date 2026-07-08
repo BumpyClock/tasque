@@ -2,6 +2,7 @@ use crate::errors::TsqError;
 use crate::store::config::{read_config, write_config};
 use crate::store::events::{append_events, read_events};
 use crate::store::git;
+use crate::store::lock::with_write_lock;
 use crate::store::paths::get_paths;
 use crate::types::{
     HookInstallResult, HookUninstallResult, MigrateResult, SyncRunResult, SyncSetupResult,
@@ -110,7 +111,10 @@ fn setup_sync_branch_locked(repo_root: &str, branch: &str) -> Result<SyncSetupRe
         });
     }
 
-    let created_branch = if !git::branch_exists(repo_path, branch)? {
+    let created_branch = if !git::branch_exists(repo_path, branch)?
+        && !git::remote_tracking_branch_exists(repo_path, branch)?
+        && !git::remote_has_branch(repo_path, "origin", branch)?
+    {
         let paths = get_paths(repo_root);
         ensure_seed_tasque_dir(&paths.tasque_dir)?;
         git::create_orphan_branch(repo_path, branch, &paths.tasque_dir)?;
@@ -119,6 +123,8 @@ fn setup_sync_branch_locked(repo_root: &str, branch: &str) -> Result<SyncSetupRe
         false
     };
 
+    // `ensure_worktree` adopts an existing remote branch (via remote-tracking
+    // ref or `origin`) rather than diverging from it.
     let worktree = git::ensure_worktree(repo_path, branch)?;
 
     let updated_config = crate::types::Config {
@@ -135,7 +141,7 @@ fn setup_sync_branch_locked(repo_root: &str, branch: &str) -> Result<SyncSetupRe
     })
 }
 
-/// How migration should treat a failing push to the upstream remote.
+/// How migration should treat a failing push to `origin`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PushMode {
     /// Explicit `tsq migrate`: push failure is the command's failure.
@@ -184,19 +190,15 @@ pub fn migrate_to_sync_branch(
 
     let wt_path = Path::new(&setup.worktree_path);
     let _ = git::commit_worktree(wt_path, "chore: migrate tasque events to sync branch")?;
-    if let Some(remote) = git::current_upstream_remote(Path::new(repo_root))? {
+    if git::has_remote(Path::new(repo_root), "origin")? {
         match push {
             PushMode::Required => {
-                git::push_current_set_upstream(wt_path, &remote, branch)?;
+                git::push_current_set_upstream(wt_path, "origin", branch)?;
             }
             PushMode::BestEffort => {
-                if let Err(error) = git::push_current_set_upstream(wt_path, &remote, branch) {
-                    // `remote` is git-derived and `error.message` may carry
-                    // untrusted data; sanitize both before writing to stderr to
-                    // avoid emitting raw terminal control sequences.
+                if let Err(error) = git::push_current_set_upstream(wt_path, "origin", branch) {
                     eprintln!(
-                        "tsq: warning: migrated events to sync branch but push to '{}' failed: {}; run 'tsq sync' to push later",
-                        crate::cli::render::sanitize_inline(&remote),
+                        "tsq: warning: migrated events to sync branch but push to 'origin' failed: {}; run 'tsq sync' to push later",
                         crate::cli::render::sanitize_inline(&error.message)
                     );
                 }
@@ -211,6 +213,10 @@ pub fn migrate_to_sync_branch(
         worktree_path: setup.worktree_path,
     })
 }
+
+/// Maximum push attempts when the remote rejects with non-fast-forward /
+/// fetch-first. Each retry re-fetches and re-merges before pushing again.
+const SYNC_PUSH_MAX_ATTEMPTS: usize = 3;
 
 pub fn sync_worktree(repo_root: &str, push: bool) -> Result<SyncRunResult, TsqError> {
     let path = Path::new(repo_root);
@@ -232,27 +238,136 @@ pub fn sync_worktree(repo_root: &str, push: bool) -> Result<SyncRunResult, TsqEr
     let branch = git::current_branch(path)?
         .ok_or_else(|| TsqError::new("GIT_ERROR", "failed determining current branch", 2))?;
     git::setup_merge_driver_config(path)?;
-    let committed = git::commit_worktree(path, SYNC_COMMIT_MESSAGE)?;
-    let mut has_upstream = git::has_upstream(path)?;
-    let pushed = if !push {
-        false
-    } else if has_upstream {
-        git::push_current(path)?;
-        true
-    } else if git::has_remote(path, "origin")? {
-        git::push_current_set_upstream(path, "origin", &branch)?;
-        has_upstream = true;
-        true
-    } else {
-        false
-    };
-    Ok(SyncRunResult {
-        branch,
-        worktree_path: path.to_string_lossy().to_string(),
-        committed,
-        pushed,
-        has_upstream,
-    })
+
+    // Hold the Tasque write lock around the whole commit/fetch/merge/push
+    // sequence so concurrent writers can't append events mid-sync.
+    with_write_lock(repo_root, || sync_worktree_locked(path, &branch, push))
+}
+
+fn sync_worktree_locked(path: &Path, branch: &str, push: bool) -> Result<SyncRunResult, TsqError> {
+    let worktree_path = path.to_string_lossy().to_string();
+
+    // Finalize any merge left in progress by a prior conflicted sync. If
+    // conflicts remain unresolved, re-emit the structured conflict error before
+    // any local commit path can stage conflict markers.
+    let mut committed = false;
+    if git::merge_in_progress(path)? {
+        let unmerged = git::unmerged_paths(path)?;
+        if !unmerged.is_empty() {
+            return Err(merge_conflict_error(branch, &worktree_path, unmerged));
+        }
+        git::finalize_merge(path)?;
+        committed = true;
+    }
+
+    // `--no-push`: purely local commit, no network.
+    if !push {
+        if git::commit_worktree(path, SYNC_COMMIT_MESSAGE)? {
+            committed = true;
+        }
+        return Ok(SyncRunResult {
+            branch: branch.to_string(),
+            worktree_path,
+            committed,
+            pushed: false,
+            has_upstream: git::has_upstream(path)?,
+        });
+    }
+
+    // Commit local changes first.
+    if git::commit_worktree(path, SYNC_COMMIT_MESSAGE)? {
+        committed = true;
+    }
+
+    // Origin-only sync: no remote configured means local commit only.
+    if !git::has_remote(path, "origin")? {
+        return Ok(SyncRunResult {
+            branch: branch.to_string(),
+            worktree_path,
+            committed,
+            pushed: false,
+            has_upstream: false,
+        });
+    }
+    let remote = "origin";
+
+    // No remote branch yet: publish and set upstream. If another clone creates
+    // it after our check but before our push, fall through to the same
+    // fetch/merge/retry loop used for established branches.
+    if !git::remote_has_branch(path, remote, branch)? {
+        match git::push_branch_with_status(path, remote, branch)? {
+            git::PushOutcome::Ok => {
+                return Ok(SyncRunResult {
+                    branch: branch.to_string(),
+                    worktree_path,
+                    committed,
+                    pushed: true,
+                    has_upstream: true,
+                });
+            }
+            git::PushOutcome::Rejected(_) => {}
+        }
+    }
+
+    // Remote branch exists: fetch + merge before pushing, with bounded retry on
+    // non-fast-forward rejection (remote advanced during our merge/push).
+    for attempt in 0..SYNC_PUSH_MAX_ATTEMPTS {
+        git::fetch_branch(path, remote, branch)?;
+        match git::merge_tracking_branch(path, remote, branch)? {
+            git::MergeStatus::Clean => {}
+            git::MergeStatus::Conflict(paths) => {
+                return Err(merge_conflict_error(branch, &worktree_path, paths));
+            }
+        }
+        match git::push_branch_with_status(path, remote, branch)? {
+            git::PushOutcome::Ok => {
+                return Ok(SyncRunResult {
+                    branch: branch.to_string(),
+                    worktree_path,
+                    committed,
+                    pushed: true,
+                    has_upstream: true,
+                });
+            }
+            git::PushOutcome::Rejected(stderr) => {
+                if attempt + 1 >= SYNC_PUSH_MAX_ATTEMPTS {
+                    return Err(TsqError::new(
+                        "SYNC_PUSH_REJECTED",
+                        "remote rejected push after retrying fetch/merge",
+                        2,
+                    )
+                    .with_details(serde_json::json!({
+                        "branch": branch,
+                        "remote": remote,
+                        "attempts": SYNC_PUSH_MAX_ATTEMPTS,
+                        "stderr": crate::cli::render::sanitize_inline(&stderr),
+                    })));
+                }
+            }
+        }
+    }
+
+    unreachable!("push retry loop returns on success, conflict, or exhausted attempts")
+}
+
+/// Build the structured merge-conflict error returned when `tsq sync` leaves a
+/// merge in progress. Callers can inspect `details.conflicted_paths` and
+/// `details.worktree_path` to guide resolution, then rerun `tsq sync`.
+fn merge_conflict_error(
+    branch: &str,
+    worktree_path: &str,
+    conflicted_paths: Vec<String>,
+) -> TsqError {
+    TsqError::new(
+        "SYNC_MERGE_CONFLICT",
+        "sync merge left conflicts; resolve them in the worktree and rerun 'tsq sync'",
+        1,
+    )
+    .with_details(serde_json::json!({
+        "branch": branch,
+        "worktree_path": worktree_path,
+        "conflicted_paths": conflicted_paths,
+    }))
 }
 
 pub fn auto_commit_if_sync_worktree(repo_root: impl AsRef<Path>) -> Result<(), TsqError> {

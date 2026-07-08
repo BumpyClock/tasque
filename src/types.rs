@@ -200,7 +200,6 @@ pub struct State {
     pub tasks: HashMap<String, Task>,
     pub deps: HashMap<String, Vec<DependencyEdge>>,
     pub links: HashMap<String, HashMap<RelationType, Vec<String>>>,
-    pub child_counters: HashMap<String, u32>,
     pub created_order: Vec<String>,
     pub applied_events: usize,
 }

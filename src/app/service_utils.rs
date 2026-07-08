@@ -1,5 +1,4 @@
 use crate::app::service_types::ListFilter;
-use crate::domain::ids::make_root_id;
 use crate::domain::resolve::resolve_task_id;
 use crate::errors::TsqError;
 use crate::types::{RelationType, State, Task, TaskStatus};
@@ -17,10 +16,6 @@ pub const DEFAULT_STALE_STATUSES: &[TaskStatus] = &[
     TaskStatus::Blocked,
     TaskStatus::Deferred,
 ];
-
-pub fn unique_root_id(state: &State, _title: &str) -> Result<String, TsqError> {
-    make_root_id(state)
-}
 
 pub fn must_task(state: &State, id: &str) -> Result<Task, TsqError> {
     state

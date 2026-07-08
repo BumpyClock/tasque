@@ -18,6 +18,9 @@ const describeContract = bin ? describe : describe.skip;
 describeContract("tsq CLI contract", () => {
   let dir = "";
   let previousCwd = "";
+  let epicId = "";
+  let childId = "";
+  let blockerId = "";
 
   const run = (args: string[]): string => {
     const subprocess = Bun.spawnSync([bin as string, ...args], {
@@ -37,11 +40,18 @@ describeContract("tsq CLI contract", () => {
     dir = mkdtempSync(join(tmpdir(), "tsq-contract-"));
     previousCwd = process.cwd();
     run(["init", "--no-wizard"]);
-    run(["create", "epic demo", "--kind", "epic", "--force"]); // tsq-1
-    run(["create", "child", "--parent", "tsq-1", "--force"]); // tsq-1.1
-    run(["create", "blocker", "--force"]); // tsq-2
-    run(["block", "tsq-1.1", "by", "tsq-2"]);
-    run(["spec", "tsq-1.1", "--text", "# hello contract"]);
+    const epic = JSON.parse(
+      run(["create", "epic demo", "--kind", "epic", "--force", "--json"]),
+    );
+    epicId = epic.data.task.id;
+    const child = JSON.parse(
+      run(["create", "child", "--parent", epicId, "--force", "--json"]),
+    );
+    childId = child.data.task.id;
+    const blocker = JSON.parse(run(["create", "blocker", "--force", "--json"]));
+    blockerId = blocker.data.task.id;
+    run(["block", childId, "by", blockerId]);
+    run(["spec", childId, "--text", "# hello contract"]);
     // fetchTasks and friends spawn tsq without an explicit cwd, so run the
     // suite from inside the initialized repo, mirroring the TUI launcher.
     process.chdir(dir);
@@ -66,20 +76,20 @@ describeContract("tsq CLI contract", () => {
     const snapshot = await fetchTasks(config);
     expect(snapshot.warning).toBeUndefined();
     const ids = snapshot.tasks.map((task) => task.id);
-    expect(ids).toContain("tsq-1");
-    expect(ids).toContain("tsq-1.1");
-    expect(ids).toContain("tsq-2");
+    expect(ids).toContain(epicId);
+    expect(ids).toContain(childId);
+    expect(ids).toContain(blockerId);
   });
 
   it("fetchDependencyTree returns the root via the deps verb", async () => {
-    const result = await fetchDependencyTree(bin as string, "tsq-1.1");
+    const result = await fetchDependencyTree(bin as string, childId);
     expect(result.warning).toBeUndefined();
-    expect(result.root?.id).toBe("tsq-1.1");
+    expect(result.root?.id).toBe(childId);
     expect(result.root?.children.length).toBeGreaterThan(0);
   });
 
   it("readSpecLines returns spec content via spec --show", async () => {
-    const result = await readSpecLines(bin as string, "tsq-1.1");
+    const result = await readSpecLines(bin as string, childId);
     expect(result.warning).toBeUndefined();
     expect(result.lines[0]).toBe("# hello contract");
   });

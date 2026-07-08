@@ -58,19 +58,26 @@ fn title_edit_does_not_recompute_alias() {
 }
 
 #[test]
-fn new_root_ids_are_sequential() {
+fn new_root_ids_are_random_canonical() {
     let repo = common::make_repo();
     init_repo(repo.path());
 
-    let first = create_task(repo.path(), "First sequential task");
-    let second = create_task(repo.path(), "Second sequential task");
+    let first = create_task(repo.path(), "First random task");
+    let second = create_task(repo.path(), "Second random task");
 
-    assert_eq!(first, "tsq-1");
-    assert_eq!(second, "tsq-2");
+    assert!(
+        common::is_random_canonical_id(&first),
+        "first id {first} not random canonical"
+    );
+    assert!(
+        common::is_random_canonical_id(&second),
+        "second id {second} not random canonical"
+    );
+    assert_ne!(first, second, "ids must be distinct");
 }
 
 #[test]
-fn child_ids_keep_parent_suffix_shape() {
+fn child_ids_are_flat_random_with_parent_set() {
     let repo = common::make_repo();
     init_repo(repo.path());
 
@@ -78,9 +85,21 @@ fn child_ids_keep_parent_suffix_shape() {
     let child = run_json(repo.path(), ["create", "--parent", &parent, "Child task"]);
 
     assert_eq!(child.cli.code, 0);
+    let child_id = child.envelope["data"]["task"]["id"]
+        .as_str()
+        .expect("child id");
+    assert!(
+        common::is_random_canonical_id(child_id),
+        "child id {child_id} not random canonical"
+    );
+    assert_ne!(child_id, parent, "child id must not equal parent id");
+    assert!(
+        !child_id.starts_with(&format!("{parent}.")),
+        "child id must not use parent.N shape"
+    );
     assert_eq!(
-        child.envelope["data"]["task"]["id"].as_str(),
-        Some("tsq-1.1")
+        child.envelope["data"]["task"]["parent_id"].as_str(),
+        Some(parent.as_str())
     );
 }
 
@@ -102,14 +121,18 @@ fn explicit_sequential_id_is_allowed() {
 }
 
 #[test]
-fn numeric_legacy_root_id_does_not_advance_sequential_allocation() {
+fn explicit_legacy_random_id_does_not_affect_allocation() {
     let repo = common::make_repo();
     init_repo(repo.path());
 
-    common::create_task_with_args(repo.path(), "Legacy numeric ID", &["--id", "tsq-00000042"]);
-    let next = create_task(repo.path(), "First sequential after legacy");
+    common::create_task_with_args(repo.path(), "Legacy random ID", &["--id", "tsq-00000042"]);
+    let next = create_task(repo.path(), "First random after legacy");
 
-    assert_eq!(next, "tsq-1");
+    assert!(
+        common::is_random_canonical_id(&next),
+        "next id {next} not random canonical"
+    );
+    assert_ne!(next, "tsq-00000042");
 }
 
 #[test]
@@ -142,6 +165,60 @@ fn commands_accept_alias_case_insensitively() {
         show.envelope["data"]["task"]["status"].as_str(),
         Some("closed")
     );
+}
+
+#[test]
+fn duplicate_exact_alias_is_ambiguous() {
+    use std::collections::HashMap;
+    use tasque::domain::resolve::resolve_task_id;
+    use tasque::domain::state::create_empty_state;
+    use tasque::types::{State, Task};
+
+    // Two tasks with colliding exact aliases (case-insensitive). The CLI path
+    // normally dedupes aliases with a numeric suffix, so construct the state
+    // directly to exercise resolver behavior on a real collision.
+    let mk_task = |id: &str, alias: &str| -> Task {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "alias": alias,
+            "title": alias,
+            "kind": "task",
+            "status": "open",
+            "priority": 3,
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z",
+        }))
+        .expect("task from json")
+    };
+    let mut tasks: HashMap<String, Task> = HashMap::new();
+    tasks.insert(
+        "tsq-aaaaaaaa".to_string(),
+        mk_task("tsq-aaaaaaaa", "improve-search-warnings"),
+    );
+    tasks.insert(
+        "tsq-bbbbbbbb".to_string(),
+        mk_task("tsq-bbbbbbbb", "IMPROVE-SEARCH-WARNINGS"),
+    );
+    let state = State {
+        tasks,
+        ..create_empty_state()
+    };
+
+    let result = resolve_task_id(&state, "improve-search-warnings", false);
+    let err = result.expect_err("expected ambiguous error");
+    assert_eq!(err.code, "TASK_ID_AMBIGUOUS");
+    let details = err.details.expect("ambiguous details");
+    let candidates = details["candidates"].as_array().expect("candidates");
+    assert_eq!(candidates.len(), 2);
+    let mut ids: Vec<&str> = candidates
+        .iter()
+        .map(|candidate| {
+            assert!(candidate.get("alias").is_some());
+            candidate["id"].as_str().expect("candidate id")
+        })
+        .collect();
+    ids.sort_unstable();
+    assert_eq!(ids, vec!["tsq-aaaaaaaa", "tsq-bbbbbbbb"]);
 }
 
 #[test]
@@ -194,21 +271,26 @@ fn id_prefix_ambiguity_returns_id_and_alias_candidates() {
 }
 
 #[test]
-fn sequential_allocation_after_u64_max_returns_error() {
+fn allocation_succeeds_even_with_u64_max_sequential_present() {
     let repo = common::make_repo();
     init_repo(repo.path());
 
-    // Plant a task at u64::MAX so next allocation would overflow.
+    // Plant a task at u64::MAX. Random allocation must not depend on the
+    // sequential counter and must not overflow.
     let max_id = "tsq-18446744073709551615";
     let setup = run_json(repo.path(), ["create", "Max ID task", "--id", max_id]);
     assert_eq!(setup.cli.code, 0);
 
-    let result = run_json(repo.path(), ["create", "Should overflow"]);
-    assert_eq!(result.cli.code, 2);
-    assert_eq!(
-        result.envelope["error"]["code"].as_str(),
-        Some("ID_OVERFLOW")
+    let result = run_json(repo.path(), ["create", "Random after max"]);
+    assert_eq!(result.cli.code, 0);
+    let next = result.envelope["data"]["task"]["id"]
+        .as_str()
+        .expect("next id");
+    assert!(
+        common::is_random_canonical_id(next),
+        "next id {next} not random canonical"
     );
+    assert_ne!(next, max_id);
 }
 
 #[test]

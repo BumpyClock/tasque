@@ -238,27 +238,8 @@ pub(crate) fn clone_state(state: &State) -> State {
         tasks: state.tasks.clone(),
         deps,
         links,
-        child_counters: state.child_counters.clone(),
         created_order: state.created_order.clone(),
         applied_events: state.applied_events,
-    }
-}
-
-pub(crate) fn set_child_counter(state: &mut State, parent_id: &str, child_id: &str) {
-    let prefix = format!("{}.", parent_id);
-    if !child_id.starts_with(&prefix) {
-        return;
-    }
-    let segment = &child_id[prefix.len()..];
-    if segment.is_empty() || !segment.chars().all(|c| c.is_ascii_digit()) {
-        return;
-    }
-    let Ok(counter) = segment.parse::<u32>() else {
-        return;
-    };
-    let current = state.child_counters.get(parent_id).copied().unwrap_or(0);
-    if counter > current {
-        state.child_counters.insert(parent_id.to_string(), counter);
     }
 }
 

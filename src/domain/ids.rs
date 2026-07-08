@@ -27,12 +27,7 @@ fn mint_random_canonical_id() -> String {
 /// parentage lives in `parent_id`, not in the id text. Old sequential
 /// `tsq-<number>` and `parent.N` ids remain valid/readable.
 pub fn make_task_id(state: &State) -> String {
-    loop {
-        let candidate = mint_random_canonical_id();
-        if !state.tasks.contains_key(&candidate) {
-            return candidate;
-        }
-    }
+    TaskIdAllocator::new(state).next_id()
 }
 
 /// Batch-friendly flat random id allocator. Reserves generated ids against
@@ -63,11 +58,11 @@ pub fn is_valid_root_id(raw: &str) -> bool {
     is_sequential_root_id(raw) || is_legacy_random_root_id(raw)
 }
 
-pub fn is_sequential_root_id(raw: &str) -> bool {
+fn is_sequential_root_id(raw: &str) -> bool {
     SEQUENTIAL_ROOT_ID.is_match(raw)
 }
 
-pub fn is_legacy_random_root_id(raw: &str) -> bool {
+fn is_legacy_random_root_id(raw: &str) -> bool {
     let Some(rest) = raw.strip_prefix("tsq-") else {
         return false;
     };

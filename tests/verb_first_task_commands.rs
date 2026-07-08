@@ -54,8 +54,6 @@ fn create_from_file_allocates_random_ids_unrelated_to_high_existing_id() {
         "second id {second} not random canonical"
     );
     assert_ne!(first, second);
-    assert_ne!(first, "tsq-43");
-    assert_ne!(second, "tsq-44");
 }
 
 #[test]

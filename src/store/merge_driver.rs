@@ -9,10 +9,19 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 
-/// Extract the canonical event ID from an EventRecord.
-/// Prefers `id`, falls back to `event_id`.
-fn event_id(record: &EventRecord) -> Option<&str> {
-    record.id.as_deref().or(record.event_id.as_deref())
+/// Extract the canonical event ID from a reader-normalized EventRecord.
+fn event_id(record: &EventRecord) -> Result<&str, TsqError> {
+    record
+        .id
+        .as_deref()
+        .or(record.event_id.as_deref())
+        .ok_or_else(|| {
+            TsqError::new(
+                "EVENTS_CORRUPT",
+                "Event missing id field during merge after read validation",
+                2,
+            )
+        })
 }
 
 /// Serialize an EventRecord to its canonical JSON string for comparison.
@@ -25,6 +34,11 @@ fn canonical_json(record: &EventRecord) -> Result<String, TsqError> {
             2,
         )
     })
+}
+
+fn order_key(id: &str, records: &HashMap<String, EventRecord>) -> Reverse<(String, String)> {
+    let record = records.get(id).expect("id present in map");
+    Reverse((record.ts.clone(), id.to_string()))
 }
 
 /// Merge three versions of an events.jsonl file (ancestor, ours, theirs).
@@ -68,16 +82,7 @@ pub fn merge_events_files(
         let mut order: Vec<String> = Vec::new();
         for record in events {
             total_input += 1;
-            let id = match event_id(&record) {
-                Some(id) => id.to_string(),
-                None => {
-                    return Err(TsqError::new(
-                        "MERGE_MISSING_ID",
-                        "Event missing id field during merge",
-                        2,
-                    ));
-                }
-            };
+            let id = event_id(&record)?.to_string();
             let json = canonical_json(&record)?;
             match id_to_json.get(&id) {
                 Some(existing_json) => {
@@ -132,30 +137,32 @@ pub fn merge_events_files(
         *incoming.entry(to.clone()).or_default() += 1;
     }
 
-    // Kahn's algorithm with a min-heap keyed by event ID. Picking the smallest
-    // available ID at each step yields a stable, direction-independent order.
-    let mut heap: BinaryHeap<Reverse<String>> = incoming
+    // Kahn's algorithm with a min-heap keyed by (timestamp, event ID). The
+    // timestamp primary key makes last-write-wins projection explicit for
+    // independent updates; the event ID secondary key keeps output stable when
+    // timestamps collide.
+    let mut heap: BinaryHeap<Reverse<(String, String)>> = incoming
         .iter()
         .filter(|(_, count)| **count == 0)
-        .map(|(id, _)| Reverse(id.clone()))
+        .map(|(id, _)| order_key(id, &id_to_record))
         .collect();
     let mut sorted_ids: Vec<String> = Vec::with_capacity(unique_count);
-    while let Some(Reverse(id)) = heap.pop() {
+    while let Some(Reverse((_ts, id))) = heap.pop() {
         sorted_ids.push(id.clone());
         if let Some(nexts) = outgoing.get(&id) {
             for next in nexts {
                 let count = incoming.entry(next.clone()).or_insert(0);
                 *count -= 1;
                 if *count == 0 {
-                    heap.push(Reverse(next.clone()));
+                    heap.push(order_key(next, &id_to_record));
                 }
             }
         }
     }
 
     // Cycle fallback: if constraints formed a cycle (same events recorded in
-    // conflicting orders across sources), append the remaining IDs in sorted
-    // order to keep the output deterministic rather than failing silently.
+    // conflicting orders across sources), append the remaining IDs in the same
+    // deterministic (timestamp, event ID) order rather than failing silently.
     if sorted_ids.len() < unique_count {
         let emitted: HashSet<String> = sorted_ids.iter().cloned().collect();
         let mut remaining: Vec<String> = id_to_record
@@ -163,7 +170,10 @@ pub fn merge_events_files(
             .filter(|id| !emitted.contains(*id))
             .cloned()
             .collect();
-        remaining.sort();
+        remaining.sort_by_key(|id| {
+            let record = id_to_record.get(id).expect("id present in map");
+            (record.ts.clone(), id.clone())
+        });
         sorted_ids.extend(remaining);
     }
 

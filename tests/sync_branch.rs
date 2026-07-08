@@ -269,9 +269,10 @@ fn read_sync_worktree_events(root: &std::path::Path) -> String {
     .unwrap_or_default()
 }
 
-/// Seed a `source` repo (main + tsq-sync) and push both branches to a fresh
-/// bare `origin`. Returns `(source_path, origin_path)`.
-fn seed_source_with_origin(
+/// Seed a `source` repo and push only `main` to a fresh bare `origin`.
+/// Returns `(source_path, origin_path)`; `tsq-sync` exists locally but not on
+/// the remote until a sync publishes it.
+fn seed_source_with_origin_main_only(
     base: &std::path::Path,
     title: &str,
 ) -> (std::path::PathBuf, std::path::PathBuf) {
@@ -291,6 +292,16 @@ fn seed_source_with_origin(
     let remote_arg = remote.to_string_lossy().to_string();
     git(&source, &["remote", "add", "origin", remote_arg.as_str()]);
     git(&source, &["push", "origin", "HEAD:main"]);
+    (source, remote)
+}
+
+/// Seed a `source` repo (main + tsq-sync) and push both branches to a fresh
+/// bare `origin`. Returns `(source_path, origin_path)`.
+fn seed_source_with_origin(
+    base: &std::path::Path,
+    title: &str,
+) -> (std::path::PathBuf, std::path::PathBuf) {
+    let (source, remote) = seed_source_with_origin_main_only(base, title);
     git(&source, &["push", "origin", "tsq-sync"]);
     (source, remote)
 }
@@ -419,6 +430,73 @@ fn sync_retries_when_remote_advances_during_push() {
     }
 }
 
+/// A second clone can create the remote sync branch after our `ls-remote`
+/// check but before the first publish push. That first rejection should reuse
+/// the normal fetch/merge/retry flow rather than fail the whole sync.
+#[cfg(unix)]
+#[test]
+fn sync_retries_when_remote_branch_appears_during_publish() {
+    let repo = make_repo();
+    let base = repo.path();
+    let (target, remote) = seed_source_with_origin_main_only(base, "Seed task");
+    let remote_arg = remote.to_string_lossy().to_string();
+    let advancer = clone_from_origin(base, &target, "advancer");
+    git(
+        &advancer,
+        &["remote", "set-url", "origin", remote_arg.as_str()],
+    );
+
+    let target_create = run_cli(
+        &target,
+        ["create", "Target task", "--id", "tsq-cccc5555", "--force"],
+    );
+    assert_eq!(target_create.code, 0, "stderr: {}", target_create.stderr);
+    let advancer_create = run_cli(
+        &advancer,
+        ["create", "Advancer task", "--id", "tsq-cccc6666", "--force"],
+    );
+    assert_eq!(
+        advancer_create.code, 0,
+        "stderr: {}",
+        advancer_create.stderr
+    );
+
+    let flag = base.join("publish-pre-push-fired");
+    let hook = target.join(".git").join("hooks").join("pre-push");
+    let script = format!(
+        "#!/bin/sh\nif [ ! -f '{flag}' ]; then\n  touch '{flag}'\n  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE\n  git -C '{advancer_wt}' push origin tsq-sync >/dev/null 2>&1 || exit 1\nfi\nexit 0\n",
+        flag = flag.display(),
+        advancer_wt = advancer.join(".git").join("tsq-sync").display()
+    );
+    write_executable_hook(&hook, script);
+
+    let sync = run_cli(&target, ["sync", "--json"]);
+    assert_eq!(
+        sync.code, 0,
+        "publish-path rejection should fall through to retry\nstdout:\n{}\nstderr:\n{}",
+        sync.stdout, sync.stderr
+    );
+    assert!(
+        flag.exists(),
+        "pre-push hook should have created remote branch"
+    );
+    let envelope: Value = serde_json::from_str(sync.stdout.trim()).expect("json envelope");
+    let data = envelope.get("data").expect("data");
+    assert_eq!(data.get("pushed").and_then(Value::as_bool), Some(true));
+    assert_eq!(
+        data.get("has_upstream").and_then(Value::as_bool),
+        Some(true)
+    );
+
+    let target_events = read_sync_worktree_events(&target);
+    for id in ["tsq-cccc5555", "tsq-cccc6666"] {
+        assert!(
+            target_events.contains(id),
+            "target should contain publish-race merge id {id}:\n{target_events}"
+        );
+    }
+}
+
 /// If the remote advances before every push attempt, sync must stop at the
 /// documented retry cap and surface a structured storage error instead of
 /// spinning forever or reporting success.
@@ -504,22 +582,7 @@ exit 0
 fn sync_publishes_sync_branch_when_origin_has_no_upstream() {
     let repo = make_repo();
     let base = repo.path();
-    let source = base.join("repo");
-    fs::create_dir(&source).expect("repo dir");
-    init_git_repo_with_identity(&source, Some("main"));
-
-    let init = run_cli(&source, ["init"]);
-    assert_eq!(init.code, 0, "stderr: {}", init.stderr);
-    let create = run_cli(&source, ["create", "Publish task", "--force"]);
-    assert_eq!(create.code, 0, "stderr: {}", create.stderr);
-    git(&source, &["add", ".tasque/config.json", ".gitattributes"]);
-    git(&source, &["commit", "-m", "seed main config"]);
-
-    let remote = create_bare_origin(base);
-    let remote_arg = remote.to_string_lossy().to_string();
-    git(&source, &["remote", "add", "origin", remote_arg.as_str()]);
-    // Only main is published; the sync branch does not yet exist on origin.
-    git(&source, &["push", "origin", "HEAD:main"]);
+    let (source, _remote) = seed_source_with_origin_main_only(base, "Publish task");
 
     let pre = git_output(&source, &["ls-remote", "--heads", "origin", "tsq-sync"]);
     assert!(
@@ -609,6 +672,29 @@ fn sync_conflict_returns_structured_error_and_resumes() {
     assert!(
         worktree.join(".git").exists() && worktree.join(".tasque").exists(),
         "expected merge left in worktree"
+    );
+
+    // `--no-push` must not stage and commit unresolved conflict markers.
+    let sb_no_push = run_cli(&clone_b, ["sync", "--no-push", "--json"]);
+    assert_eq!(
+        sb_no_push.code, 1,
+        "expected no-push conflict guard\nstdout:\n{}\nstderr:\n{}",
+        sb_no_push.stdout, sb_no_push.stderr
+    );
+    let no_push_envelope: Value =
+        serde_json::from_str(sb_no_push.stdout.trim()).expect("json envelope");
+    assert_eq!(
+        no_push_envelope
+            .get("error")
+            .and_then(|e| e.get("code"))
+            .and_then(Value::as_str),
+        Some("SYNC_MERGE_CONFLICT")
+    );
+    let merge_head_still_present =
+        git_output(&worktree, &["rev-parse", "-q", "--verify", "MERGE_HEAD"]);
+    assert!(
+        merge_head_still_present.status.success(),
+        "expected MERGE_HEAD to remain after guarded --no-push"
     );
 
     // Rerun while conflicts remain -> same structured conflict error.

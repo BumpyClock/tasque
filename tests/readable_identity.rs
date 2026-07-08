@@ -62,8 +62,8 @@ fn new_root_ids_are_random_canonical() {
     let repo = common::make_repo();
     init_repo(repo.path());
 
-    let first = create_task(repo.path(), "First sequential task");
-    let second = create_task(repo.path(), "Second sequential task");
+    let first = create_task(repo.path(), "First random task");
+    let second = create_task(repo.path(), "Second random task");
 
     assert!(
         common::is_random_canonical_id(&first),
@@ -74,8 +74,6 @@ fn new_root_ids_are_random_canonical() {
         "second id {second} not random canonical"
     );
     assert_ne!(first, second, "ids must be distinct");
-    assert_ne!(first, "tsq-1");
-    assert_ne!(second, "tsq-2");
 }
 
 #[test]
@@ -127,8 +125,8 @@ fn explicit_legacy_random_id_does_not_affect_allocation() {
     let repo = common::make_repo();
     init_repo(repo.path());
 
-    common::create_task_with_args(repo.path(), "Legacy numeric ID", &["--id", "tsq-00000042"]);
-    let next = create_task(repo.path(), "First sequential after legacy");
+    common::create_task_with_args(repo.path(), "Legacy random ID", &["--id", "tsq-00000042"]);
+    let next = create_task(repo.path(), "First random after legacy");
 
     assert!(
         common::is_random_canonical_id(&next),
@@ -173,6 +171,7 @@ fn commands_accept_alias_case_insensitively() {
 fn duplicate_exact_alias_is_ambiguous() {
     use std::collections::HashMap;
     use tasque::domain::resolve::resolve_task_id;
+    use tasque::domain::state::create_empty_state;
     use tasque::types::{State, Task};
 
     // Two tasks with colliding exact aliases (case-insensitive). The CLI path
@@ -200,19 +199,26 @@ fn duplicate_exact_alias_is_ambiguous() {
         "tsq-bbbbbbbb".to_string(),
         mk_task("tsq-bbbbbbbb", "IMPROVE-SEARCH-WARNINGS"),
     );
-    let state: State = serde_json::from_value(serde_json::json!({
-        "tasks": {},
-        "deps": {},
-        "links": {},
-        "created_order": [],
-        "applied_events": 0
-    }))
-    .expect("base state");
-    let state = State { tasks, ..state };
+    let state = State {
+        tasks,
+        ..create_empty_state()
+    };
 
     let result = resolve_task_id(&state, "improve-search-warnings", false);
     let err = result.expect_err("expected ambiguous error");
     assert_eq!(err.code, "TASK_ID_AMBIGUOUS");
+    let details = err.details.expect("ambiguous details");
+    let candidates = details["candidates"].as_array().expect("candidates");
+    assert_eq!(candidates.len(), 2);
+    let mut ids: Vec<&str> = candidates
+        .iter()
+        .map(|candidate| {
+            assert!(candidate.get("alias").is_some());
+            candidate["id"].as_str().expect("candidate id")
+        })
+        .collect();
+    ids.sort_unstable();
+    assert_eq!(ids, vec!["tsq-aaaaaaaa", "tsq-bbbbbbbb"]);
 }
 
 #[test]

@@ -113,23 +113,6 @@ pub fn current_branch(repo_root: &Path) -> Result<Option<String>, TsqError> {
     }
 }
 
-pub fn current_upstream_remote(repo_root: &Path) -> Result<Option<String>, TsqError> {
-    let Some(branch) = current_branch(repo_root)? else {
-        return Ok(None);
-    };
-    let key = format!("branch.{branch}.remote");
-    if run_git_status(repo_root, &["config", "--get", &key])? {
-        let remote = run_git(repo_root, &["config", "--get", &key])?;
-        if !remote.is_empty() && remote != "." {
-            return Ok(Some(remote));
-        }
-    }
-    if has_remote(repo_root, "origin")? {
-        return Ok(Some("origin".to_string()));
-    }
-    Ok(None)
-}
-
 /// Returns true if a local branch with the given name exists.
 pub fn branch_exists(repo_root: &Path, name: &str) -> Result<bool, TsqError> {
     validate_branch_name(name)?;
@@ -179,9 +162,10 @@ pub fn push_current_set_upstream(
     remote: &str,
     branch: &str,
 ) -> Result<(), TsqError> {
-    validate_branch_name(branch)?;
-    run_git(repo_root, &["push", "-u", remote, branch])?;
-    Ok(())
+    match push_branch_with_status(repo_root, remote, branch)? {
+        PushOutcome::Ok => Ok(()),
+        PushOutcome::Rejected(stderr) => Err(git_error("git push failed", stderr)),
+    }
 }
 
 /// Outcome of a push attempt that distinguishes recoverable rejections from
@@ -273,8 +257,11 @@ pub fn fetch_branch(repo_root: &Path, remote: &str, branch: &str) -> Result<(), 
 
 /// Merge the `<remote>/<branch>` tracking ref into the current worktree branch.
 ///
-/// Uses `--no-edit` so the merge is non-interactive. On conflict, the merge is
-/// left in progress (`MERGE_HEAD` set) and the unmerged paths are returned.
+/// Uses `--no-edit` so the merge is non-interactive. Allows unrelated histories
+/// because two machines can independently create the sync branch before either
+/// has pushed it; event replay validation still gates the merged result.
+/// On conflict, the merge is left in progress (`MERGE_HEAD` set) and the
+/// unmerged paths are returned.
 pub fn merge_tracking_branch(
     repo_root: &Path,
     remote: &str,
@@ -283,7 +270,12 @@ pub fn merge_tracking_branch(
     validate_branch_name(branch)?;
     let tracking = format!("{remote}/{branch}");
     let output = Command::new("git")
-        .args(["merge", "--no-edit", &tracking])
+        .args([
+            "merge",
+            "--no-edit",
+            "--allow-unrelated-histories",
+            &tracking,
+        ])
         .current_dir(repo_root)
         .output()
         .map_err(|_| git_not_available())?;
@@ -303,7 +295,7 @@ pub fn merge_tracking_branch(
 /// Stages any resolved/pending changes and creates the merge commit, preserving
 /// the merge message (`--no-edit`).
 pub fn finalize_merge(repo_root: &Path) -> Result<(), TsqError> {
-    run_git(repo_root, &["add", "."])?;
+    run_git(repo_root, &["add", "--all"])?;
     run_git(repo_root, &["commit", "--no-edit"])?;
     Ok(())
 }

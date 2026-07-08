@@ -6,6 +6,7 @@ use crate::errors::TsqError;
 use crate::store::atomic::{any_error_value, io_error_value};
 use crate::store::paths::get_paths;
 use crate::types::{EventLogMetadata, EventRecord, EventType};
+use chrono::{DateTime, SecondsFormat, Utc};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use std::fs::{OpenOptions, create_dir_all, read, read_to_string};
@@ -320,13 +321,31 @@ fn parse_event_record(value: &Value, line: usize) -> Result<EventRecord, TsqErro
         .get("ts")
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty());
-    if ts.is_none() {
-        return Err(TsqError::new(
-            "EVENTS_CORRUPT",
-            format!("Invalid event at line {}: ts must be a string", line),
-            2,
-        ));
-    }
+    let ts = match ts {
+        Some(value) => DateTime::parse_from_rfc3339(value)
+            .map(|parsed| {
+                parsed
+                    .with_timezone(&Utc)
+                    .to_rfc3339_opts(SecondsFormat::Millis, true)
+            })
+            .map_err(|_| {
+                TsqError::new(
+                    "EVENTS_CORRUPT",
+                    format!(
+                        "Invalid event at line {}: ts must be an RFC3339 timestamp",
+                        line
+                    ),
+                    2,
+                )
+            })?,
+        None => {
+            return Err(TsqError::new(
+                "EVENTS_CORRUPT",
+                format!("Invalid event at line {}: ts must be a string", line),
+                2,
+            ));
+        }
+    };
 
     let actor = obj
         .get("actor")
@@ -404,7 +423,7 @@ fn parse_event_record(value: &Value, line: usize) -> Result<EventRecord, TsqErro
     Ok(EventRecord {
         id: Some(normalized_id.to_string()),
         event_id: Some(normalized_id.to_string()),
-        ts: ts.unwrap().to_string(),
+        ts,
         actor: actor.unwrap().to_string(),
         event_type,
         task_id: task_id.unwrap().to_string(),

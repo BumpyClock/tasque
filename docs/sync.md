@@ -11,9 +11,15 @@ In a git repo, `tsq init` moves task data off your code branch into a dedicated
 `--sync-branch` / `--worktree-name`). Your code branch keeps only
 `.tasque/config.json` so Tasque can find the sync branch.
 
+Main worktree:
+
+- `.tasque/config.json` — sync-branch pointer/locator only.
+
+Sync worktree:
+
 - `.tasque/events.jsonl` — append-only event log (canonical source of truth).
 - `.tasque/specs/<task-id>/spec.md` — task specs.
-- `.tasque/config.json` — project settings (in the main worktree).
+- `.tasque/config.json` — task-data config committed with the sync branch.
 - `.tasque/state.json`, `.tasque/.lock`, `.tasque/snapshots/` — local-only,
   gitignored, always rebuildable.
 
@@ -22,7 +28,7 @@ In a git repo, `tsq init` moves task data off your code branch into a dedicated
 `tsq sync` runs a local-first two-way sync in this order:
 
 1. **Commit** local changes to the sync branch (events, specs, config).
-2. **Fetch** the remote branch (upstream first, then `origin`), if it exists.
+2. **Fetch** the `origin` branch, if it exists.
 3. **Merge** fetched changes. `events.jsonl` is merged by the
    `tasque-events` driver (see below); other files use git's default merge.
 4. **Push** the result back to the remote, setting upstream on first push.

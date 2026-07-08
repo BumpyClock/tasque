@@ -160,8 +160,8 @@ Git repos default to a dedicated sync worktree:
 
 - `tsq init` configures `tsq-sync` by default and redirects data operations there.
 - Fresh clones fetch the configured sync branch and create the worktree on first use.
-- `tsq sync` runs local-first two-way sync: commit local changes, fetch the remote
-  branch (upstream then `origin`), merge, then push — setting upstream on first push.
+- `tsq sync` runs local-first two-way sync: commit local changes, fetch the `origin`
+  branch, merge, then push — setting upstream on first push.
 - `tsq sync --no-push` commits locally without touching the network.
 - Existing git repos with main-tree `.tasque` data migrate automatically when `tsq`
   next resolves the project root.

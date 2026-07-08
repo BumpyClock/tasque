@@ -111,7 +111,7 @@ Relation types:
 Notes:
 
 - For `find ready` and status-based `find` commands, `--full` is only valid with `--tree`. `--tree --full` keeps the full status set instead of applying the default tree status narrowing. `find search --full` remains valid without `--tree`.
-- `--id <id>` accepts `tsq-<number>` or legacy `tsq-<8 crockford base32 chars>`.
+- `--id <id>` accepts random canonical `tsq-<8 lowercase crockford chars>`, sequential root `tsq-<number>`, child `<parent>.<n>`, and legacy `tsq-<8 crockford base32 chars>` ids.
 - Commands that accept a task ID also accept exact aliases and unique alias prefixes unless `--exact-id` is used.
 - `tsq find similar "<text>"` shows ranked duplicate candidates with scores and reasons.
 - `tsq create` refuses similar open/in-progress/blocked/deferred tasks unless `--force` is passed.
@@ -160,7 +160,7 @@ Notes:
 - `tsq labels`
 - `tsq history <id> [--limit <n>] [--type <event-type>] [--actor <name>] [--since <iso>]`
 - `tsq root`
-- `tsq sync [--no-push]` — two-way sync: commit local changes, fetch remote (upstream then `origin`), merge, push; sets upstream on first push; `--no-push` commits locally only. See [docs/sync.md](./docs/sync.md) for conflict resolution.
+- `tsq sync [--no-push]` — two-way sync: commit local changes, fetch remote (`origin`), merge, push; sets upstream on first push; `--no-push` commits locally only. See [docs/sync.md](./docs/sync.md) for conflict resolution.
 - `tsq hooks install [--force]`
 - `tsq hooks uninstall`
 - `tsq migrate [--sync-branch|--worktree-name <name>]`

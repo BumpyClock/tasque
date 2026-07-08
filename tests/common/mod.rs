@@ -1,15 +1,14 @@
 #![allow(dead_code)]
 
-use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::OnceLock;
+use std::sync::{LazyLock, OnceLock};
 use tasque::types::SCHEMA_VERSION;
 use tempfile::{Builder, TempDir};
 
-static RANDOM_CANONICAL_ID: Lazy<Regex> = Lazy::new(|| {
+static RANDOM_CANONICAL_ID: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^tsq-[0123456789abcdefghjkmnpqrstvwxyz]{8}$").expect("random canonical id regex")
 });
 

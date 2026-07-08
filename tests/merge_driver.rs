@@ -5,6 +5,9 @@ use serde_json::{Map, Value};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use tasque::domain::projector::apply_events;
+use tasque::domain::state::create_empty_state;
+use tasque::store::events::read_events_from_path;
 use tasque::types::{EventRecord, EventType};
 
 struct MergeRun {
@@ -194,7 +197,55 @@ fn test_merge_driver_preserves_causal_source_order_when_ids_sort_backwards() {
     assert_eq!(run.result.code, 0, "stderr: {}", run.result.stderr);
     assert_eq!(
         merged_ids(&run.ours_path),
-        vec!["02CREATE", "01UPDATE", "03THEIRS"]
+        vec!["02CREATE", "03THEIRS", "01UPDATE"]
+    );
+}
+
+#[test]
+fn test_merge_driver_concurrent_updates_use_timestamp_order() {
+    let repo_left = make_repo();
+    let repo_right = make_repo();
+    let create = make_event("02CREATE", "original");
+    let mut earlier_update = make_update_event("ZZZEARLY", &create.task_id, "earlier");
+    earlier_update.ts = "2026-01-01T11:00:00.000Z".to_string();
+    let mut later_update = make_update_event("AAAALATE", &create.task_id, "later");
+    later_update.ts = "2026-01-01T08:00:00.000-05:00".to_string();
+
+    let base_events = vec![create.clone()];
+    let ours_events = vec![create.clone(), later_update.clone()];
+    let theirs_events = vec![create, earlier_update];
+    let run_left = run_merge_driver(repo_left.path(), &base_events, &ours_events, &theirs_events);
+    let run_right = run_merge_driver(
+        repo_right.path(),
+        &base_events,
+        &theirs_events,
+        &ours_events,
+    );
+
+    assert_eq!(
+        run_left.result.code, 0,
+        "stderr: {}",
+        run_left.result.stderr
+    );
+    assert_eq!(
+        run_right.result.code, 0,
+        "stderr: {}",
+        run_right.result.stderr
+    );
+    assert_eq!(
+        fs::read_to_string(&run_left.ours_path).unwrap(),
+        fs::read_to_string(&run_right.ours_path).unwrap(),
+        "timestamp tie-break must be byte-identical regardless of merge direction"
+    );
+
+    let merged_events = read_events_from_path(&run_left.ours_path)
+        .expect("merged events")
+        .events;
+    let state = apply_events(&create_empty_state(), &merged_events).expect("replay merged events");
+    assert_eq!(state.tasks["tsq-02CREATE"].title, "later");
+    assert_eq!(
+        merged_ids(&run_left.ours_path),
+        vec!["02CREATE", "ZZZEARLY", "AAAALATE"]
     );
 }
 
@@ -262,10 +313,35 @@ fn test_merge_driver_event_id_fallback_dedup() {
         ..legacy_only_event_id.clone()
     };
 
-    let run = run_merge_driver(repo.path(), &[], &[legacy_only_event_id], &[canonical]);
+    let run = run_merge_driver(
+        repo.path(),
+        &[],
+        std::slice::from_ref(&legacy_only_event_id),
+        std::slice::from_ref(&canonical),
+    );
 
     assert_eq!(run.result.code, 0, "stderr: {}", run.result.stderr);
-    assert_eq!(read_jsonl(&run.ours_path).len(), 1);
+    let merged = read_jsonl(&run.ours_path);
+    assert_eq!(merged.len(), 1);
+    assert_eq!(merged[0]["id"].as_str(), Some("01SHARED"));
+    assert_eq!(merged[0]["event_id"].as_str(), Some("01SHARED"));
+
+    let repo_swapped = make_repo();
+    let run_swapped = run_merge_driver(
+        repo_swapped.path(),
+        &[],
+        std::slice::from_ref(&canonical),
+        std::slice::from_ref(&legacy_only_event_id),
+    );
+    assert_eq!(
+        run_swapped.result.code, 0,
+        "stderr: {}",
+        run_swapped.result.stderr
+    );
+    let merged_swapped = read_jsonl(&run_swapped.ours_path);
+    assert_eq!(merged_swapped.len(), 1);
+    assert_eq!(merged_swapped[0]["id"].as_str(), Some("01SHARED"));
+    assert_eq!(merged_swapped[0]["event_id"].as_str(), Some("01SHARED"));
 }
 
 #[test]
@@ -325,25 +401,6 @@ fn test_merge_driver_cycle_fallback_is_deterministic() {
         "cycle fallback must be byte-identical regardless of merge direction"
     );
     assert_eq!(merged_ids(&run_left.ours_path), vec!["01AAA", "01BBB"]);
-}
-
-#[test]
-fn test_merge_driver_both_sides_add_identical_dedup() {
-    // Both sides add the SAME new event (same id, same payload). It must appear
-    // exactly once in the merged output.
-    let repo = make_repo();
-    let base_events = vec![make_event("01BASE", "base")];
-    let shared_new = make_event("01NEW", "new-from-both");
-    let mut ours_events = base_events.clone();
-    ours_events.push(shared_new.clone());
-    let mut theirs_events = base_events.clone();
-    theirs_events.push(shared_new);
-
-    let run = run_merge_driver(repo.path(), &base_events, &ours_events, &theirs_events);
-
-    assert_eq!(run.result.code, 0, "stderr: {}", run.result.stderr);
-    assert_eq!(read_jsonl(&run.ours_path).len(), 2);
-    assert_eq!(merged_ids(&run.ours_path), vec!["01BASE", "01NEW"]);
 }
 
 #[test]

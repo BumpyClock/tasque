@@ -34,31 +34,31 @@ fn write_event(payload: serde_json::Value) -> (TempDir, std::path::PathBuf) {
 }
 
 #[test]
-fn read_events_rejects_conflict_marker_as_corrupt() {
+fn read_events_rejects_conflict_markers_as_corrupt() {
     let dir = TempDir::new().expect("tempdir");
-    let path = dir.path().join("events.jsonl");
     let first = task_created_event("tsq-root0001", "first");
     let first_line = serde_json::to_string(&first).expect("serialize first");
-    fs::write(
-        &path,
-        format!(
-            "{first_line}\n<<<<<<< HEAD\n{{}}\n||||||| base\n{{}}\n=======\n{{}}\n>>>>>>> branch\n"
-        ),
-    )
-    .expect("write conflict markers");
 
-    let err = match read_events_from_path(&path) {
-        Ok(_) => panic!("conflict markers must not be ingested as valid JSON"),
-        Err(error) => error,
-    };
+    for (index, marker) in ["<<<<<<< HEAD", "||||||| base", "=======", ">>>>>>> branch"]
+        .into_iter()
+        .enumerate()
+    {
+        let path = dir.path().join(format!("events-{index}.jsonl"));
+        fs::write(&path, format!("{first_line}\n{marker}\n{{}}\n")).expect("write conflict marker");
 
-    assert_eq!(err.code, "EVENTS_CORRUPT");
-    assert_eq!(err.exit_code, 2);
-    assert!(
-        err.message.contains("Conflict marker"),
-        "error must name the conflict marker: {}",
-        err.message
-    );
+        let err = match read_events_from_path(&path) {
+            Ok(_) => panic!("conflict marker {marker} must not be ingested as valid JSON"),
+            Err(error) => error,
+        };
+
+        assert_eq!(err.code, "EVENTS_CORRUPT");
+        assert_eq!(err.exit_code, 2);
+        assert!(
+            err.message.contains("Conflict marker"),
+            "error must name the conflict marker: {}",
+            err.message
+        );
+    }
 }
 
 #[test]
@@ -67,6 +67,29 @@ fn read_events_rejects_invalid_status_set_payload_as_corrupt() {
 
     let err = match read_events_from_path(&path) {
         Ok(_) => panic!("invalid status should fail at read boundary"),
+        Err(error) => error,
+    };
+
+    assert_eq!(err.code, "EVENTS_CORRUPT");
+    assert_eq!(err.exit_code, 2);
+}
+
+#[test]
+fn read_events_rejects_non_rfc3339_timestamp_as_corrupt() {
+    let dir = TempDir::new().expect("tempdir");
+    let path = dir.path().join("events.jsonl");
+    let event = json!({
+        "id": "01HX0000000000000000000002",
+        "ts": "yesterday",
+        "actor": "test",
+        "type": "task.created",
+        "task_id": "tsq-root0001",
+        "payload": {"title": "bad timestamp"},
+    });
+    fs::write(&path, format!("{}\n", event)).expect("write event");
+
+    let err = match read_events_from_path(&path) {
+        Ok(_) => panic!("invalid timestamp should fail at read boundary"),
         Err(error) => error,
     };
 

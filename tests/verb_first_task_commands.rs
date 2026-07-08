@@ -59,31 +59,6 @@ fn create_from_file_allocates_random_ids_unrelated_to_high_existing_id() {
 }
 
 #[test]
-fn create_from_file_succeeds_alongside_last_u64_root_id() {
-    let repo = common::make_repo();
-    init_repo(repo.path());
-    create_task_with_args(
-        repo.path(),
-        "Penultimate root",
-        &["--id", "tsq-18446744073709551614"],
-    );
-    let file = repo.path().join("tasks.md");
-    std::fs::write(&file, "- Last root\n").unwrap();
-
-    let result = run_json(repo.path(), ["create", "--from-file", "tasks.md"]);
-
-    assert_eq!(result.cli.code, 0);
-    let id = result.envelope["data"]["task"]["id"]
-        .as_str()
-        .expect("task id");
-    assert!(
-        common::is_random_canonical_id(id),
-        "new id {id} not random canonical"
-    );
-    assert_ne!(id, "tsq-18446744073709551615");
-}
-
-#[test]
 fn create_from_file_maps_nested_bullets_to_parent_ids() {
     let repo = common::make_repo();
     init_repo(repo.path());

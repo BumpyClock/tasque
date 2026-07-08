@@ -137,15 +137,6 @@ pub fn branch_exists(repo_root: &Path, name: &str) -> Result<bool, TsqError> {
     run_git_status(repo_root, &["show-ref", "--verify", "--quiet", &refspec])
 }
 
-pub fn remote_branch_exists(repo_root: &Path, name: &str) -> Result<bool, TsqError> {
-    validate_branch_name(name)?;
-    let refspec = format!("refs/heads/{}", name);
-    run_git_status(
-        repo_root,
-        &["ls-remote", "--exit-code", "--heads", "origin", &refspec],
-    )
-}
-
 pub fn remote_tracking_branch_exists(repo_root: &Path, name: &str) -> Result<bool, TsqError> {
     validate_branch_name(name)?;
     let refspec = format!("refs/remotes/origin/{}", name);
@@ -162,9 +153,7 @@ pub fn track_remote_branch(repo_root: &Path, name: &str) -> Result<(), TsqError>
 }
 
 pub fn fetch_remote_branch(repo_root: &Path, name: &str) -> Result<(), TsqError> {
-    validate_branch_name(name)?;
-    let remote_ref = format!("+refs/heads/{name}:refs/remotes/origin/{name}");
-    run_git(repo_root, &["fetch", "origin", &remote_ref])?;
+    fetch_branch(repo_root, "origin", name)?;
     track_remote_branch(repo_root, name)?;
     Ok(())
 }
@@ -185,11 +174,6 @@ pub fn has_remote(repo_root: &Path, name: &str) -> Result<bool, TsqError> {
     run_git_status(repo_root, &["remote", "get-url", name])
 }
 
-pub fn push_current(repo_root: &Path) -> Result<(), TsqError> {
-    run_git(repo_root, &["push"])?;
-    Ok(())
-}
-
 pub fn push_current_set_upstream(
     repo_root: &Path,
     remote: &str,
@@ -206,15 +190,15 @@ pub fn push_current_set_upstream(
 pub enum PushOutcome {
     /// Push succeeded.
     Ok,
-    /// Remote rejected the push (non-fast-forward / fetch-first). Recoverable
-    /// by fetch + merge + retry. Carries the raw stderr for diagnostics.
+    /// Remote rejected the push because it advanced during our push attempt.
+    /// Recoverable by fetch + merge + retry. Carries raw stderr for diagnostics.
     Rejected(String),
 }
 
 /// Push `branch` to `remote`, setting upstream, and classify the result.
 ///
-/// A non-fast-forward / fetch-first rejection returns `PushOutcome::Rejected`
-/// (recoverable); any other failure is a hard `TsqError`.
+/// A non-fast-forward / fetch-first / ref-lock race returns
+/// `PushOutcome::Rejected` (recoverable); any other failure is a hard `TsqError`.
 pub fn push_branch_with_status(
     repo_root: &Path,
     remote: &str,
@@ -224,6 +208,8 @@ pub fn push_branch_with_status(
     let output = Command::new("git")
         .args(["push", "-u", remote, branch])
         .current_dir(repo_root)
+        .env("LC_ALL", "C")
+        .env("LANG", "C")
         .output()
         .map_err(|_| git_not_available())?;
     if output.status.success() {
@@ -234,7 +220,8 @@ pub fn push_branch_with_status(
     if lower.contains("non-fast-forward")
         || lower.contains("fetch first")
         || lower.contains("[rejected]")
-        || lower.contains("[remote rejected]")
+        || lower.contains("cannot lock ref")
+        || lower.contains("failed to update ref")
     {
         return Ok(PushOutcome::Rejected(stderr));
     }
@@ -427,7 +414,7 @@ pub fn ensure_worktree(repo_root: &Path, branch: &str) -> Result<PathBuf, TsqErr
     if !branch_exists(repo_root, branch)? {
         if remote_tracking_branch_exists(repo_root, branch)? {
             track_remote_branch(repo_root, branch)?;
-        } else if remote_branch_exists(repo_root, branch)? {
+        } else if remote_has_branch(repo_root, "origin", branch)? {
             fetch_remote_branch(repo_root, branch)?;
         }
     }

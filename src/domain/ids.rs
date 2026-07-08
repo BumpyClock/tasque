@@ -1,4 +1,3 @@
-use crate::errors::TsqError;
 use crate::types::State;
 use once_cell::sync::Lazy;
 use rand::RngExt;
@@ -23,23 +22,11 @@ fn mint_random_canonical_id() -> String {
     format!("tsq-{}", std::str::from_utf8(&buf).expect("ascii"))
 }
 
-/// Mint a flat random canonical root id (`tsq-<8 crockford chars>`) that does
-/// not collide with any existing task id. Old sequential `tsq-<number>` ids
-/// remain valid/readable; new tasks no longer use sequential allocation.
-pub fn make_root_id(state: &State) -> Result<String, TsqError> {
-    loop {
-        let candidate = mint_random_canonical_id();
-        if !state.tasks.contains_key(&candidate) {
-            return Ok(candidate);
-        }
-    }
-}
-
-/// Mint a flat random canonical id for a child task. Children share the same
-/// canonical id shape as roots (`tsq-<8 crockford chars>`); the parent link is
-/// carried by `parent_id`, not encoded in the id. Old `parent.N` ids remain
-/// valid/readable; new children no longer use the counter suffix shape.
-pub fn next_child_id(state: &State, _parent_id: &str) -> String {
+/// Mint a flat random canonical task id (`tsq-<8 crockford chars>`) that does
+/// not collide with any existing task id. Roots and children share this shape;
+/// parentage lives in `parent_id`, not in the id text. Old sequential
+/// `tsq-<number>` and `parent.N` ids remain valid/readable.
+pub fn make_task_id(state: &State) -> String {
     loop {
         let candidate = mint_random_canonical_id();
         if !state.tasks.contains_key(&candidate) {
@@ -49,24 +36,24 @@ pub fn next_child_id(state: &State, _parent_id: &str) -> String {
 }
 
 /// Batch-friendly flat random id allocator. Reserves generated ids against
-/// existing state and ids minted earlier in the same batch so a single
-/// write lock can produce a consistent set of new tasks.
-pub struct RootIdAllocator {
+/// existing state and ids minted earlier in the same batch so a single write
+/// lock can produce a consistent set of new tasks.
+pub struct TaskIdAllocator {
     reserved_ids: HashSet<String>,
 }
 
-impl RootIdAllocator {
-    pub fn new(state: &State) -> Result<Self, TsqError> {
-        Ok(Self {
+impl TaskIdAllocator {
+    pub fn new(state: &State) -> Self {
+        Self {
             reserved_ids: state.tasks.keys().cloned().collect(),
-        })
+        }
     }
 
-    pub fn next_id(&mut self) -> Result<String, TsqError> {
+    pub fn next_id(&mut self) -> String {
         loop {
             let candidate = mint_random_canonical_id();
             if self.reserved_ids.insert(candidate.clone()) {
-                return Ok(candidate);
+                return candidate;
             }
         }
     }
@@ -85,7 +72,10 @@ pub fn is_legacy_random_root_id(raw: &str) -> bool {
         return false;
     };
     rest.len() == 8
-        && rest
-            .chars()
-            .all(|ch| matches!(ch, '0'..='9' | 'a'..='h' | 'j'..='k' | 'm'..='n' | 'p'..='t' | 'v'..='z'))
+        && rest.chars().all(|ch| {
+            matches!(
+                ch,
+                '0'..='9' | 'a'..='h' | 'j'..='k' | 'm'..='n' | 'p'..='t' | 'v'..='z'
+            )
+        })
 }

@@ -113,7 +113,7 @@ fn setup_sync_branch_locked(repo_root: &str, branch: &str) -> Result<SyncSetupRe
 
     let created_branch = if !git::branch_exists(repo_path, branch)?
         && !git::remote_tracking_branch_exists(repo_path, branch)?
-        && !git::remote_branch_exists(repo_path, branch)?
+        && !git::remote_has_branch(repo_path, "origin", branch)?
     {
         let paths = get_paths(repo_root);
         ensure_seed_tasque_dir(&paths.tasque_dir)?;

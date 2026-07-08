@@ -2,7 +2,7 @@ use super::projector_helpers::{
     as_bool, as_string, as_task_status, event_id_value, event_identifier,
     optional_planning_state_field, optional_priority_field, optional_string_array_field,
     optional_task_kind_field, optional_task_ref_field, optional_task_status_field, require_task,
-    set_child_counter, set_task_closed_state, task_status_to_string,
+    set_task_closed_state, task_status_to_string,
 };
 use crate::domain::alias::{allocate_alias, is_alias_or_id_taken, normalize_alias};
 use crate::errors::TsqError;
@@ -96,7 +96,7 @@ pub(crate) fn apply_task_created(
         assignee: as_string(payload.get("assignee")),
         external_ref: as_string(payload.get("external_ref")),
         discovered_from,
-        parent_id: parent_id.clone(),
+        parent_id,
         superseded_by,
         duplicate_of,
         planning_state: Some(planning_state),
@@ -113,9 +113,6 @@ pub(crate) fn apply_task_created(
 
     state.tasks.insert(event.task_id.clone(), task);
     state.created_order.push(event.task_id.clone());
-    if let Some(parent_id) = parent_id {
-        set_child_counter(state, &parent_id, &event.task_id);
-    }
 
     Ok(())
 }
@@ -196,8 +193,7 @@ pub(crate) fn apply_task_updated(
         optional_task_ref_field(state, payload, "parent_id", event, "task.updated")?
     {
         assert_no_parent_cycle(state, &event.task_id, &parent_id, event, "task.updated")?;
-        next.parent_id = Some(parent_id.clone());
-        set_child_counter(state, &parent_id, &event.task_id);
+        next.parent_id = Some(parent_id);
     }
 
     if let Some(duplicate_of) =

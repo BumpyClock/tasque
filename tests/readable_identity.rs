@@ -1,19 +1,9 @@
 mod common;
 
 use common::{create_task, init_repo, run_cli, run_json};
-use once_cell::sync::Lazy;
-use regex::Regex;
 use serde_json::Value;
 use std::fs;
 use tasque::domain::similarity::DEFAULT_SIMILARITY_MIN_SCORE;
-
-static RANDOM_ROOT_ID: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^tsq-[0123456789abcdefghjkmnpqrstvwxyz]{8}$").expect("random root id regex")
-});
-
-fn is_random_canonical(id: &str) -> bool {
-    RANDOM_ROOT_ID.is_match(id)
-}
 
 #[test]
 fn create_projects_stable_alias_from_title() {
@@ -76,11 +66,11 @@ fn new_root_ids_are_random_canonical() {
     let second = create_task(repo.path(), "Second sequential task");
 
     assert!(
-        is_random_canonical(&first),
+        common::is_random_canonical_id(&first),
         "first id {first} not random canonical"
     );
     assert!(
-        is_random_canonical(&second),
+        common::is_random_canonical_id(&second),
         "second id {second} not random canonical"
     );
     assert_ne!(first, second, "ids must be distinct");
@@ -101,7 +91,7 @@ fn child_ids_are_flat_random_with_parent_set() {
         .as_str()
         .expect("child id");
     assert!(
-        is_random_canonical(child_id),
+        common::is_random_canonical_id(child_id),
         "child id {child_id} not random canonical"
     );
     assert_ne!(child_id, parent, "child id must not equal parent id");
@@ -141,7 +131,7 @@ fn explicit_legacy_random_id_does_not_affect_allocation() {
     let next = create_task(repo.path(), "First sequential after legacy");
 
     assert!(
-        is_random_canonical(&next),
+        common::is_random_canonical_id(&next),
         "next id {next} not random canonical"
     );
     assert_ne!(next, "tsq-00000042");
@@ -214,7 +204,6 @@ fn duplicate_exact_alias_is_ambiguous() {
         "tasks": {},
         "deps": {},
         "links": {},
-        "child_counters": {},
         "created_order": [],
         "applied_events": 0
     }))
@@ -292,7 +281,7 @@ fn allocation_succeeds_even_with_u64_max_sequential_present() {
         .as_str()
         .expect("next id");
     assert!(
-        is_random_canonical(next),
+        common::is_random_canonical_id(next),
         "next id {next} not random canonical"
     );
     assert_ne!(next, max_id);

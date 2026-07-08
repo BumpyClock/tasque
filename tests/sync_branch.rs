@@ -310,6 +310,14 @@ fn clone_from_origin(
     clone
 }
 
+#[cfg(unix)]
+fn write_executable_hook(path: &std::path::Path, script: String) {
+    fs::write(path, script).expect("write git hook");
+    let mut permissions = fs::metadata(path).expect("hook metadata").permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(path, permissions).expect("chmod git hook");
+}
+
 /// Two clones create distinct tasks and sync. The clone that pushes second must
 /// fetch + merge the first clone's events before pushing (local-first two-way
 /// sync), and a subsequent sync on the first clone must converge to both events.
@@ -392,10 +400,7 @@ fn sync_retries_when_remote_advances_during_push() {
         flag = flag.display(),
         advancer_wt = advancer.join(".git").join("tsq-sync").display()
     );
-    fs::write(&hook, script).expect("write pre-push hook");
-    let mut permissions = fs::metadata(&hook).expect("hook metadata").permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(&hook, permissions).expect("chmod pre-push hook");
+    write_executable_hook(&hook, script);
 
     let sync = run_cli(&target, ["sync"]);
     assert_eq!(
@@ -412,6 +417,85 @@ fn sync_retries_when_remote_advances_during_push() {
             "target should contain retried merge id {id}:\n{target_events}"
         );
     }
+}
+
+/// If the remote advances before every push attempt, sync must stop at the
+/// documented retry cap and surface a structured storage error instead of
+/// spinning forever or reporting success.
+#[cfg(unix)]
+#[test]
+fn sync_stops_after_repeated_remote_advances() {
+    let repo = make_repo();
+    let base = repo.path();
+    let (_source, remote) = seed_source_with_origin(base, "Seed task");
+
+    let target = clone_from_origin(base, &remote, "target");
+    let advancer = clone_from_origin(base, &remote, "advancer");
+
+    let target_create = run_cli(
+        &target,
+        ["create", "Target task", "--id", "tsq-cccc3333", "--force"],
+    );
+    assert_eq!(target_create.code, 0, "stderr: {}", target_create.stderr);
+    let advancer_create = run_cli(
+        &advancer,
+        ["create", "Advancer task", "--id", "tsq-cccc4444", "--force"],
+    );
+    assert_eq!(
+        advancer_create.code, 0,
+        "stderr: {}",
+        advancer_create.stderr
+    );
+
+    let count_file = base.join("pre-push-count");
+    let hook = target.join(".git").join("hooks").join("pre-push");
+    let script = format!(
+        r#"#!/bin/sh
+count=$(cat '{count_file}' 2>/dev/null || echo 0)
+count=$((count + 1))
+printf '%s' "$count" > '{count_file}'
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+
+event_id=$(printf '01HOOK%018d' "$count")
+task_id=$(printf 'tsq-eeee%04d' "$count")
+cat >> '{advancer_wt}/.tasque/events.jsonl' <<EOF
+{{"id":"$event_id","ts":"2026-01-01T00:00:00Z","actor":"hook","type":"task.created","task_id":"$task_id","payload":{{"title":"Hook task $count","kind":"task","priority":1,"status":"open","planning_state":"needs_planning"}}}}
+EOF
+
+git -C '{advancer_wt}' add .tasque/events.jsonl || exit 1
+git -C '{advancer_wt}' commit -m "hook advance $count" >/dev/null 2>&1 || exit 1
+git -C '{advancer_wt}' push origin tsq-sync >/dev/null 2>&1 || exit 1
+exit 0
+"#,
+        count_file = count_file.display(),
+        advancer_wt = advancer.join(".git").join("tsq-sync").display()
+    );
+    write_executable_hook(&hook, script);
+
+    let sync = run_cli(&target, ["sync", "--json"]);
+    assert_eq!(
+        sync.code, 2,
+        "sync should stop after repeated remote advances\nstdout:\n{}\nstderr:\n{}",
+        sync.stdout, sync.stderr
+    );
+    let envelope: Value = serde_json::from_str(sync.stdout.trim()).expect("json envelope");
+    let error = envelope.get("error").expect("error object");
+    assert_eq!(
+        error.get("code").and_then(Value::as_str),
+        Some("SYNC_PUSH_REJECTED")
+    );
+    assert_eq!(
+        error
+            .get("details")
+            .and_then(|details| details.get("attempts"))
+            .and_then(Value::as_u64),
+        Some(3)
+    );
+    assert_eq!(
+        fs::read_to_string(&count_file).expect("pre-push count"),
+        "3",
+        "pre-push hook should have advanced remote once per attempt"
+    );
 }
 
 /// With an `origin` remote that has no sync branch yet, `tsq sync` publishes the

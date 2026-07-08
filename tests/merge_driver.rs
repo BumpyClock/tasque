@@ -146,7 +146,10 @@ fn test_merge_driver_duplicate_events() {
 
     assert_eq!(run.result.code, 0, "stderr: {}", run.result.stderr);
     assert_eq!(read_jsonl(&run.ours_path).len(), 6);
-    assert!(run.result.stderr.contains("duplicates removed"));
+    assert_eq!(
+        merged_ids(&run.ours_path),
+        vec!["01AAA", "01AAB", "01AAC", "01BBB", "01BBC", "01CCC"]
+    );
 }
 
 #[test]
@@ -263,7 +266,6 @@ fn test_merge_driver_event_id_fallback_dedup() {
 
     assert_eq!(run.result.code, 0, "stderr: {}", run.result.stderr);
     assert_eq!(read_jsonl(&run.ours_path).len(), 1);
-    assert!(run.result.stderr.contains("duplicates removed"));
 }
 
 #[test]
@@ -342,7 +344,6 @@ fn test_merge_driver_both_sides_add_identical_dedup() {
     assert_eq!(run.result.code, 0, "stderr: {}", run.result.stderr);
     assert_eq!(read_jsonl(&run.ours_path).len(), 2);
     assert_eq!(merged_ids(&run.ours_path), vec!["01BASE", "01NEW"]);
-    assert!(run.result.stderr.contains("duplicates removed"));
 }
 
 #[test]

@@ -34,6 +34,34 @@ fn write_event(payload: serde_json::Value) -> (TempDir, std::path::PathBuf) {
 }
 
 #[test]
+fn read_events_rejects_conflict_marker_as_corrupt() {
+    let dir = TempDir::new().expect("tempdir");
+    let path = dir.path().join("events.jsonl");
+    let first = task_created_event("tsq-root0001", "first");
+    let first_line = serde_json::to_string(&first).expect("serialize first");
+    fs::write(
+        &path,
+        format!(
+            "{first_line}\n<<<<<<< HEAD\n{{}}\n||||||| base\n{{}}\n=======\n{{}}\n>>>>>>> branch\n"
+        ),
+    )
+    .expect("write conflict markers");
+
+    let err = match read_events_from_path(&path) {
+        Ok(_) => panic!("conflict markers must not be ingested as valid JSON"),
+        Err(error) => error,
+    };
+
+    assert_eq!(err.code, "EVENTS_CORRUPT");
+    assert_eq!(err.exit_code, 2);
+    assert!(
+        err.message.contains("Conflict marker"),
+        "error must name the conflict marker: {}",
+        err.message
+    );
+}
+
+#[test]
 fn read_events_rejects_invalid_status_set_payload_as_corrupt() {
     let (_dir, path) = write_event(json!({"status": "done"}));
 

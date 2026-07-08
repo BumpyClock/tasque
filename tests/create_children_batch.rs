@@ -29,7 +29,16 @@ fn create_supports_multiple_children_for_single_parent() {
         .filter_map(|task| task.get("id").and_then(Value::as_str))
         .map(ToString::to_string)
         .collect();
-    assert_eq!(ids, vec![format!("{}.1", parent), format!("{}.2", parent)]);
+    assert_eq!(ids.len(), 2, "expected two distinct child ids");
+    assert_ne!(ids[0], ids[1], "child ids must be distinct");
+    assert!(
+        ids.iter().all(|id| common::is_random_canonical_id(id)),
+        "child ids must be flat random canonical: {ids:?}"
+    );
+    assert!(
+        ids.iter().all(|id| !id.starts_with(&format!("{parent}."))),
+        "child ids must not use parent.N shape: {ids:?}"
+    );
 
     let parent_ids: Vec<String> = tasks
         .iter()
@@ -129,11 +138,24 @@ fn create_ensure_is_idempotent_for_parent_children_batch() {
     let second = run_json(repo.path(), cmd);
     assert_eq!(second.cli.code, 0);
 
-    let expected_ids = vec![format!("{}.1", parent), format!("{}.2", parent)];
     let first_ids = task_ids(&first);
     let second_ids = task_ids(&second);
-    assert_eq!(first_ids, expected_ids);
-    assert_eq!(second_ids, expected_ids);
+    assert_eq!(first_ids.len(), 2);
+    assert_eq!(first_ids, second_ids, "ensure must reuse same ids");
+    assert_ne!(first_ids[0], first_ids[1]);
+    assert!(
+        first_ids
+            .iter()
+            .all(|id| common::is_random_canonical_id(id)),
+        "child ids must be flat random canonical: {first_ids:?}"
+    );
+
+    // Children must point back at the parent regardless of id shape.
+    let first_parent_ids: Vec<&str> = data_tasks(&first)
+        .iter()
+        .filter_map(|task| task["parent_id"].as_str())
+        .collect();
+    assert_eq!(first_parent_ids, vec![parent.as_str(), parent.as_str()]);
 
     let listed = run_json(repo.path(), ["find", "open"]);
     assert_eq!(listed.cli.code, 0);

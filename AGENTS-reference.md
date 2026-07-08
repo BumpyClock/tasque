@@ -65,7 +65,7 @@ Write path:
 
 Task fields:
 
-- `id` (`tsq-<number>` root, `<parent>.<n>` child); legacy `tsq-<8 crockford base32 chars>` IDs remain valid
+- `id` (new tasks mint flat random canonical `tsq-<8 lowercase crockford chars>` to avoid sync collisions; sequential `tsq-<number>` root and `<parent>.<n>` child ids remain valid/readable; legacy `tsq-<8 crockford base32 chars>` also valid; `--id` accepts any of these)
 - `alias` (kebab-case slug generated from the creation title; stable across title edits)
 - `kind` (`task|feature|epic`)
 - `title`
@@ -160,7 +160,7 @@ Notes:
 - `tsq labels`
 - `tsq history <id> [--limit <n>] [--type <event-type>] [--actor <name>] [--since <iso>]`
 - `tsq root`
-- `tsq sync [--no-push]`
+- `tsq sync [--no-push]` — two-way sync: commit local changes, fetch remote (upstream then `origin`), merge, push; sets upstream on first push; `--no-push` commits locally only. See [docs/sync.md](./docs/sync.md) for conflict resolution.
 - `tsq hooks install [--force]`
 - `tsq hooks uninstall`
 - `tsq migrate [--sync-branch|--worktree-name <name>]`
@@ -237,7 +237,9 @@ Error:
 
 ## Repo Conventions
 
-- commit `.tasque/events.jsonl` and `.tasque/config.json`
+- commit `.gitattributes` (registers `.tasque/events.jsonl merge=tasque-events`)
+- in the main code worktree, commit `.tasque/config.json` (the sync-branch pointer)
+- task data (`events.jsonl`, `specs/`, `config.json`) is committed by `tsq sync` inside the sync worktree; do not stage it manually
 - do not commit `.tasque/state.json`
 - do not create or edit `.tasque/tasks.jsonl`
 - snapshots optional to commit (default local-only)

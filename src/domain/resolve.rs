@@ -15,12 +15,27 @@ pub fn resolve_task_id(state: &State, raw: &str, exact_id: bool) -> Result<Strin
     }
 
     let raw_alias = raw.to_lowercase();
-    if let Some(task) = state
+    let mut exact_alias_matches: Vec<(String, String)> = state
         .tasks
         .values()
-        .find(|task| task.alias.to_lowercase() == raw_alias)
-    {
-        return Ok(task.id.clone());
+        .filter(|task| task.alias.to_lowercase() == raw_alias)
+        .map(|task| (task.id.clone(), task.alias.clone()))
+        .collect();
+    exact_alias_matches.sort_by(|a, b| a.0.cmp(&b.0));
+    match exact_alias_matches.len() {
+        1 => return Ok(exact_alias_matches[0].0.clone()),
+        n if n > 1 => {
+            return Err(
+                TsqError::new("TASK_ID_AMBIGUOUS", "Task ID is ambiguous", 1).with_details(json!({
+                    "input": raw,
+                    "candidates": exact_alias_matches
+                        .into_iter()
+                        .map(|(id, alias)| json!({ "id": id, "alias": alias }))
+                        .collect::<Vec<_>>()
+                })),
+            );
+        }
+        _ => {}
     }
 
     let mut id_matches: Vec<(String, String)> = state

@@ -200,6 +200,127 @@ pub fn push_current_set_upstream(
     Ok(())
 }
 
+/// Outcome of a push attempt that distinguishes recoverable rejections from
+/// hard errors.
+#[derive(Debug)]
+pub enum PushOutcome {
+    /// Push succeeded.
+    Ok,
+    /// Remote rejected the push (non-fast-forward / fetch-first). Recoverable
+    /// by fetch + merge + retry. Carries the raw stderr for diagnostics.
+    Rejected(String),
+}
+
+/// Push `branch` to `remote`, setting upstream, and classify the result.
+///
+/// A non-fast-forward / fetch-first rejection returns `PushOutcome::Rejected`
+/// (recoverable); any other failure is a hard `TsqError`.
+pub fn push_branch_with_status(
+    repo_root: &Path,
+    remote: &str,
+    branch: &str,
+) -> Result<PushOutcome, TsqError> {
+    validate_branch_name(branch)?;
+    let output = Command::new("git")
+        .args(["push", "-u", remote, branch])
+        .current_dir(repo_root)
+        .output()
+        .map_err(|_| git_not_available())?;
+    if output.status.success() {
+        return Ok(PushOutcome::Ok);
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let lower = stderr.to_lowercase();
+    if lower.contains("non-fast-forward")
+        || lower.contains("fetch first")
+        || lower.contains("[rejected]")
+        || lower.contains("[remote rejected]")
+    {
+        return Ok(PushOutcome::Rejected(stderr));
+    }
+    Err(git_error("git push failed", stderr))
+}
+
+/// Result of merging a remote tracking branch into the current worktree branch.
+#[derive(Debug)]
+pub enum MergeStatus {
+    /// Merge completed (fast-forward, real merge, or already up to date).
+    Clean,
+    /// Merge stopped with unmerged paths; the list of conflicted paths.
+    Conflict(Vec<String>),
+}
+
+/// Returns true if a merge is in progress (`MERGE_HEAD` exists).
+pub fn merge_in_progress(repo_root: &Path) -> Result<bool, TsqError> {
+    Ok(git_dir(repo_root)?.join("MERGE_HEAD").exists())
+}
+
+/// Returns the list of unmerged (conflicted) paths in the worktree.
+pub fn unmerged_paths(repo_root: &Path) -> Result<Vec<String>, TsqError> {
+    let out = run_git(repo_root, &["diff", "--name-only", "--diff-filter=U"])?;
+    Ok(out
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(String::from)
+        .collect())
+}
+
+/// Returns true if `remote` publishes a branch named `branch`.
+pub fn remote_has_branch(repo_root: &Path, remote: &str, branch: &str) -> Result<bool, TsqError> {
+    validate_branch_name(branch)?;
+    let refspec = format!("refs/heads/{}", branch);
+    run_git_status(
+        repo_root,
+        &["ls-remote", "--exit-code", "--heads", remote, &refspec],
+    )
+}
+
+/// Fetch `branch` from `remote` into its remote-tracking ref.
+pub fn fetch_branch(repo_root: &Path, remote: &str, branch: &str) -> Result<(), TsqError> {
+    validate_branch_name(branch)?;
+    let remote_ref = format!("+refs/heads/{branch}:refs/remotes/{remote}/{branch}");
+    run_git(repo_root, &["fetch", remote, &remote_ref])?;
+    Ok(())
+}
+
+/// Merge the `<remote>/<branch>` tracking ref into the current worktree branch.
+///
+/// Uses `--no-edit` so the merge is non-interactive. On conflict, the merge is
+/// left in progress (`MERGE_HEAD` set) and the unmerged paths are returned.
+pub fn merge_tracking_branch(
+    repo_root: &Path,
+    remote: &str,
+    branch: &str,
+) -> Result<MergeStatus, TsqError> {
+    validate_branch_name(branch)?;
+    let tracking = format!("{remote}/{branch}");
+    let output = Command::new("git")
+        .args(["merge", "--no-edit", &tracking])
+        .current_dir(repo_root)
+        .output()
+        .map_err(|_| git_not_available())?;
+    if output.status.success() {
+        return Ok(MergeStatus::Clean);
+    }
+    let unmerged = unmerged_paths(repo_root)?;
+    if !unmerged.is_empty() {
+        return Ok(MergeStatus::Conflict(unmerged));
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    Err(git_error("git merge failed", stderr))
+}
+
+/// Finalize an in-progress merge whose conflicts have been resolved.
+///
+/// Stages any resolved/pending changes and creates the merge commit, preserving
+/// the merge message (`--no-edit`).
+pub fn finalize_merge(repo_root: &Path) -> Result<(), TsqError> {
+    run_git(repo_root, &["add", "."])?;
+    run_git(repo_root, &["commit", "--no-edit"])?;
+    Ok(())
+}
+
 /// Returns true if the path is inside a git working tree.
 pub fn is_git_repo(repo_root: &Path) -> bool {
     run_git_status(repo_root, &["rev-parse", "--is-inside-work-tree"]).unwrap_or(false)
@@ -520,15 +641,28 @@ pub fn setup_merge_driver_config(repo_root: &Path) -> Result<(), TsqError> {
             "Tasque JSONL event merge",
         ],
     )?;
+    let exe = std::env::current_exe().map_err(|error| {
+        git_error(
+            "Failed determining current executable for merge driver",
+            error.to_string(),
+        )
+    })?;
+    let driver = format!(
+        "{} merge-driver %O %A %B",
+        shell_quote(&exe.to_string_lossy())
+    );
     run_git(
         repo_root,
-        &[
-            "config",
-            "merge.tasque-events.driver",
-            "tsq merge-driver %O %A %B",
-        ],
+        &["config", "merge.tasque-events.driver", &driver],
     )?;
     Ok(())
+}
+
+fn shell_quote(value: &str) -> String {
+    if value.is_empty() {
+        return "''".to_string();
+    }
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 // ---------------------------------------------------------------------------
@@ -696,7 +830,10 @@ mod tests {
         let name = run_git(tmp.path(), &["config", "merge.tasque-events.name"]).unwrap();
         assert_eq!(name, "Tasque JSONL event merge");
         let driver = run_git(tmp.path(), &["config", "merge.tasque-events.driver"]).unwrap();
-        assert_eq!(driver, "tsq merge-driver %O %A %B");
+        assert!(
+            driver.ends_with(" merge-driver %O %A %B"),
+            "unexpected driver command: {driver}"
+        );
     }
 
     #[test]

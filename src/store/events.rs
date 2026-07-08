@@ -687,8 +687,29 @@ fn parse_events_raw(
 
     for (index, line) in lines.iter().enumerate() {
         let line = line.trim_end_matches('\r');
-        if line.trim().is_empty() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
             continue;
+        }
+
+        // Reject unresolved git conflict markers up front. These are never
+        // valid JSON and would otherwise surface as a generic "malformed
+        // JSONL" error; call them out explicitly so the operator resolves
+        // the conflict before retrying.
+        if trimmed.starts_with("<<<<<<<")
+            || trimmed.starts_with("|||||||")
+            || trimmed.starts_with(">>>>>>>")
+            || trimmed.starts_with("=======")
+        {
+            return Err(TsqError::new(
+                "EVENTS_CORRUPT",
+                format!(
+                    "Conflict marker detected in {} at line {}; resolve git conflicts before reading events",
+                    path.display(),
+                    line_offset + index + 1
+                ),
+                2,
+            ));
         }
 
         match serde_json::from_str::<Value>(line) {

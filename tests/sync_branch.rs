@@ -3,6 +3,8 @@ mod common;
 use common::{git, git_output, init_git_repo_with_identity, make_repo, run_cli};
 use serde_json::Value;
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 fn git_out(repo: &std::path::Path, args: &[&str]) -> String {
     let output = git_output(repo, args);
@@ -72,7 +74,7 @@ fn sync_branch_requires_git_repo() {
     assert_eq!(code, Some("GIT_NOT_AVAILABLE"));
 }
 
-const EXPECTED_MERGE_DRIVER: &str = "tsq merge-driver %O %A %B";
+const EXPECTED_MERGE_DRIVER_SUFFIX: &str = " merge-driver %O %A %B";
 
 /// Fresh clones only receive the sync branch and its committed
 /// `.gitattributes` (`merge=tasque-events`) via git; the merge driver
@@ -126,9 +128,9 @@ fn clone_materializes_worktree_and_configures_merge_driver() {
     );
 
     let driver = git_out(&clone, &["config", "--get", "merge.tasque-events.driver"]);
-    assert_eq!(
-        driver, EXPECTED_MERGE_DRIVER,
-        "expected merge driver to be configured after worktree materializes"
+    assert!(
+        driver.ends_with(EXPECTED_MERGE_DRIVER_SUFFIX),
+        "expected merge driver to be configured after worktree materializes, got: {driver}"
     );
 
     // `tsq sync` heals a clone whose worktree was materialized on a
@@ -145,9 +147,9 @@ fn clone_materializes_worktree_and_configures_merge_driver() {
     assert_eq!(sync_result.code, 0, "stderr: {}", sync_result.stderr);
 
     let restored = git_out(&clone, &["config", "--get", "merge.tasque-events.driver"]);
-    assert_eq!(
-        restored, EXPECTED_MERGE_DRIVER,
-        "expected `tsq sync` to re-ensure the merge driver config"
+    assert!(
+        restored.ends_with(EXPECTED_MERGE_DRIVER_SUFFIX),
+        "expected `tsq sync` to re-ensure the merge driver config, got: {restored}"
     );
 }
 
@@ -252,5 +254,309 @@ fn explicit_migrate_fails_on_unreachable_origin_after_local_migration() {
     assert!(
         !sync_events.is_empty(),
         "expected events present in sync worktree"
+    );
+}
+
+/// Read the sync-worktree `events.jsonl` for a clone/repo whose sync branch
+/// lives at `<root>/.git/tsq-sync`.
+fn read_sync_worktree_events(root: &std::path::Path) -> String {
+    fs::read_to_string(
+        root.join(".git")
+            .join("tsq-sync")
+            .join(".tasque")
+            .join("events.jsonl"),
+    )
+    .unwrap_or_default()
+}
+
+/// Seed a `source` repo (main + tsq-sync) and push both branches to a fresh
+/// bare `origin`. Returns `(source_path, origin_path)`.
+fn seed_source_with_origin(
+    base: &std::path::Path,
+    title: &str,
+) -> (std::path::PathBuf, std::path::PathBuf) {
+    let source = base.join("source");
+    fs::create_dir(&source).expect("source dir");
+    init_git_repo_with_identity(&source, Some("main"));
+
+    let init = run_cli(&source, ["init"]);
+    assert_eq!(init.code, 0, "stderr: {}", init.stderr);
+    let create = run_cli(&source, ["create", title, "--force"]);
+    assert_eq!(create.code, 0, "stderr: {}", create.stderr);
+
+    git(&source, &["add", ".tasque/config.json", ".gitattributes"]);
+    git(&source, &["commit", "-m", "seed main config"]);
+
+    let remote = create_bare_origin(base);
+    let remote_arg = remote.to_string_lossy().to_string();
+    git(&source, &["remote", "add", "origin", remote_arg.as_str()]);
+    git(&source, &["push", "origin", "HEAD:main"]);
+    git(&source, &["push", "origin", "tsq-sync"]);
+    (source, remote)
+}
+
+/// Clone `remote` into `<base>/<name>` and configure a test git identity.
+fn clone_from_origin(
+    base: &std::path::Path,
+    remote: &std::path::Path,
+    name: &str,
+) -> std::path::PathBuf {
+    let clone = base.join(name);
+    let clone_arg = clone.to_string_lossy().to_string();
+    let remote_arg = remote.to_string_lossy().to_string();
+    git(base, &["clone", remote_arg.as_str(), clone_arg.as_str()]);
+    git(&clone, &["config", "user.name", "rust-test"]);
+    git(&clone, &["config", "user.email", "rust-test@example.com"]);
+    clone
+}
+
+/// Two clones create distinct tasks and sync. The clone that pushes second must
+/// fetch + merge the first clone's events before pushing (local-first two-way
+/// sync), and a subsequent sync on the first clone must converge to both events.
+/// Explicit ids avoid the sequential-id collision that would otherwise force a
+/// merge conflict between independently created tasks.
+#[test]
+fn two_clone_sync_converges_after_non_fast_forward() {
+    let repo = make_repo();
+    let base = repo.path();
+    let (_source, remote) = seed_source_with_origin(base, "Seed task");
+
+    let clone_a = clone_from_origin(base, &remote, "cloneA");
+    let clone_b = clone_from_origin(base, &remote, "cloneB");
+
+    let ca = run_cli(
+        &clone_a,
+        ["create", "Task A", "--id", "tsq-aaaa1111", "--force"],
+    );
+    assert_eq!(ca.code, 0, "stderr: {}", ca.stderr);
+    let sa = run_cli(&clone_a, ["sync"]);
+    assert_eq!(sa.code, 0, "clone A first sync\nstderr: {}", sa.stderr);
+
+    let cb = run_cli(
+        &clone_b,
+        ["create", "Task B", "--id", "tsq-bbbb2222", "--force"],
+    );
+    assert_eq!(cb.code, 0, "stderr: {}", cb.stderr);
+    // Clone B is behind origin (A pushed first): sync must fetch + merge + push.
+    let sb = run_cli(&clone_b, ["sync"]);
+    assert_eq!(
+        sb.code, 0,
+        "clone B sync should fetch+merge+push after non-ff\nstdout:\n{}\nstderr:\n{}",
+        sb.stdout, sb.stderr
+    );
+
+    // Clone A pulls in clone B's task on its next sync.
+    let sa2 = run_cli(&clone_a, ["sync"]);
+    assert_eq!(sa2.code, 0, "clone A second sync\nstderr: {}", sa2.stderr);
+
+    let events_a = read_sync_worktree_events(&clone_a);
+    let events_b = read_sync_worktree_events(&clone_b);
+    for id in ["tsq-aaaa1111", "tsq-bbbb2222"] {
+        assert!(events_a.contains(id), "clone A missing {id}:\n{events_a}");
+        assert!(events_b.contains(id), "clone B missing {id}:\n{events_b}");
+    }
+}
+
+/// A third clone can advance the remote between our fetch/merge and push. Sync
+/// must classify that non-fast-forward rejection as recoverable, then fetch,
+/// merge, and push again.
+#[cfg(unix)]
+#[test]
+fn sync_retries_when_remote_advances_during_push() {
+    let repo = make_repo();
+    let base = repo.path();
+    let (_source, remote) = seed_source_with_origin(base, "Seed task");
+
+    let target = clone_from_origin(base, &remote, "target");
+    let advancer = clone_from_origin(base, &remote, "advancer");
+
+    let target_create = run_cli(
+        &target,
+        ["create", "Target task", "--id", "tsq-cccc1111", "--force"],
+    );
+    assert_eq!(target_create.code, 0, "stderr: {}", target_create.stderr);
+    let advancer_create = run_cli(
+        &advancer,
+        ["create", "Advancer task", "--id", "tsq-cccc2222", "--force"],
+    );
+    assert_eq!(
+        advancer_create.code, 0,
+        "stderr: {}",
+        advancer_create.stderr
+    );
+
+    let flag = base.join("pre-push-fired");
+    let hook = target.join(".git").join("hooks").join("pre-push");
+    let script = format!(
+        "#!/bin/sh\nif [ ! -f '{flag}' ]; then\n  touch '{flag}'\n  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE\n  git -C '{advancer_wt}' push origin tsq-sync >/dev/null 2>&1 || exit 1\nfi\nexit 0\n",
+        flag = flag.display(),
+        advancer_wt = advancer.join(".git").join("tsq-sync").display()
+    );
+    fs::write(&hook, script).expect("write pre-push hook");
+    let mut permissions = fs::metadata(&hook).expect("hook metadata").permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&hook, permissions).expect("chmod pre-push hook");
+
+    let sync = run_cli(&target, ["sync"]);
+    assert_eq!(
+        sync.code, 0,
+        "sync should retry after pre-push remote advance\nstdout:\n{}\nstderr:\n{}",
+        sync.stdout, sync.stderr
+    );
+    assert!(flag.exists(), "pre-push hook should have advanced remote");
+
+    let target_events = read_sync_worktree_events(&target);
+    for id in ["tsq-cccc1111", "tsq-cccc2222"] {
+        assert!(
+            target_events.contains(id),
+            "target should contain retried merge id {id}:\n{target_events}"
+        );
+    }
+}
+
+/// With an `origin` remote that has no sync branch yet, `tsq sync` publishes the
+/// local sync branch with `push -u` (no upstream configured beforehand).
+#[test]
+fn sync_publishes_sync_branch_when_origin_has_no_upstream() {
+    let repo = make_repo();
+    let base = repo.path();
+    let source = base.join("repo");
+    fs::create_dir(&source).expect("repo dir");
+    init_git_repo_with_identity(&source, Some("main"));
+
+    let init = run_cli(&source, ["init"]);
+    assert_eq!(init.code, 0, "stderr: {}", init.stderr);
+    let create = run_cli(&source, ["create", "Publish task", "--force"]);
+    assert_eq!(create.code, 0, "stderr: {}", create.stderr);
+    git(&source, &["add", ".tasque/config.json", ".gitattributes"]);
+    git(&source, &["commit", "-m", "seed main config"]);
+
+    let remote = create_bare_origin(base);
+    let remote_arg = remote.to_string_lossy().to_string();
+    git(&source, &["remote", "add", "origin", remote_arg.as_str()]);
+    // Only main is published; the sync branch does not yet exist on origin.
+    git(&source, &["push", "origin", "HEAD:main"]);
+
+    let pre = git_output(&source, &["ls-remote", "--heads", "origin", "tsq-sync"]);
+    assert!(
+        String::from_utf8_lossy(&pre.stdout).trim().is_empty(),
+        "expected no remote sync branch before sync"
+    );
+
+    let sync = run_cli(&source, ["sync", "--json"]);
+    assert_eq!(sync.code, 0, "stderr: {}", sync.stderr);
+    let envelope: Value = serde_json::from_str(sync.stdout.trim()).expect("json envelope");
+    let data = envelope.get("data").expect("data");
+    assert_eq!(data.get("pushed").and_then(Value::as_bool), Some(true));
+    assert_eq!(
+        data.get("has_upstream").and_then(Value::as_bool),
+        Some(true)
+    );
+
+    let post = git_out(&source, &["ls-remote", "--heads", "origin", "tsq-sync"]);
+    assert!(
+        post.contains("refs/heads/tsq-sync"),
+        "expected sync branch published to origin:\n{post}"
+    );
+}
+
+/// Two clones create the SAME task id with divergent payloads. The second sync
+/// hits the tasque-events merge driver conflict, leaves the merge in progress,
+/// and returns a structured `SYNC_MERGE_CONFLICT` error carrying the conflicted
+/// paths and worktree path. Rerunning while conflicts remain re-emits the same
+/// error; resolving + rerunning finalizes the merge and pushes.
+#[test]
+fn sync_conflict_returns_structured_error_and_resumes() {
+    let repo = make_repo();
+    let base = repo.path();
+    let (_source, remote) = seed_source_with_origin(base, "Seed task");
+
+    let clone_a = clone_from_origin(base, &remote, "cloneA");
+    let clone_b = clone_from_origin(base, &remote, "cloneB");
+
+    let ca = run_cli(
+        &clone_a,
+        ["create", "Title A", "--id", "tsq-dddd0000", "--force"],
+    );
+    assert_eq!(ca.code, 0, "stderr: {}", ca.stderr);
+    let sa = run_cli(&clone_a, ["sync"]);
+    assert_eq!(sa.code, 0, "clone A sync\nstderr: {}", sa.stderr);
+
+    let cb = run_cli(
+        &clone_b,
+        ["create", "Title B", "--id", "tsq-dddd0000", "--force"],
+    );
+    assert_eq!(cb.code, 0, "stderr: {}", cb.stderr);
+
+    // Clone B fetches A's divergent event for the same id -> merge conflict.
+    let sb = run_cli(&clone_b, ["sync", "--json"]);
+    assert_eq!(
+        sb.code, 1,
+        "expected conflict exit code 1\nstdout:\n{}\nstderr:\n{}",
+        sb.stdout, sb.stderr
+    );
+    let envelope: Value = serde_json::from_str(sb.stdout.trim()).expect("json envelope");
+    let error = envelope.get("error").expect("error object");
+    assert_eq!(
+        error.get("code").and_then(Value::as_str),
+        Some("SYNC_MERGE_CONFLICT")
+    );
+    let details = error.get("details").expect("conflict details");
+    let paths = details
+        .get("conflicted_paths")
+        .and_then(Value::as_array)
+        .expect("conflicted_paths array");
+    assert!(
+        paths
+            .iter()
+            .filter_map(Value::as_str)
+            .any(|p| p.contains("events.jsonl")),
+        "expected events.jsonl among conflicted paths: {paths:?}"
+    );
+    assert!(
+        details
+            .get("worktree_path")
+            .and_then(Value::as_str)
+            .is_some(),
+        "expected worktree_path in conflict details"
+    );
+
+    let worktree = clone_b.join(".git").join("tsq-sync");
+    assert!(
+        worktree.join(".git").exists() && worktree.join(".tasque").exists(),
+        "expected merge left in worktree"
+    );
+
+    // Rerun while conflicts remain -> same structured conflict error.
+    let sb_again = run_cli(&clone_b, ["sync", "--json"]);
+    assert_eq!(
+        sb_again.code, 1,
+        "expected repeated conflict\nstderr: {}",
+        sb_again.stderr
+    );
+    let envelope_again: Value =
+        serde_json::from_str(sb_again.stdout.trim()).expect("json envelope");
+    assert_eq!(
+        envelope_again
+            .get("error")
+            .and_then(|e| e.get("code"))
+            .and_then(Value::as_str),
+        Some("SYNC_MERGE_CONFLICT")
+    );
+
+    // Resolve by keeping clone B's version, then rerun: merge finalizes + pushes.
+    git(&worktree, &["checkout", "--ours", ".tasque/events.jsonl"]);
+    git(&worktree, &["add", ".tasque/events.jsonl"]);
+    let sb_resolved = run_cli(&clone_b, ["sync"]);
+    assert_eq!(
+        sb_resolved.code, 0,
+        "expected resolved sync to succeed\nstdout:\n{}\nstderr:\n{}",
+        sb_resolved.stdout, sb_resolved.stderr
+    );
+    // Merge is no longer in progress once finalized.
+    let merge_head = git_output(&worktree, &["rev-parse", "-q", "--verify", "MERGE_HEAD"]);
+    assert!(
+        !merge_head.status.success(),
+        "expected MERGE_HEAD cleared after resolved sync"
     );
 }

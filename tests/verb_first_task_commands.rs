@@ -32,7 +32,7 @@ fn create_from_file_accepts_markdown_bullets() {
 }
 
 #[test]
-fn create_from_file_allocates_root_ids_sequentially_after_high_existing_id() {
+fn create_from_file_allocates_random_ids_unrelated_to_high_existing_id() {
     let repo = common::make_repo();
     init_repo(repo.path());
     create_task_with_args(repo.path(), "Existing high root", &["--id", "tsq-42"]);
@@ -43,12 +43,23 @@ fn create_from_file_allocates_root_ids_sequentially_after_high_existing_id() {
 
     assert_eq!(result.cli.code, 0);
     let tasks = result.envelope["data"]["tasks"].as_array().expect("tasks");
-    assert_eq!(tasks[0]["id"].as_str(), Some("tsq-43"));
-    assert_eq!(tasks[1]["id"].as_str(), Some("tsq-44"));
+    let first = tasks[0]["id"].as_str().expect("first id");
+    let second = tasks[1]["id"].as_str().expect("second id");
+    assert!(
+        common::is_random_canonical_id(first),
+        "first id {first} not random canonical"
+    );
+    assert!(
+        common::is_random_canonical_id(second),
+        "second id {second} not random canonical"
+    );
+    assert_ne!(first, second);
+    assert_ne!(first, "tsq-43");
+    assert_ne!(second, "tsq-44");
 }
 
 #[test]
-fn create_from_file_can_allocate_last_u64_root_id() {
+fn create_from_file_succeeds_alongside_last_u64_root_id() {
     let repo = common::make_repo();
     init_repo(repo.path());
     create_task_with_args(
@@ -62,10 +73,14 @@ fn create_from_file_can_allocate_last_u64_root_id() {
     let result = run_json(repo.path(), ["create", "--from-file", "tasks.md"]);
 
     assert_eq!(result.cli.code, 0);
-    assert_eq!(
-        result.envelope["data"]["task"]["id"].as_str(),
-        Some("tsq-18446744073709551615")
+    let id = result.envelope["data"]["task"]["id"]
+        .as_str()
+        .expect("task id");
+    assert!(
+        common::is_random_canonical_id(id),
+        "new id {id} not random canonical"
     );
+    assert_ne!(id, "tsq-18446744073709551615");
 }
 
 #[test]

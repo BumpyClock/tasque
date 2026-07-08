@@ -160,11 +160,17 @@ Git repos default to a dedicated sync worktree:
 
 - `tsq init` configures `tsq-sync` by default and redirects data operations there.
 - Fresh clones fetch the configured sync branch and create the worktree on first use.
-- `tsq sync` pushes the sync branch to `origin` and sets upstream automatically when needed.
+- `tsq sync` runs local-first two-way sync: commit local changes, fetch the remote
+  branch (upstream then `origin`), merge, then push — setting upstream on first push.
+- `tsq sync --no-push` commits locally without touching the network.
 - Existing git repos with main-tree `.tasque` data migrate automatically when `tsq`
   next resolves the project root.
 - The main worktree keeps `.tasque/config.json` so `tsq` can find the sync branch.
 - The sync worktree owns the canonical `.tasque/events.jsonl`, specs, snapshots, and cache.
+
+See [`docs/sync.md`](./docs/sync.md) for the full sync workflow, conflict resolution,
+and task id model. New tasks mint random canonical ids (`tsq-<8 crockford chars>`);
+existing sequential (`tsq-42`) and child (`tsq-42.3`) ids stay valid.
 
 Non-git directories use repo-local `.tasque/`:
 
@@ -177,8 +183,13 @@ Non-git directories use repo-local `.tasque/`:
 - `.gitignore`: local-only artifacts (`state.json`, `.lock`, `snapshots/`, temp files)
 - `tasks.jsonl`: legacy state-cache name; read-only fallback when `state.json` is absent, removal target
 
-Recommended commit policy:
+Recommended commit policy — main code worktree:
 
-- Commit `.tasque/events.jsonl` and `.tasque/config.json`
+- Commit `.tasque/config.json` (pointer to the sync branch) and `.gitattributes`
+- `.gitattributes` registers `.tasque/events.jsonl merge=tasque-events`; keep it committed so event merges stay correct
 - Do not commit `.tasque/state.json`
 - Do not create or edit `.tasque/tasks.jsonl`
+
+Task data (`events.jsonl`, `specs/`, `config.json`) lives in the sync worktree and is
+committed by `tsq sync`; do not stage it manually. `state.json`, `.lock`, and
+`snapshots/` are gitignored there.

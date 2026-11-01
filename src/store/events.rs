@@ -692,10 +692,10 @@ fn parse_events_raw(
         }
 
         match serde_json::from_str::<Value>(line) {
-            Ok(parsed) => match parse_event_record(&parsed, line_offset + index + 1) {
-                Ok(record) => events.push(record),
-                Err(error) => return Err(error),
-            },
+            Ok(parsed) => {
+                let record = parse_event_record(&parsed, line_offset + index + 1)?;
+                events.push(record);
+            }
             Err(_error) => {
                 if index == lines.len() - 1 {
                     warning = Some(format!(

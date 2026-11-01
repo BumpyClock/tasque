@@ -15,7 +15,7 @@ jobs:
 
   release-please:
     name: Release Please
-    runs-on: ubuntu-latest
+    runs-on: boat
     needs: rust-quality
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
